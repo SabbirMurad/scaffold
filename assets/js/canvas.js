@@ -2,7 +2,7 @@ import { state, getNode, makeNode } from './state.js';
 import { canvasWrap, selBox, closeMenus, ctxMenu, showToast } from './utils.js';
 import { canvasToWorld, getWorldPos, findFrameAt, reparentNode, clearDropTargets, highlightDropTarget, isDescendant, isSingleChild, isStack } from './nodes.js';
 import { saveHistory } from './history.js';
-import { render, updateNodeEl, applyTransform, positionRadiusHandles } from './render.js';
+import { render, updateNodeEl, applyTransform, positionRadiusHandles, applyDragTransform } from './render.js';
 import { renderProps } from './props.js';
 import { setTool } from './tools.js';
 import { duplicateSelected, groupSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace } from './operations.js';
@@ -33,6 +33,73 @@ function restoreDragAncestors() {
   if (!dragUnclip) return;
   dragUnclip.forEach(s => { s.el.style.overflow = s.overflow; s.el.style.overflowX = s.overflowX; s.el.style.overflowY = s.overflowY; });
   dragUnclip = null;
+}
+
+// Drag moves are coalesced to one per animation frame (see onWrapMouseMove).
+let dragRAF = null;
+let dragEvent = null;
+
+function cancelDragFrame() {
+  if (dragRAF !== null) { cancelAnimationFrame(dragRAF); dragRAF = null; }
+  dragEvent = null;
+}
+
+function flushDragMove() {
+  dragRAF = null;
+  const e = dragEvent;
+  if (!dragging || !e) return;
+  document.body.classList.add('dragging-node'); // show the move cursor only while moving
+  if (!dragUnclip) dragUnclip = unclipDragAncestors(dragging.node); // let the preview escape its container
+  const dx = (e.clientX - dragging.startX) / state.zoom;
+  const dy = (e.clientY - dragging.startY) / state.zoom;
+  if (dragging.multi) {
+    dragging.multi.forEach(({ node: n, ox, oy }) => {
+      n.x = ox + dx; n.y = oy + dy; updateNodeEl(n);
+      const nel = document.getElementById('node-' + n.id);
+      nel?.classList.add('drag-source');
+      // Layout children ignore x/y, so translate them so the preview follows the cursor.
+      if (nel && !isFreeNode(n)) applyDragTransform(nel, n, dx, dy);
+    });
+  } else {
+    // First move of an Alt-drag: clone the node and drag the copy from here on
+    if (dragging.altClone) {
+      const copy = cloneNodeInPlace(dragging.altClone);
+      dragging.altClone = null;
+      if (copy) {
+        dragging.node = copy;
+        dragging.origX = copy.x; dragging.origY = copy.y;
+        state.selected.clear(); state.selected.add(copy.id);
+        render();
+        if (isFreeNode(copy)) dragging.snapTargets = captureSnapTargets(copy);
+      }
+      clearGuides();
+    }
+    dragging.node.x = dragging.origX + dx;
+    dragging.node.y = dragging.origY + dy;
+    // Snapping uses the upright box; skip it for a rotated node, whose visible
+    // bounds no longer line up with x/y/w/h. (Translation itself is unaffected.)
+    if (dragging.snapTargets && !dragging.node.rotation) drawGuides(snapNode(dragging.node, dragging.snapTargets));
+    else clearGuides();
+    updateNodeEl(dragging.node);
+    const del = document.getElementById('node-' + dragging.node.id);
+    del?.classList.add('drag-source');
+    // Layout children ignore x/y, so translate them so the preview follows the cursor.
+    if (del && !isFreeNode(dragging.node)) applyDragTransform(del, dragging.node, dx, dy);
+    const wp = getWorldPos(dragging.node);
+    highlightDropTarget(wp.x + dragging.node.w / 2, wp.y + dragging.node.h / 2, dragging.node.id);
+  }
+  updateDragProps(); // cheap live X/Y update instead of rebuilding the whole panel each frame
+}
+
+// During a drag only the position changes, so just poke the X/Y inputs rather
+// than re-running the (expensive) full renderProps() every animation frame.
+function updateDragProps() {
+  if (dragging.multi) return; // the multi-select panel doesn't show a single node's x/y
+  const n = dragging.node;
+  const xi = document.getElementById('p-x');
+  const yi = document.getElementById('p-y');
+  if (xi && document.activeElement !== xi) xi.value = Math.round(n.x);
+  if (yi && document.activeElement !== yi) yi.value = Math.round(n.y);
 }
 let panStart = null;
 let drawStart = null;
@@ -315,7 +382,8 @@ export function attachNodeEvents(el, node) {
       }
       render();
 
-      restoreDragAncestors(); // clear any leftover un-clip from an interrupted drag
+      cancelDragFrame();       // drop any pending frame from an interrupted drag
+      restoreDragAncestors();  // clear any leftover un-clip from an interrupted drag
       dragging = {
         node,
         startX: e.clientX,
@@ -454,41 +522,11 @@ function onWrapMouseMove(e) {
   }
 
   if (dragging) {
-    document.body.classList.add('dragging-node'); // show the move cursor only while moving
-    if (!dragUnclip) dragUnclip = unclipDragAncestors(dragging.node); // let the preview escape its container
-    const dx = (e.clientX - dragging.startX) / state.zoom;
-    const dy = (e.clientY - dragging.startY) / state.zoom;
-    if (dragging.multi) {
-      dragging.multi.forEach(({ node: n, ox, oy }) => {
-        n.x = ox + dx; n.y = oy + dy; updateNodeEl(n);
-        document.getElementById('node-' + n.id)?.classList.add('drag-source');
-      });
-    } else {
-      // First move of an Alt-drag: clone the node and drag the copy from here on
-      if (dragging.altClone) {
-        const copy = cloneNodeInPlace(dragging.altClone);
-        dragging.altClone = null;
-        if (copy) {
-          dragging.node = copy;
-          dragging.origX = copy.x; dragging.origY = copy.y;
-          state.selected.clear(); state.selected.add(copy.id);
-          render();
-          if (isFreeNode(copy)) dragging.snapTargets = captureSnapTargets(copy);
-        }
-        clearGuides();
-      }
-      dragging.node.x = dragging.origX + dx;
-      dragging.node.y = dragging.origY + dy;
-      // Snapping uses the upright box; skip it for a rotated node, whose visible
-      // bounds no longer line up with x/y/w/h. (Translation itself is unaffected.)
-      if (dragging.snapTargets && !dragging.node.rotation) drawGuides(snapNode(dragging.node, dragging.snapTargets));
-      else clearGuides();
-      updateNodeEl(dragging.node);
-      document.getElementById('node-' + dragging.node.id)?.classList.add('drag-source');
-      const wp = getWorldPos(dragging.node);
-      highlightDropTarget(wp.x + dragging.node.w / 2, wp.y + dragging.node.h / 2, dragging.node.id);
-    }
-    renderProps();
+    // Coalesce rapid mousemove events into one update per animation frame — a
+    // high-frequency mouse can otherwise fire several moves per paint, saturating
+    // the main thread (heavy re-layout/repaint) so the drag appears to lag or stick.
+    dragEvent = e;
+    if (dragRAF === null) dragRAF = requestAnimationFrame(flushDragMove);
     return;
   }
 
@@ -555,6 +593,7 @@ function onWrapMouseUp(e) {
   if (resizing) { resizing = null; saveHistory(); render(); return; }
 
   if (dragging) {
+    if (dragEvent) flushDragMove(); // apply the final pending move so the drop lands exactly
     if (!dragging.multi) {
       const n = dragging.node;
       const wp = getWorldPos(n);
@@ -572,6 +611,7 @@ function onWrapMouseUp(e) {
       }
     }
     dragging = null;
+    cancelDragFrame();
     restoreDragAncestors();
     document.body.classList.remove('dragging-node');
     saveHistory();

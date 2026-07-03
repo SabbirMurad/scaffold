@@ -95,6 +95,17 @@ function applyNodeTransform(el, node) {
   el.style.transform = parts.join(' ');
 }
 
+// While dragging a layout child (which is positioned by its parent, not by x/y),
+// offset it visually with a translate so the item follows the cursor. Composed
+// with the node's own rotation/flip. dx/dy are in world (unscaled) px.
+export function applyDragTransform(el, node, dx, dy) {
+  const parts = [`translate(${dx}px, ${dy}px)`];
+  if (node.rotation) parts.push(`rotate(${node.rotation}deg)`);
+  if (node.flipH) parts.push('scaleX(-1)');
+  if (node.flipV) parts.push('scaleY(-1)');
+  el.style.transform = parts.join(' ');
+}
+
 // Paint an image node's picture as its background (call after setting the fill)
 const IMAGE_FIT = { cover: 'cover', contain: 'contain', fill: '100% 100%', fitWidth: '100% auto', fitHeight: 'auto 100%' };
 
