@@ -33,6 +33,24 @@ function snake(s) {
     .toLowerCase();
 }
 
+// Split an arbitrary name ("Sign In", "signUp", "Frame_1") into its words.
+function words(s) {
+  return (s || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean);
+}
+// "Sign In" → "SignIn" (screen class base). Falls back to "Screen".
+function pascalWords(s) {
+  const w = words(s);
+  return w.length ? w.map(x => x[0].toUpperCase() + x.slice(1)).join('') : 'Screen';
+}
+// "Sign In" → "signIn" (route constant identifier). Falls back to "screen".
+function camelWords(s) {
+  const p = pascalWords(s);
+  return p[0].toLowerCase() + p.slice(1);
+}
+
 // Collect the model/enum names a type tree references (for imports).
 function collectRefs(type, set) {
   if (!type) return;
@@ -258,6 +276,126 @@ function generateProviderFile(p) {
   return L.join('\n');
 }
 
+// ───────── Route (GoRouter) generation ─────────
+
+// A screen's route path: the frame's explicit routePath, else a slug of its name.
+// Mirrors props.js `routeOf` so the export matches what the Screen panel shows.
+function routeOf(frame) {
+  const p = (frame.routePath || '').trim();
+  if (p) return p;
+  const s = (frame.name || 'screen').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return '/' + (s || 'screen');
+}
+
+// Same dashed-case rule as the Screen panel, but permits ":param" segments so
+// parametrised routes (e.g. /profile/:userId) are considered valid to export.
+function routeExportable(r) {
+  const v = (r || '').trim();
+  if (!v || v === '/') return true;
+  return /^\/?[a-z0-9:]+(?:-[a-z0-9]+)*(?:\/[a-z0-9:]+(?:-[a-z0-9]+)*)*$/.test(v)
+    && !/\s/.test(v) && !/[A-Z]/.test(v);
+}
+
+// Map each root frame to the identifiers its generated code uses: a route
+// constant, a screen class, the view file name, and any ":param" path segments.
+// Names are de-duplicated so route and view generation always agree on them.
+function screenItems(screens) {
+  const usedConst = new Set();
+  const usedClass = new Set();
+  return screens.map(fr => {
+    let cname = camelWords(fr.name);
+    while (usedConst.has(cname)) cname += '_';
+    usedConst.add(cname);
+    let cls = pascalWords(fr.name) + 'Screen';
+    while (usedClass.has(cls)) cls += 'X';
+    usedClass.add(cls);
+    const path = routeOf(fr);
+    const params = (path.match(/:([a-zA-Z0-9_]+)/g) || []).map(s => s.slice(1));
+    return { fr, cname, cls, path, params, file: snake(fr.name) };
+  });
+}
+
+// A scaffold StatefulWidget per screen at lib/view/<file>.dart. Path params become
+// required String fields so the route builder (e.g. ProfileScreen(userId: userId))
+// compiles; the body is a bare Scaffold — screen contents are filled in later.
+function generateViewFile(it) {
+  const cls = it.cls;
+  const L = [];
+  L.push(`import 'package:flutter/material.dart';`);
+  L.push('');
+  L.push(`class ${cls} extends StatefulWidget {`);
+  if (it.params.length) {
+    it.params.forEach(p => L.push(`  final String ${p};`));
+    L.push('');
+    L.push(`  const ${cls}({super.key, ${it.params.map(p => `required this.${p}`).join(', ')}});`);
+  } else {
+    L.push(`  const ${cls}({super.key});`);
+  }
+  L.push('');
+  L.push(`  @override`);
+  L.push(`  State<${cls}> createState() => _${cls}State();`);
+  L.push(`}`);
+  L.push('');
+  L.push(`class _${cls}State extends State<${cls}> {`);
+  L.push(`  @override`);
+  L.push(`  Widget build(BuildContext context) {`);
+  L.push(`    return const Scaffold();`);
+  L.push(`  }`);
+  L.push(`}`);
+  L.push('');
+  return L.join('\n');
+}
+
+// Build lib/route.dart: one GoRoute per screen, unique constant + class names,
+// path params wired into the builder. `items` come from screenItems().
+function generateRouteFile(items) {
+  const pkg = pkgName();
+  const initial = items.find(it => it.fr.isInitial) || items[0];
+
+  const L = [];
+  items.forEach(it => L.push(`import 'package:${pkg}/view/${it.file}.dart';`));
+  L.push(`import 'package:go_router/go_router.dart';`);
+  L.push('');
+  L.push('class AppRoutes {');
+  L.push('  AppRoutes._();');
+  L.push('');
+  items.forEach(it => L.push(`  static final String ${it.cname} = '${it.path}';`));
+  L.push('');
+  L.push('  static void push(String route) => allRoutes.push(route);');
+  L.push('  static void go(String route) => allRoutes.go(route);');
+  L.push('  static void pop() {');
+  L.push('    if (allRoutes.canPop()) {');
+  L.push('      allRoutes.pop();');
+  L.push('    } else {');
+  L.push(`      allRoutes.go(${initial ? initial.cname : "'/'"});`);
+  L.push('    }');
+  L.push('  }');
+  L.push('');
+  L.push('  static final allRoutes = GoRouter(');
+  if (initial) L.push(`    initialLocation: ${initial.cname},`);
+  L.push('    routes: [');
+  items.forEach(it => {
+    L.push('      GoRoute(');
+    L.push(`        path: ${it.cname},`);
+    if (it.params.length) {
+      L.push('        builder: (context, state) {');
+      it.params.forEach(p => L.push(`          final ${p} = state.pathParameters['${p}']!;`));
+      const args = it.params.map(p => `${p}: ${p}`).join(', ');
+      L.push(`          return ${it.cls}(${args});`);
+      L.push('        },');
+    } else {
+      L.push(`        builder: (context, state) => const ${it.cls}(),`);
+    }
+    L.push('      ),');
+  });
+  L.push('    ],');
+  L.push('  );');
+  L.push('}');
+  L.push('');
+  return L.join('\n');
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), { href: url, download: filename });
@@ -275,11 +413,17 @@ export function collectExportables() {
   models.forEach(m => m.properties.forEach(p => collectRefs(p.type, refs)));
   const enums = state.enums.filter(e => enumError(e) === null && refs.has(e.name));
   const providers = state.providers;
-  return { models, enums, providers };
+  // Screens are root frames (nested frames are components, not routable pages)
+  // with a valid, exportable route path.
+  const screens = state.nodes.filter(n =>
+    n.type === 'frame' && !n.parentId && routeExportable(routeOf(n)));
+  return { models, enums, providers, screens };
 }
 
-// The Dart file an exported item lands at (shown in the export picker).
+// The Dart file an exported item lands at (shown in the export picker). Each
+// screen has its own view file (plus a shared lib/route.dart wiring them up).
 export function dartPath(kind, name) {
+  if (kind === 'screens') return `lib/view/${snake(name)}.dart`;
   return `lib/${kind === 'providers' ? 'provider' : 'model'}/${snake(name)}.dart`;
 }
 
@@ -290,19 +434,25 @@ export function dartPath(kind, name) {
 // project is otherwise error-free (the export button is gated on that).
 export function exportModelsCode(selection = null) {
   const all = collectExportables();
-  let { models, enums, providers } = all;
+  let { models, enums, providers, screens } = all;
   if (selection) {
     models = models.filter(m => selection.models?.has(m.name));
     enums = enums.filter(e => selection.enums?.has(e.name));
     providers = providers.filter(p => selection.providers?.has(p.name));
+    screens = screens.filter(s => selection.screens?.has(s.name));
   }
-  if (!models.length && !enums.length && !providers.length) return { ok: false };
+  if (!models.length && !enums.length && !providers.length && !screens.length) return { ok: false };
 
   const files = [];
   models.forEach(m => files.push({ name: `lib/model/${snake(m.name)}.dart`, content: generateModelFile(m) }));
   enums.forEach(e => files.push({ name: `lib/model/${snake(e.name)}.dart`, content: generateEnumFile(e) }));
   providers.forEach(p => files.push({ name: `lib/provider/${snake(p.name)}.dart`, content: generateProviderFile(p) }));
+  if (screens.length) {
+    const items = screenItems(screens);
+    items.forEach(it => files.push({ name: `lib/view/${it.file}.dart`, content: generateViewFile(it) }));
+    files.push({ name: 'lib/route.dart', content: generateRouteFile(items) });
+  }
 
   downloadBlob(makeZip(files), `${pkgName()}_code.zip`);
-  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, skipped: state.models.length - all.models.length };
+  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, screens: screens.length, skipped: state.models.length - all.models.length };
 }

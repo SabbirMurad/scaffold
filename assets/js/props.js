@@ -192,6 +192,27 @@ function routeError(r) {
   return null;
 }
 
+// A frame name becomes a Dart file + class in generated code, so it must be a
+// clean snake_case identifier: lowercase, no spaces, not starting with a number
+// (e.g. home_page). Returns an error string, or null if ok.
+function frameNameError(name) {
+  const v = (name || '').trim();
+  if (!v) return 'Name can’t be empty';
+  if (/\s/.test(v)) return 'No spaces — use snake_case, e.g. home_page';
+  if (/[A-Z]/.test(v)) return 'Lowercase only — use snake_case, e.g. home_page';
+  if (/^[0-9]/.test(v)) return 'Can’t start with a number';
+  if (!/^[a-z_][a-z0-9_]*$/.test(v)) return 'Use snake_case, e.g. home_page';
+  return null;
+}
+
+// True if any frame in the design (display tab) has an invalid name or route.
+// Export is gated on this so screens can't generate into broken Dart. Checks all
+// frames, matching what the props panel flags with an error.
+export function anyFrameError() {
+  return state.nodes.some(n =>
+    n.type === 'frame' && (frameNameError(n.name) !== null || routeError(routeOf(n)) !== null));
+}
+
 // The top-level screen (root frame) a node belongs to, walking up parents.
 function ownerScreenId(node) {
   let cur = node;
@@ -411,9 +432,10 @@ export function renderProps() {
     <div class="prop-section">
       <div class="prop-row">
         <span class="prop-label-wide" style="width:100%;display:block">
-          <input class="prop-input" id="p-name" value="${esc(node.name)}" style="width:100%" placeholder="Layer name">
+          <input class="prop-input${node.type === 'frame' && frameNameError(node.name) ? ' invalid' : ''}" id="p-name" value="${esc(node.name)}" style="width:100%" placeholder="Layer name">
         </span>
       </div>
+      ${node.type === 'frame' ? `<div class="prop-error" id="p-name-err" style="${frameNameError(node.name) ? '' : 'display:none'}">${frameNameError(node.name) || ''}</div>` : ''}
       ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
     </div>
     ${node.type === 'frame' ? screenSection(node) : ''}
@@ -583,7 +605,17 @@ export function renderProps() {
   `;
 
   // Bind inputs
-  bindProp('p-name', v => { node.name = v; renderLayers(); });
+  bindProp('p-name', v => {
+    node.name = v;
+    if (node.type === 'frame') {
+      const err = frameNameError(v);
+      const inp = document.getElementById('p-name');
+      const errEl = document.getElementById('p-name-err');
+      if (inp) inp.classList.toggle('invalid', !!err);
+      if (errEl) { errEl.textContent = err || ''; errEl.style.display = err ? '' : 'none'; }
+    }
+    renderLayers();
+  });
   if (node.type === 'frame') {
     bindProp('p-route', v => {
       let r = v.trim();

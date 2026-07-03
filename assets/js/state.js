@@ -9,7 +9,15 @@ export const state = {
   nextId: 1,
   nextFrameNum: 1,
   nextContainerNum: 1,
-  // Color tab: reusable color variables (solid or gradient)
+  // Color tab: reusable color variables (solid or gradient). Fully theme-aware —
+  // themes live in `state.themes` and each color has one shared name but a
+  // per-theme value stored in `color.values[themeId]`. The top-level
+  // fill/alpha/gradient fields mirror the *active* theme's value so the renderer
+  // and property swatches can keep reading them directly. Two themes (dark +
+  // light) are seeded; the model supports more, the UI just doesn't add them yet.
+  themes: [],
+  nextThemeId: 1,
+  activeThemeId: null, // which theme the Color tab is currently editing/previewing
   colors: [],
   nextColorId: 1,
   selectedColorId: null,
@@ -47,12 +55,47 @@ export function getNode(id) {
 // Seed a fresh project with sensible starting variables: white + black color
 // swatches and a default "body" type style (white, 14px, 400) that new text
 // adopts. Runs once at boot, before the first history snapshot.
-export function seedDefaults() {
-  if (state.colors.length) return; // already seeded / not a fresh project
-  const mkColor = (name, hex) => ({
-    id: 'c' + (state.nextColorId++), name, fillType: 'solid', fill: hex, alpha: 1,
+// A fresh per-theme color value (solid, with a sensible gradient fallback).
+export function makeColorValue(hex) {
+  return {
+    fillType: 'solid', fill: hex, alpha: 1,
     gradient: { angle: 90, stops: [{ color: hex, alpha: 1, pos: 0 }, { color: '#ffffff', alpha: 1, pos: 100 }] },
+  };
+}
+
+export function seedDefaults() {
+  // Seed the two starting themes (dark + light) if none exist. The model stays
+  // fully dynamic (keyed by theme id) so more themes can be added later — the UI
+  // just doesn't expose add/rename for now. `brightness` drives Dart's Brightness
+  // + ColorScheme.dark/.light at code-generation time.
+  if (state.themes.length === 0) {
+    state.themes.push(
+      { id: 'th' + (state.nextThemeId++), name: 'dark', brightness: 'dark' },
+      { id: 'th' + (state.nextThemeId++), name: 'light', brightness: 'light' },
+    );
+  }
+  if (!state.activeThemeId || !state.themes.some(t => t.id === state.activeThemeId)) {
+    state.activeThemeId = state.themes[0].id;
+  }
+  // Ensure every color has a value under every theme (migrates older projects
+  // whose colors predate theming — their top-level fields seed each theme).
+  state.colors.forEach(c => {
+    if (!c.values) c.values = {};
+    state.themes.forEach(t => {
+      if (!c.values[t.id]) {
+        c.values[t.id] = { fillType: c.fillType, fill: c.fill, alpha: c.alpha, gradient: JSON.parse(JSON.stringify(c.gradient)) };
+      }
+    });
   });
+
+  if (state.colors.length) return; // already seeded / not a fresh project
+  const mkColor = (name, hex) => {
+    const values = {};
+    state.themes.forEach(t => { values[t.id] = makeColorValue(hex); });
+    const c = { id: 'c' + (state.nextColorId++), name, values };
+    Object.assign(c, JSON.parse(JSON.stringify(values[state.activeThemeId])));
+    return c;
+  };
   const white = mkColor('white', '#ffffff');
   const black = mkColor('black', '#000000');
   state.colors.push(white, black);
@@ -74,7 +117,7 @@ export function getTypoById(id) {
   return state.typography.find(t => t.id === id);
 }
 
-// Slugify a name into a leading-slash dashed-case route (e.g. "Frame_2" → "/frame-2").
+// Slugify a name into a leading-slash dashed-case route (e.g. "frame_2" → "/frame-2").
 function routeFromName(name) {
   const s = (name || 'screen').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return '/' + (s || 'screen');
@@ -163,7 +206,7 @@ export function makeNode(type, x, y, w, h, parentId = null) {
   // Frames get a numbered name and a concrete route derived from it *once*, at
   // creation. The route is then independent — renaming the frame won't change it.
   if (type === 'frame') {
-    node.name = 'Frame_' + state.nextFrameNum++;
+    node.name = 'frame_' + state.nextFrameNum++;
     node.routePath = routeFromName(node.name);
   }
   // Give new nodes a sensible default reference instead of an invisible one:

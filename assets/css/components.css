@@ -17,7 +17,7 @@
   transition: all 0.1s; font-size: 17px; position: relative;
 }
 .tool-btn:hover { background: var(--surface2); }
-.tool-btn.active { background: var(--accent); }
+.tool-btn.active { background: var(--accent); color: #fff; }
 .tool-btn img {
   width: 18px; height: 18px;
   pointer-events: none;
@@ -674,6 +674,38 @@ body.sidebar-collapsed #typo-board { padding-left: 20px; }
 .typo-samples { display: flex; flex-direction: column; gap: 10px; }
 .typo-sample { color: var(--text); }
 .typo-sample-single { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ── Theme bar (Color tab) — one chip per theme; active chip drives editing ── */
+.theme-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 18px; }
+.theme-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 6px; border-radius: 9px;
+  background: var(--surface2); border: 1px solid var(--border2); cursor: pointer; transition: all 0.1s;
+}
+.theme-chip:hover { background: var(--surface3); }
+.theme-chip.active { border-color: var(--accent); background: var(--accent-glow); }
+.theme-bright {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px;
+  background: transparent; color: var(--text2); cursor: pointer; transition: all 0.1s;
+}
+.theme-bright:hover { background: var(--surface3); color: var(--text); }
+.theme-name {
+  color: var(--text); font-family: var(--sans); font-size: 13px; font-weight: 500;
+  padding: 2px 4px 2px 2px; text-transform: capitalize; user-select: none;
+}
+/* Kept for when theme add/delete return to the UI (logic already exists). */
+.theme-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: none; border-radius: 5px;
+  background: transparent; color: var(--text3); font-size: 15px; line-height: 1; cursor: pointer;
+}
+.theme-del:hover { background: var(--red); color: #fff; }
+.theme-add {
+  background: var(--surface2); border: 1px dashed var(--border2); color: var(--text2);
+  border-radius: 9px; padding: 6px 12px; font-family: var(--sans); font-size: 13px; cursor: pointer; transition: all 0.1s;
+}
+.theme-add:hover { background: var(--surface3); color: var(--text); border-color: var(--accent); }
+
 .color-grid { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; align-content: flex-start; }
 .color-tile {
   position: relative;

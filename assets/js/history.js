@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { render } from './render.js';
 import { renderModels } from './models.js';
 import { renderApi } from './api.js';
-import { renderColors } from './colors.js';
+import { renderColors, renderThemeSwitch } from './colors.js';
 import { renderTypography } from './typography.js';
 import { renderMock } from './mock.js';
 
@@ -11,6 +11,7 @@ import { renderMock } from './mock.js';
 // consistently across every tab.
 const KEYS = [
   'nodes', 'nextId', 'nextFrameNum', 'nextContainerNum',
+  'themes', 'nextThemeId', 'activeThemeId',
   'colors', 'nextColorId', 'selectedColorId',
   'typography', 'nextTypoId', 'selectedTypoId',
   'models', 'nextModelId', 'nextPropId',
@@ -56,6 +57,7 @@ function loadSnap(snap) {
 // Repaint the design canvas plus whichever non-design tab is currently shown.
 function rerenderActive() {
   render();
+  renderThemeSwitch(); // active theme may have changed in the restored snapshot
   const mode = document.querySelector('.mode-tab.active')?.dataset.mode;
   if (mode === 'model') renderModels();
   else if (mode === 'api') renderApi();

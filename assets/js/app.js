@@ -8,7 +8,7 @@ import { initToolEvents, setTool } from './tools.js';
 import { findFrameAt, getWorldPos } from './nodes.js';
 import { initModels, renderModels } from './models.js';
 import { initApi, renderApi } from './api.js';
-import { initColors, renderColors } from './colors.js';
+import { initColors, renderColors, renderThemeSwitch, applyTheme } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
 import { initMock, renderMock } from './mock.js';
 import { exportModelsCode, collectExportables, dartPath } from './codegen.js';
@@ -150,13 +150,14 @@ function buildExportList(groups) {
     </div>` : '';
   return group('models', 'Models', groups.models.map(m => m.name))
     + group('enums', 'Enums', groups.enums.map(e => e.name))
-    + group('providers', 'Providers', groups.providers.map(p => p.name));
+    + group('providers', 'Providers', groups.providers.map(p => p.name))
+    + group('screens', 'Screens', groups.screens.map(s => s.name));
 }
 
 function openExportModal() {
   const groups = collectExportables();
-  if (!groups.models.length && !groups.enums.length && !groups.providers.length) {
-    showToast('Nothing to export — create a model or provider first');
+  if (!groups.models.length && !groups.enums.length && !groups.providers.length && !groups.screens.length) {
+    showToast('Nothing to export — create a model, provider or screen first');
     return;
   }
   exportList.innerHTML = buildExportList(groups);
@@ -180,9 +181,9 @@ exportList?.addEventListener('click', (e) => {
 });
 
 document.getElementById('export-confirm')?.addEventListener('click', () => {
-  const selection = { models: new Set(), enums: new Set(), providers: new Set() };
+  const selection = { models: new Set(), enums: new Set(), providers: new Set(), screens: new Set() };
   exportList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => selection[cb.dataset.kind].add(cb.value));
-  if (!selection.models.size && !selection.enums.size && !selection.providers.size) {
+  if (!selection.models.size && !selection.enums.size && !selection.providers.size && !selection.screens.size) {
     showToast('Select at least one item to export');
     return;
   }
@@ -193,6 +194,7 @@ document.getElementById('export-confirm')?.addEventListener('click', () => {
   if (r.models) parts.push(`${r.models} model${r.models === 1 ? '' : 's'}`);
   if (r.enums) parts.push(`${r.enums} enum${r.enums === 1 ? '' : 's'}`);
   if (r.providers) parts.push(`${r.providers} provider${r.providers === 1 ? '' : 's'}`);
+  if (r.screens) parts.push(`${r.screens} screen${r.screens === 1 ? '' : 's'}`);
   showToast('Exported ' + (parts.join(' + ') || 'nothing'));
 });
 
@@ -360,10 +362,17 @@ frameMenu.addEventListener('click', e => {
   closeMenus();
 });
 
+// Design-tab theme preview switch (Dark / Light).
+document.getElementById('theme-switch')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-themesw]');
+  if (btn) applyTheme(btn.dataset.themesw);
+});
+
 // Boot
 seedDefaults(); // pre-create white/black colors + a default "body" type style
 saveHistory();
 applyTransform();
 render();
+renderThemeSwitch();
 updateExportButton();
 showToast('FrameForge ready \u2014 press V to select, R for container, T for text');
