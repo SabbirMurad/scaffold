@@ -21,6 +21,10 @@ export const state = {
   colors: [],
   nextColorId: 1,
   selectedColorId: null,
+  // Maps Material ColorScheme roles (primary, surface, error…) to a color id, so
+  // generated ThemeData can build a ColorScheme. Global (one mapping shared by
+  // every theme); each theme supplies the mapped color's per-theme value.
+  colorRoles: {},
   // Typography tab: reusable text styles (font, size, weight, line height, color)
   typography: [],
   nextTypoId: 1,

@@ -3,6 +3,7 @@ import { esc } from './utils.js';
 import { gradientCss, render } from './render.js';
 import { saveHistory } from './history.js';
 import { renderProps } from './props.js';
+import { SCHEME_ROLES } from './codegen.js';
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -159,6 +160,8 @@ function addColor() {
 function deleteColor(id) {
   state.colors = state.colors.filter(c => c.id !== id);
   if (state.selectedColorId === id) state.selectedColorId = state.colors.length ? state.colors[0].id : null;
+  // Drop any ColorScheme role that pointed at the removed color.
+  Object.keys(state.colorRoles).forEach(k => { if (state.colorRoles[k] === id) state.colorRoles[k] = null; });
   saveHistory();
   renderColors();
 }
@@ -263,6 +266,29 @@ function renderBoard() {
       </div>`;
       }).join('')}
       ${state.colors.length === 0 ? `<div class="model-empty">No colors yet — click "+ New Color" to create one.</div>` : ''}
+    </div>
+    ${renderRoleMap()}`;
+}
+
+// Maps Material ColorScheme roles to colors (global across themes). Feeds the
+// generated ColorScheme in themes.dart. Each theme supplies the mapped color's
+// own per-theme value.
+function renderRoleMap() {
+  if (state.colors.length === 0) return '';
+  const opt = (roleId) => `
+    <option value="">None</option>
+    ${state.colors.map(c => `<option value="${c.id}" ${state.colorRoles[roleId] === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}`;
+  return `
+    <div class="model-board-head" style="margin-top:22px">
+      <span class="model-board-title">Theme Roles</span>
+    </div>
+    <div class="role-hint">Map Material color-scheme roles to your colors for the generated theme.</div>
+    <div class="role-list">
+      ${SCHEME_ROLES.map(r => `
+      <label class="role-row">
+        <span class="role-label">${r.label}</span>
+        <select class="role-select" data-role="${r.id}">${opt(r.id)}</select>
+      </label>`).join('')}
     </div>`;
 }
 
@@ -500,6 +526,14 @@ export function initColors() {
       if (e.target.closest('[data-stophandle]') || e.target.closest('[data-gradrot]')) return;
       const tile = e.target.closest('.color-tile');
       if (tile && tile.dataset.tile !== state.selectedColorId) { state.selectedColorId = tile.dataset.tile; renderColors(); }
+    });
+
+    // Theme-role dropdowns: assign a color id (or clear) to a ColorScheme role.
+    board.addEventListener('change', e => {
+      const sel = e.target.closest('[data-role]');
+      if (!sel) return;
+      state.colorRoles[sel.dataset.role] = sel.value || null;
+      saveHistory();
     });
 
     // Drag the gradient line/circle handles drawn on the selected color's swatch

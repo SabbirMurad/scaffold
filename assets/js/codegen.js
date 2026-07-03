@@ -396,6 +396,128 @@ function generateRouteFile(items) {
   return L.join('\n');
 }
 
+// ───────── Theme (colors.dart + themes.dart) generation ─────────
+
+// The Material ColorScheme roles the user can map colors onto. Order = display
+// order in the role-mapping UI. Each is a valid ColorScheme.dark/.light param.
+export const SCHEME_ROLES = [
+  { id: 'primary', label: 'Primary' },
+  { id: 'onPrimary', label: 'On Primary' },
+  { id: 'secondary', label: 'Secondary' },
+  { id: 'onSecondary', label: 'On Secondary' },
+  { id: 'surface', label: 'Surface' },
+  { id: 'onSurface', label: 'On Surface' },
+  { id: 'surfaceContainer', label: 'Surface Container' },
+  { id: 'surfaceContainerHigh', label: 'Surface Container High' },
+  { id: 'error', label: 'Error' },
+  { id: 'onError', label: 'On Error' },
+  { id: 'outline', label: 'Outline' },
+  { id: 'outlineVariant', label: 'Outline Variant' },
+];
+
+// "#rrggbb" + alpha(0..1) → "AARRGGBB" for a Dart Color(0x…) literal.
+function hexToArgb(hex, alpha) {
+  let h = (hex || '#000000').replace('#', '');
+  if (h.length === 3) h = h.split('').map(x => x + x).join('');
+  h = h.slice(0, 6).padEnd(6, '0');
+  const a = Math.round((alpha == null ? 1 : alpha) * 255);
+  return (a.toString(16).padStart(2, '0') + h).toUpperCase();
+}
+// A per-theme color value → a Dart Color(0x…). Gradients collapse to their first
+// stop (ThemeExtension / ColorScheme fields are single colors, not gradients).
+function dartColorValue(v) {
+  if (!v) return 'Color(0x00000000)';
+  if (v.fillType === 'linear' || v.fillType === 'radial') {
+    const s = (v.gradient && v.gradient.stops && v.gradient.stops[0]) || { color: '#000000', alpha: 1 };
+    return `Color(0x${hexToArgb(s.color, s.alpha)})`;
+  }
+  return `Color(0x${hexToArgb(v.fill, v.alpha)})`;
+}
+const colorVal = (c, themeId) => (c.values && c.values[themeId]) || null;
+
+// lib/constants/colors.dart — a VColors static-const set (from the first theme,
+// for direct references) plus a VColorsTheme ThemeExtension carrying one Color
+// field per color, with a static const per theme, copyWith and lerp.
+function generateColorsFile(colors, themes) {
+  const first = themes[0];
+  const L = [];
+  L.push(`import 'package:flutter/material.dart';`);
+  L.push('');
+  L.push(`// Static constants from the "${first.name}" theme, for direct references.`);
+  L.push(`abstract class VColors {`);
+  colors.forEach(c => L.push(`  static const Color ${c.name} = ${dartColorValue(colorVal(c, first.id))};`));
+  if (colors.length) L.push('');
+  L.push(`  // Context-aware access — use in widgets for proper light/dark support.`);
+  L.push(`  static VColorsTheme of(BuildContext context) => VColorsTheme.of(context);`);
+  L.push(`}`);
+  L.push('');
+  L.push(`// ThemeExtension — register in ThemeData to enable runtime theming.`);
+  L.push(`class VColorsTheme extends ThemeExtension<VColorsTheme> {`);
+  colors.forEach(c => L.push(`  final Color ${c.name};`));
+  L.push('');
+  L.push(`  const VColorsTheme({`);
+  colors.forEach(c => L.push(`    required this.${c.name},`));
+  L.push(`  });`);
+  L.push('');
+  themes.forEach(t => {
+    L.push(`  static const ${t.name} = VColorsTheme(`);
+    colors.forEach(c => L.push(`    ${c.name}: ${dartColorValue(colorVal(c, t.id))},`));
+    L.push(`  );`);
+    L.push('');
+  });
+  L.push(`  static VColorsTheme of(BuildContext context) =>`);
+  L.push(`      Theme.of(context).extension<VColorsTheme>() ?? ${first.name};`);
+  L.push('');
+  L.push(`  @override`);
+  L.push(`  VColorsTheme copyWith({`);
+  colors.forEach(c => L.push(`    Color? ${c.name},`));
+  L.push(`  }) => VColorsTheme(`);
+  colors.forEach(c => L.push(`    ${c.name}: ${c.name} ?? this.${c.name},`));
+  L.push(`  );`);
+  L.push('');
+  L.push(`  @override`);
+  L.push(`  VColorsTheme lerp(VColorsTheme? other, double t) {`);
+  L.push(`    if (other == null) return this;`);
+  L.push(`    return VColorsTheme(`);
+  colors.forEach(c => L.push(`      ${c.name}: Color.lerp(${c.name}, other.${c.name}, t)!,`));
+  L.push(`    );`);
+  L.push(`  }`);
+  L.push(`}`);
+  L.push('');
+  return L.join('\n');
+}
+
+// lib/themes.dart — one ThemeData per theme: brightness, Material 3, the
+// VColorsTheme extension, scaffold background (from the surface role) and a
+// ColorScheme built from the role→color mapping.
+function generateThemesFile(colors, themes, roles) {
+  const pkg = pkgName();
+  const byId = (id) => colors.find(c => c.id === id);
+  const L = [];
+  L.push(`import 'package:flutter/material.dart';`);
+  L.push(`import 'package:${pkg}/constants/colors.dart';`);
+  L.push('');
+  themes.forEach((t, idx) => {
+    const bright = t.brightness === 'light' ? 'light' : 'dark';
+    const surface = roles.surface ? byId(roles.surface) : null;
+    L.push(`final ${t.name} = ThemeData(`);
+    L.push(`  brightness: Brightness.${bright},`);
+    L.push(`  useMaterial3: true,`);
+    L.push(`  extensions: const [VColorsTheme.${t.name}],`);
+    if (surface) L.push(`  scaffoldBackgroundColor: ${dartColorValue(colorVal(surface, t.id))},`);
+    const assigned = SCHEME_ROLES.filter(r => roles[r.id] && byId(roles[r.id]));
+    if (assigned.length) {
+      L.push(`  colorScheme: const ColorScheme.${bright}(`);
+      assigned.forEach(r => L.push(`    ${r.id}: ${dartColorValue(colorVal(byId(roles[r.id]), t.id))},`));
+      L.push(`  ),`);
+    }
+    L.push(`);`);
+    if (idx < themes.length - 1) L.push('');
+  });
+  L.push('');
+  return L.join('\n');
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), { href: url, download: filename });
@@ -417,13 +539,18 @@ export function collectExportables() {
   // with a valid, exportable route path.
   const screens = state.nodes.filter(n =>
     n.type === 'frame' && !n.parentId && routeExportable(routeOf(n)));
-  return { models, enums, providers, screens };
+  // The theme system (colors.dart + themes.dart) is exportable once there's at
+  // least one color and one theme to generate from.
+  const hasTheme = state.colors.length > 0 && state.themes.length > 0;
+  return { models, enums, providers, screens, hasTheme };
 }
 
 // The Dart file an exported item lands at (shown in the export picker). Each
-// screen has its own view file (plus a shared lib/route.dart wiring them up).
+// screen has its own view file (plus a shared lib/route.dart wiring them up);
+// the theme unit produces two shared files.
 export function dartPath(kind, name) {
   if (kind === 'screens') return `lib/view/${snake(name)}.dart`;
+  if (kind === 'theme') return 'lib/constants/colors.dart + lib/themes.dart';
   return `lib/${kind === 'providers' ? 'provider' : 'model'}/${snake(name)}.dart`;
 }
 
@@ -435,13 +562,14 @@ export function dartPath(kind, name) {
 export function exportModelsCode(selection = null) {
   const all = collectExportables();
   let { models, enums, providers, screens } = all;
+  const wantTheme = all.hasTheme && (!selection || (selection.theme && selection.theme.size > 0));
   if (selection) {
     models = models.filter(m => selection.models?.has(m.name));
     enums = enums.filter(e => selection.enums?.has(e.name));
     providers = providers.filter(p => selection.providers?.has(p.name));
     screens = screens.filter(s => selection.screens?.has(s.name));
   }
-  if (!models.length && !enums.length && !providers.length && !screens.length) return { ok: false };
+  if (!models.length && !enums.length && !providers.length && !screens.length && !wantTheme) return { ok: false };
 
   const files = [];
   models.forEach(m => files.push({ name: `lib/model/${snake(m.name)}.dart`, content: generateModelFile(m) }));
@@ -452,7 +580,11 @@ export function exportModelsCode(selection = null) {
     items.forEach(it => files.push({ name: `lib/view/${it.file}.dart`, content: generateViewFile(it) }));
     files.push({ name: 'lib/route.dart', content: generateRouteFile(items) });
   }
+  if (wantTheme) {
+    files.push({ name: 'lib/constants/colors.dart', content: generateColorsFile(state.colors, state.themes) });
+    files.push({ name: 'lib/themes.dart', content: generateThemesFile(state.colors, state.themes, state.colorRoles || {}) });
+  }
 
   downloadBlob(makeZip(files), `${pkgName()}_code.zip`);
-  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, screens: screens.length, skipped: state.models.length - all.models.length };
+  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, screens: screens.length, theme: wantTheme ? 1 : 0, skipped: state.models.length - all.models.length };
 }

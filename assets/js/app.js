@@ -151,13 +151,14 @@ function buildExportList(groups) {
   return group('models', 'Models', groups.models.map(m => m.name))
     + group('enums', 'Enums', groups.enums.map(e => e.name))
     + group('providers', 'Providers', groups.providers.map(p => p.name))
-    + group('screens', 'Screens', groups.screens.map(s => s.name));
+    + group('screens', 'Screens', groups.screens.map(s => s.name))
+    + group('theme', 'Theme', groups.hasTheme ? ['App colors & theme'] : []);
 }
 
 function openExportModal() {
   const groups = collectExportables();
-  if (!groups.models.length && !groups.enums.length && !groups.providers.length && !groups.screens.length) {
-    showToast('Nothing to export — create a model, provider or screen first');
+  if (!groups.models.length && !groups.enums.length && !groups.providers.length && !groups.screens.length && !groups.hasTheme) {
+    showToast('Nothing to export — create a model, provider, screen or color first');
     return;
   }
   exportList.innerHTML = buildExportList(groups);
@@ -181,9 +182,9 @@ exportList?.addEventListener('click', (e) => {
 });
 
 document.getElementById('export-confirm')?.addEventListener('click', () => {
-  const selection = { models: new Set(), enums: new Set(), providers: new Set(), screens: new Set() };
+  const selection = { models: new Set(), enums: new Set(), providers: new Set(), screens: new Set(), theme: new Set() };
   exportList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => selection[cb.dataset.kind].add(cb.value));
-  if (!selection.models.size && !selection.enums.size && !selection.providers.size && !selection.screens.size) {
+  if (!selection.models.size && !selection.enums.size && !selection.providers.size && !selection.screens.size && !selection.theme.size) {
     showToast('Select at least one item to export');
     return;
   }
@@ -195,6 +196,7 @@ document.getElementById('export-confirm')?.addEventListener('click', () => {
   if (r.enums) parts.push(`${r.enums} enum${r.enums === 1 ? '' : 's'}`);
   if (r.providers) parts.push(`${r.providers} provider${r.providers === 1 ? '' : 's'}`);
   if (r.screens) parts.push(`${r.screens} screen${r.screens === 1 ? '' : 's'}`);
+  if (r.theme) parts.push('theme');
   showToast('Exported ' + (parts.join(' + ') || 'nothing'));
 });
 

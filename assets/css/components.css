@@ -706,6 +706,19 @@ body.sidebar-collapsed #typo-board { padding-left: 20px; }
 }
 .theme-add:hover { background: var(--surface3); color: var(--text); border-color: var(--accent); }
 
+/* ── Theme role mapping (Color tab): ColorScheme role → color ── */
+.role-hint { color: var(--text3); font-size: 12px; margin: -6px 0 12px; }
+.role-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 18px; }
+.role-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.role-label { color: var(--text2); font-size: 13px; white-space: nowrap; }
+.role-select {
+  flex: 0 1 130px; min-width: 0; background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border2); border-radius: 6px; padding: 5px 8px;
+  font-family: var(--sans); font-size: 12px; cursor: pointer;
+}
+.role-select:focus { outline: none; border-color: var(--accent); }
+.role-select option { background: var(--bg); color: var(--text); }
+
 .color-grid { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; align-content: flex-start; }
 .color-tile {
   position: relative;

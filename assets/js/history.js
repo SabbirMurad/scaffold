@@ -12,7 +12,7 @@ import { renderMock } from './mock.js';
 const KEYS = [
   'nodes', 'nextId', 'nextFrameNum', 'nextContainerNum',
   'themes', 'nextThemeId', 'activeThemeId',
-  'colors', 'nextColorId', 'selectedColorId',
+  'colors', 'nextColorId', 'selectedColorId', 'colorRoles',
   'typography', 'nextTypoId', 'selectedTypoId',
   'models', 'nextModelId', 'nextPropId',
   'enums', 'nextEnumId', 'nextEnumValId',
