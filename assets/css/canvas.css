@@ -4,9 +4,11 @@
 
 /* Nodes */
 .node {
-  position: absolute; box-sizing: border-box; cursor: move;
+  position: absolute; box-sizing: border-box; cursor: default;
   transition: outline 0.05s;
 }
+/* The four-arrow move cursor only appears while a node is actually being dragged. */
+body.dragging-node, body.dragging-node .node { cursor: move; }
 .node.selected { outline: 2px solid var(--accent); outline-offset: 0; }
 /* Nodes with an onTap navigation action show a small corner badge — only in
    Connect mode. It is absolutely positioned, so it never participates in a

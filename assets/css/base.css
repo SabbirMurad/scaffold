@@ -11,7 +11,7 @@
   --border2: rgba(255,255,255,0.13);
   --text: #edeef2;
   --text2: #9a9da6;
-  --text3: #686b75;
+  --text3: #b3b3b3;
   --accent: #1ECC7A;
   --accent2: #15B06B;
   --accent-glow: rgba(30,204,122,0.18);
@@ -25,7 +25,7 @@
 
   /* Glass / depth system — neutral charcoal */
   --glass-blur: 18px;
-  --glass-bg: rgba(38,39,43,0.58);
+  --glass-bg: rgba(38,39,43,0.76);
   --glass-bg-strong: rgba(31,32,36,0.74);
   --glass-border: rgba(255,255,255,0.09);
   --glass-highlight: inset 0 1px 0 rgba(255,255,255,0.07);

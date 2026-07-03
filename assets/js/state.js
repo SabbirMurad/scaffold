@@ -74,6 +74,12 @@ export function getTypoById(id) {
   return state.typography.find(t => t.id === id);
 }
 
+// Slugify a name into a leading-slash dashed-case route (e.g. "Frame_2" → "/frame-2").
+function routeFromName(name) {
+  const s = (name || 'screen').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return '/' + (s || 'screen');
+}
+
 export function makeNode(type, x, y, w, h, parentId = null) {
   const defaults = {
     frame:     { fill: '#ffffff', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Frame' },
@@ -154,6 +160,12 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     isInitial: false,
   };
   if (type === 'container') node.name = 'Container_' + state.nextContainerNum++;
+  // Frames get a numbered name and a concrete route derived from it *once*, at
+  // creation. The route is then independent — renaming the frame won't change it.
+  if (type === 'frame') {
+    node.name = 'Frame_' + state.nextFrameNum++;
+    node.routePath = routeFromName(node.name);
+  }
   // Give new nodes a sensible default reference instead of an invisible one:
   // containers adopt the first color variable, text adopts the first type style.
   if (type === 'container' && state.colors.length) node.colorId = state.colors[0].id;

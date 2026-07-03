@@ -11,6 +11,29 @@ let dragging = null;
 let resizing = null;
 let radiusDragging = null;
 let panning = false;
+// While dragging a node, its clipping ancestors (frames, scroll containers) are
+// temporarily set to overflow:visible so the dragged item's translucent preview
+// stays visible as it's pulled outside them. Saved here to restore on drop.
+let dragUnclip = null;
+
+function unclipDragAncestors(node) {
+  const saved = [];
+  let cur = node && node.parentId ? getNode(node.parentId) : null;
+  while (cur) {
+    const el = document.getElementById('node-' + cur.id);
+    if (el) {
+      saved.push({ el, overflow: el.style.overflow, overflowX: el.style.overflowX, overflowY: el.style.overflowY });
+      el.style.overflow = el.style.overflowX = el.style.overflowY = 'visible';
+    }
+    cur = cur.parentId ? getNode(cur.parentId) : null;
+  }
+  return saved;
+}
+function restoreDragAncestors() {
+  if (!dragUnclip) return;
+  dragUnclip.forEach(s => { s.el.style.overflow = s.overflow; s.el.style.overflowX = s.overflowX; s.el.style.overflowY = s.overflowY; });
+  dragUnclip = null;
+}
 let panStart = null;
 let drawStart = null;
 let selStart = null;
@@ -292,6 +315,7 @@ export function attachNodeEvents(el, node) {
       }
       render();
 
+      restoreDragAncestors(); // clear any leftover un-clip from an interrupted drag
       dragging = {
         node,
         startX: e.clientX,
@@ -430,6 +454,8 @@ function onWrapMouseMove(e) {
   }
 
   if (dragging) {
+    document.body.classList.add('dragging-node'); // show the move cursor only while moving
+    if (!dragUnclip) dragUnclip = unclipDragAncestors(dragging.node); // let the preview escape its container
     const dx = (e.clientX - dragging.startX) / state.zoom;
     const dy = (e.clientY - dragging.startY) / state.zoom;
     if (dragging.multi) {
@@ -546,6 +572,8 @@ function onWrapMouseUp(e) {
       }
     }
     dragging = null;
+    restoreDragAncestors();
+    document.body.classList.remove('dragging-node');
     saveHistory();
     render();
     return;

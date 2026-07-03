@@ -390,6 +390,7 @@ export function renderNode(node, parent) {
 function addFrameLabel(node, parent) {
   const label = document.createElement('div');
   label.className = 'frame-label' + (state.selected.has(node.id) ? ' selected' : '');
+  label.id = 'frame-label-' + node.id;
   label.textContent = node.name || 'Frame';
   label.style.left = node.x + 'px';
   label.style.top = node.y + 'px';
@@ -447,6 +448,11 @@ export function positionRadiusHandles(el, node) {
 export function updateNodeEl(node) {
   const el = document.getElementById('node-' + node.id);
   if (!el) return;
+  // Keep a frame's floating name tag glued to it while it's being dragged/moved.
+  if (node.type === 'frame') {
+    const label = document.getElementById('frame-label-' + node.id);
+    if (label) { label.style.left = node.x + 'px'; label.style.top = node.y + 'px'; }
+  }
   applyPosition(el, node);
   applySize(el, node);
   applyNodeTransform(el, node);

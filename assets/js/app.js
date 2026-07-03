@@ -352,7 +352,6 @@ frameMenu.addEventListener('click', e => {
   const world = canvasToWorld(cx, cy);
 
   const node = makeNode('frame', world.x - w / 2, world.y - h / 2, w, h, null);
-  node.name = 'Frame_' + state.nextFrameNum++;
   state.nodes.push(node);
   state.selected.clear();
   state.selected.add(node.id);
