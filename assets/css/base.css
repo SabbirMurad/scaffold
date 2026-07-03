@@ -25,7 +25,7 @@
 
   /* Glass / depth system — neutral charcoal */
   --glass-blur: 18px;
-  --glass-bg: rgba(38,39,43,0.78);
+  --glass-bg: rgba(38,39,43,0.58);
   --glass-bg-strong: rgba(31,32,36,0.74);
   --glass-border: rgba(255,255,255,0.09);
   --glass-highlight: inset 0 1px 0 rgba(255,255,255,0.07);
