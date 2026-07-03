@@ -248,7 +248,8 @@ function linStopPt(g, pos) {
   return { x: 0.5 + t * 2 * g.half * g.dx, y: 0.5 + t * 2 * g.half * g.dy };
 }
 // Color layer (always an image so it can sit over the checkerboard layer) + checkerboard.
-const swatchBg = (c) => {
+// Exported so the Design-tab property swatches show the same translucency check.
+export const swatchBg = (c) => {
   const fill = c.fillType === 'solid' ? `linear-gradient(${colorCss(c)}, ${colorCss(c)})` : colorCss(c);
   return `${fill}, repeating-conic-gradient(#5a5a5a 0 25%, #888 0 50%) 0/12px 12px`;
 };

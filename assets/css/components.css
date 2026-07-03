@@ -460,6 +460,7 @@ input[type=number] {
 .prop-input:focus { border-color: var(--accent); }
 .prop-input.invalid { border-color: var(--red); }
 .prop-input:hover:not(:focus) { border-color: var(--border2); }
+.prop-error { font-size: 11px; color: var(--red); margin-top: 5px; line-height: 1.4; }
 
 /* Figma-style field: the label letter sits inside the input box, in front of the value. */
 .input-affix {

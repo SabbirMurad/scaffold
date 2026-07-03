@@ -1,6 +1,6 @@
 import { state, getNode } from './state.js';
 import { noSelection, propsFields, esc } from './utils.js';
-import { colorCss } from './colors.js';
+import { swatchBg } from './colors.js';
 import { updateNodeEl, render } from './render.js';
 import { renderLayers } from './layers.js';
 import { ddTrigger } from './dropdown.js';
@@ -129,7 +129,7 @@ function shadowItem(s, i) {
       </div>
       <div class="color-pick-grid" style="margin:14px 0 8px">
         <button class="color-pick none ${!s.colorId ? 'selected' : ''}" data-shadowcolor="" data-shidx="${i}" title="Black (default)"></button>
-        ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${s.colorId === c.id ? 'selected' : ''}" data-shadowcolor="${c.id}" data-shidx="${i}" title="${esc(c.name)}" style="background:${colorCss(c)}"></button>`).join('')}
+        ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${s.colorId === c.id ? 'selected' : ''}" data-shadowcolor="${c.id}" data-shidx="${i}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>
       <div class="prop-row">
         <span class="prop-label" style="width:auto">Opacity</span>
@@ -180,22 +180,56 @@ function slugifyName(name) {
 function routeOf(frame) {
   return frame.routePath && frame.routePath.trim() ? frame.routePath.trim() : slugifyName(frame.name);
 }
+// A route must be lowercase dashed-case with no spaces (e.g. /user-profile),
+// optionally with nested "/" segments. Returns an error string, or null if ok.
+function routeError(r) {
+  const v = (r || '').trim();
+  if (!v || v === '/') return null;
+  if (/\s/.test(v)) return 'No spaces — use dashes, e.g. /user-profile';
+  if (/[A-Z]/.test(v)) return 'Lowercase only, e.g. /user-profile';
+  if (!/^\/?[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/.test(v))
+    return 'Use dashed-case, e.g. /user-profile';
+  return null;
+}
+
+// The top-level screen (root frame) a node belongs to, walking up parents.
+function ownerScreenId(node) {
+  let cur = node;
+  while (cur && cur.parentId) cur = getNode(cur.parentId);
+  return cur && cur.type === 'frame' ? cur.id : null;
+}
+
+// How many *other* screens have a layer whose tap navigates to this frame.
+function incomingScreenCount(node) {
+  const screens = new Set();
+  state.nodes.forEach(n => {
+    if (n.action && n.action.type === 'navigate' && n.action.targetFrameId === node.id) {
+      const owner = ownerScreenId(n);
+      if (owner && owner !== node.id) screens.add(owner);
+    }
+  });
+  return screens.size;
+}
 
 // Route + start-screen controls, shown for frame nodes.
 function screenSection(node) {
-  const others = screenFrames().filter(f => f.id !== node.id);
+  const inbound = incomingScreenCount(node);
+  const inboundText = inbound === 0
+    ? 'No other screens navigate here.'
+    : `${inbound} other screen${inbound === 1 ? '' : 's'} navigate${inbound === 1 ? 's' : ''} here.`;
   return `
     <div class="prop-section">
       <div class="prop-section-title">Screen</div>
       <div class="prop-row">
         <span class="prop-label" style="width:auto">Route</span>
-        <input class="prop-input" id="p-route" value="${esc(routeOf(node))}" placeholder="/home" style="flex:1">
+        <input class="prop-input${routeError(routeOf(node)) ? ' invalid' : ''}" id="p-route" value="${esc(routeOf(node))}" placeholder="/home" style="flex:1">
       </div>
+      <div class="prop-error" id="p-route-err" style="${routeError(routeOf(node)) ? '' : 'display:none'}">${routeError(routeOf(node)) || ''}</div>
       <label class="prop-check" style="margin-top:8px">
         <input type="checkbox" id="p-initial" ${node.isInitial ? 'checked' : ''}>
         <span>Start screen (app opens here)</span>
       </label>
-      <div style="font-size:11px;color:var(--text3);margin-top:6px">${others.length} other screen${others.length === 1 ? '' : 's'} can navigate here.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">${inboundText}</div>
     </div>`;
 }
 
@@ -383,8 +417,8 @@ export function renderProps() {
       ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
     </div>
     ${node.type === 'frame' ? screenSection(node) : ''}
-    ${node.type === 'container' ? layoutSection(node) : ''}
-    ${(node.type === 'container' && ['none', 'row', 'column'].includes(node.layout || 'none')) || node.type === 'row' || node.type === 'column' ? `
+    ${node.type === 'container' || node.type === 'frame' ? layoutSection(node) : ''}
+    ${((node.type === 'container' || node.type === 'frame') && ['none', 'row', 'column'].includes(node.layout || 'none')) || node.type === 'row' || node.type === 'column' ? `
     <div class="prop-section">
       <div class="prop-section-title">Alignment</div>
       <div class="prop-row">
@@ -491,7 +525,7 @@ export function renderProps() {
       <div class="api-hint">No solid colors yet — icons show white.</div>` : `
       <div class="color-pick-grid">
         <button class="color-pick none ${!node.colorId ? 'selected' : ''}" data-iconcolor="" title="Default (white)"></button>
-        ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-iconcolor="${c.id}" title="${esc(c.name)}" style="background:${colorCss(c)}"></button>`).join('')}
+        ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-iconcolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>`}
     </div>` : ''}
     ${node.type === 'frame' || node.type === 'container' || node.type === 'image' ? `
@@ -502,7 +536,7 @@ export function renderProps() {
       <button class="goto-colors-btn" id="p-goto-colors">+ Create a color</button>` : `
       <div class="color-pick-grid">
         <button class="color-pick none ${!node.colorId ? 'selected' : ''}" data-pickcolor="" title="None"></button>
-        ${state.colors.map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-pickcolor="${c.id}" title="${esc(c.name)}" style="background:${colorCss(c)}"></button>`).join('')}
+        ${state.colors.map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-pickcolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>`}
     </div>` : ''}
     ${node.type === 'container' || node.type === 'image' ? `
@@ -511,7 +545,7 @@ export function renderProps() {
       <div class="prop-section-title" style="font-size:11px;text-transform:none;letter-spacing:0;color:var(--text2);margin-bottom:6px">Color</div>
       <div class="color-pick-grid" style="margin-bottom:10px">
         <button class="color-pick none ${!node.strokeColorId ? 'selected' : ''}" data-strokecolor="" title="None"></button>
-        ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${node.strokeColorId === c.id ? 'selected' : ''}" data-strokecolor="${c.id}" title="${esc(c.name)}" style="background:${colorCss(c)}"></button>`).join('')}
+        ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${node.strokeColorId === c.id ? 'selected' : ''}" data-strokecolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>
       <div class="prop-row">
         <span class="prop-label" style="width:auto">Size</span>
@@ -555,6 +589,11 @@ export function renderProps() {
       let r = v.trim();
       if (r && !r.startsWith('/')) r = '/' + r;
       node.routePath = r;
+      const err = routeError(r);
+      const inp = document.getElementById('p-route');
+      const errEl = document.getElementById('p-route-err');
+      if (inp) inp.classList.toggle('invalid', !!err);
+      if (errEl) { errEl.textContent = err || ''; errEl.style.display = err ? '' : 'none'; }
     });
     const routeEl = document.getElementById('p-route');
     if (routeEl) routeEl.addEventListener('change', () => saveHistory());
@@ -697,8 +736,8 @@ export function renderProps() {
     setLayout(node, btn.dataset.layout);
   }));
 
-  // Flex gap controls — a container's chosen layout, or a legacy row/column/wrap node.
-  const flexK = node.type === 'container' ? node.layout
+  // Flex gap controls — a container's/frame's chosen layout, or a legacy row/column/wrap node.
+  const flexK = (node.type === 'container' || node.type === 'frame') ? node.layout
     : (node.type === 'row' || node.type === 'column' || node.type === 'wrap') ? node.type : null;
   if (flexK === 'row' || flexK === 'column') {
     bindPropNum('p-gap', v => { node.gap = Math.max(0, v); updateNodeEl(node); });

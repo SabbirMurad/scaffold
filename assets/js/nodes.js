@@ -11,21 +11,22 @@ export const MULTI_CHILD_TYPES = ['row', 'column', 'wrap', 'stack'];
 // 'stack'); the legacy row/column/wrap/stack node types are equivalent to a
 // container locked to that layout. These helpers give a node's *effective*
 // layout role from either source, so the rest of the app needn't care which.
+// Containers and frames can both carry an auto-layout via their `layout` property.
+const LAYOUT_HOST = (node) => node && (node.type === 'container' || node.type === 'frame');
 export function flexKind(node) {
   if (!node) return null;
   if (node.type === 'row' || node.type === 'column' || node.type === 'wrap') return node.type;
-  if (node.type === 'container' && ['row', 'column', 'wrap'].includes(node.layout)) return node.layout;
+  if (LAYOUT_HOST(node) && ['row', 'column', 'wrap'].includes(node.layout)) return node.layout;
   return null;
 }
 export function isFlex(node) { return flexKind(node) !== null; }
 export function isStack(node) {
-  return !!node && (node.type === 'stack' || (node.type === 'container' && node.layout === 'stack'));
+  return !!node && (node.type === 'stack' || (LAYOUT_HOST(node) && node.layout === 'stack'));
 }
-// Holds exactly one child (pads + aligns it): a frame, or a layout-less container.
+// Holds exactly one child (pads + aligns it): a frame or container with no
+// auto-layout. Once a layout is chosen it lays its own children out instead.
 export function isSingleChild(node) {
-  if (!node) return false;
-  if (node.type === 'frame') return true;
-  return node.type === 'container' && (!node.layout || node.layout === 'none');
+  return LAYOUT_HOST(node) && (!node.layout || node.layout === 'none');
 }
 // Lays its children out itself (flex or stack) rather than holding just one.
 export function isMultiChild(node) { return isFlex(node) || isStack(node); }
@@ -89,6 +90,13 @@ export function reparentNode(node, newParentId) {
 
   const wp = getWorldPos(node);
 
+  // Freeze the on-screen size now, before the DOM/parenting changes, so any
+  // "fill" axis that becomes invalid in the new context can keep the size it
+  // currently occupies (see the fill→fixed baking below).
+  const el = document.getElementById('node-' + node.id);
+  const measuredW = el ? el.offsetWidth : node.w;
+  const measuredH = el ? el.offsetHeight : node.h;
+
   if (oldParentId) {
     const oldParent = getNode(oldParentId);
     if (oldParent) oldParent.children = oldParent.children.filter(id => id !== node.id);
@@ -112,6 +120,23 @@ export function reparentNode(node, newParentId) {
   } else {
     node.x = wp.x;
     node.y = wp.y;
+  }
+
+  // "Fill" only makes sense inside a parent that isn't hugging the same axis.
+  // When a node leaves such a parent — detached to the canvas, or dropped into a
+  // parent that hugs — freeze that axis to the size it was just filling, exactly
+  // as if the user had switched it from Fill to Fixed before moving it. Without
+  // this the node's width:100% would resolve against the wrong (or no) parent and
+  // it would stretch or collapse.
+  const newParent = newParentId ? getNode(newParentId) : null;
+  if (node.wMode === 'fill' && !(newParent && newParent.wMode !== 'hug')) {
+    node.w = measuredW;
+    node.wMode = 'fixed';
+    if (node.type === 'text') node.autoSize = false;
+  }
+  if (node.hMode === 'fill' && !(newParent && newParent.hMode !== 'hug')) {
+    node.h = measuredH;
+    node.hMode = 'fixed';
   }
 }
 

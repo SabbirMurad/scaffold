@@ -35,9 +35,12 @@ export function initToolEvents() {
     const tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement.isContentEditable) return;
 
-    // Undo/redo apply in every tab (Design, Model, API, Color)
-    if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+    // Undo/redo apply in every tab (Design, Model, API, Color). Normalise the
+    // key case: with Shift held the browser reports 'Z' (uppercase), so a raw
+    // e.key === 'z' test would miss the Ctrl+Shift+Z redo shortcut.
+    const undoKey = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && undoKey === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+    if ((e.metaKey || e.ctrlKey) && (undoKey === 'y' || (undoKey === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
 
     // Remaining shortcuts (tools, delete, group, zoom…) only apply in the Design tab
     if (!document.body.classList.contains('design-mode')) return;

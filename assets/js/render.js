@@ -16,7 +16,7 @@ export function applyTransform() {
 }
 
 export function render() {
-  canvas.querySelectorAll('.node').forEach(e => e.remove());
+  canvas.querySelectorAll('.node, .frame-label').forEach(e => e.remove());
   const roots = state.nodes.filter(n => !n.parentId);
   roots.forEach(n => renderNode(n, canvas));
   syncMeasuredSizes(); // fold fill/hug rendered sizes back into the model
@@ -379,6 +379,28 @@ export function renderNode(node, parent) {
   parent.appendChild(el);
   syncTextSize(el, node);
   attachNodeEvents(el, node);
+
+  // Frames show their name on a small label above the top-left corner (Figma
+  // style). It lives beside the frame — not inside it — because frames clip
+  // their overflow, and counter-scales off --zoom so it stays a constant size.
+  if (node.type === 'frame') addFrameLabel(node, parent);
+}
+
+// A constant-size name tag above a frame; clicking it selects the frame.
+function addFrameLabel(node, parent) {
+  const label = document.createElement('div');
+  label.className = 'frame-label' + (state.selected.has(node.id) ? ' selected' : '');
+  label.textContent = node.name || 'Frame';
+  label.style.left = node.x + 'px';
+  label.style.top = node.y + 'px';
+  label.addEventListener('pointerdown', e => {
+    if (state.tool !== 'select') return;
+    e.stopPropagation();
+    if (!e.shiftKey && !e.metaKey && !e.ctrlKey) state.selected.clear();
+    state.selected.add(node.id);
+    render();
+  });
+  parent.appendChild(label);
 }
 
 function addHandles(el, node) {

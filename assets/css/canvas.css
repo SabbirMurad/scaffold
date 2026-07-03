@@ -18,6 +18,21 @@ body.connect-mode .node.has-action::after {
 }
 .node.frame { background: white; overflow: hidden; }
 
+/* Frame name tag: sits just above the frame's top-left, anchored there and
+   counter-scaled off --zoom so it keeps a constant on-screen size. */
+.frame-label {
+  position: absolute; z-index: 40;
+  transform: translateY(-100%) scale(calc(1 / var(--zoom, 1)));
+  transform-origin: left bottom;
+  padding-bottom: 4px;
+  max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--sans); font-size: 12px; line-height: 1.2;
+  color: var(--text3); cursor: pointer; user-select: none;
+}
+.frame-label:hover { color: var(--text2); }
+.frame-label.selected { color: var(--accent); }
+body.comment-mode .frame-label { pointer-events: none; }
+
 /* Connect (prototype) mode — arrow overlay + wiring affordances */
 #flow-layer { position: absolute; overflow: visible; pointer-events: none; z-index: 50; }
 .flow-line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
