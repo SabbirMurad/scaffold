@@ -267,19 +267,36 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Generate a .dart file per model (+ any enum a model uses) under lib/model/, and
-// a Riverpod notifier per provider under lib/provider/, then bundle them into a
-// zip and trigger a download. Assumes the project is otherwise error-free (the
-// export button is gated on that). Returns a small summary.
-export function exportModelsCode() {
+// Everything that can be exported right now: valid models, the enums those models
+// reference, and providers. Returned as arrays of the actual state objects.
+export function collectExportables() {
   const models = state.models.filter(m => modelError(m) === null);
-  const providers = state.providers;
-  if (!models.length && !providers.length) return { ok: false };
-
-  // Only emit enums that valid models actually reference.
   const refs = new Set();
   models.forEach(m => m.properties.forEach(p => collectRefs(p.type, refs)));
   const enums = state.enums.filter(e => enumError(e) === null && refs.has(e.name));
+  const providers = state.providers;
+  return { models, enums, providers };
+}
+
+// The Dart file an exported item lands at (shown in the export picker).
+export function dartPath(kind, name) {
+  return `lib/${kind === 'providers' ? 'provider' : 'model'}/${snake(name)}.dart`;
+}
+
+// Generate a .dart file per model (+ any enum a model uses) under lib/model/, and
+// a Riverpod notifier per provider under lib/provider/, then bundle them into a
+// zip and trigger a download. `selection` (optional) narrows the export to chosen
+// items: { models:Set<name>, enums:Set<name>, providers:Set<name> }. Assumes the
+// project is otherwise error-free (the export button is gated on that).
+export function exportModelsCode(selection = null) {
+  const all = collectExportables();
+  let { models, enums, providers } = all;
+  if (selection) {
+    models = models.filter(m => selection.models?.has(m.name));
+    enums = enums.filter(e => selection.enums?.has(e.name));
+    providers = providers.filter(p => selection.providers?.has(p.name));
+  }
+  if (!models.length && !enums.length && !providers.length) return { ok: false };
 
   const files = [];
   models.forEach(m => files.push({ name: `lib/model/${snake(m.name)}.dart`, content: generateModelFile(m) }));
@@ -287,5 +304,5 @@ export function exportModelsCode() {
   providers.forEach(p => files.push({ name: `lib/provider/${snake(p.name)}.dart`, content: generateProviderFile(p) }));
 
   downloadBlob(makeZip(files), `${pkgName()}_code.zip`);
-  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, skipped: state.models.length - models.length };
+  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, skipped: state.models.length - all.models.length };
 }

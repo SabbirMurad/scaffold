@@ -11,7 +11,7 @@ import { initApi, renderApi } from './api.js';
 import { initColors, renderColors } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
 import { initMock, renderMock } from './mock.js';
-import { exportModelsCode } from './codegen.js';
+import { exportModelsCode, collectExportables, dartPath } from './codegen.js';
 import { updateExportButton } from './validate.js';
 import { initDropdowns, ddTrigger } from './dropdown.js';
 import { initIconPicker } from './icons-picker.js';
@@ -127,21 +127,79 @@ imageInput.addEventListener('change', () => {
   reader.readAsDataURL(file);
 });
 
-// Export all model code as a downloadable Dart project (one file per model + used enums)
+// Export model/provider code as a downloadable Dart project. Clicking the icon
+// opens a picker of what will be exported (checkboxes per model/enum/provider).
+const exportModal = document.getElementById('export-modal');
+const exportList = document.getElementById('export-list');
+const closeExport = () => { if (exportModal) exportModal.hidden = true; };
+
+// Build the checkbox list, grouped by kind, all checked by default.
+function buildExportList(groups) {
+  const group = (kind, title, names) => names.length ? `
+    <div class="export-group">
+      <div class="export-group-head">
+        <span>${title}</span>
+        <button type="button" class="export-toggle-all" data-kind="${kind}">Toggle all</button>
+      </div>
+      ${names.map(n => `
+      <label class="export-item">
+        <input type="checkbox" data-kind="${kind}" value="${esc(n)}" checked>
+        <span class="export-item-name">${esc(n)}</span>
+        <span class="export-item-path">${esc(dartPath(kind, n))}</span>
+      </label>`).join('')}
+    </div>` : '';
+  return group('models', 'Models', groups.models.map(m => m.name))
+    + group('enums', 'Enums', groups.enums.map(e => e.name))
+    + group('providers', 'Providers', groups.providers.map(p => p.name));
+}
+
+function openExportModal() {
+  const groups = collectExportables();
+  if (!groups.models.length && !groups.enums.length && !groups.providers.length) {
+    showToast('Nothing to export — create a model or provider first');
+    return;
+  }
+  exportList.innerHTML = buildExportList(groups);
+  exportModal.hidden = false;
+}
+
 document.getElementById('btn-export-code')?.addEventListener('click', (e) => {
   e.preventDefault();
   // The icon isn't natively disabled (so its hover hint shows); guard here instead.
   if (e.currentTarget.classList.contains('has-error')) { showToast('Fix errors before exporting'); return; }
-  const r = exportModelsCode();
-  if (!r.ok) { showToast('Nothing to export — create a model or provider first'); return; }
+  openExportModal();
+});
+
+// "Toggle all" in a group flips every checkbox in that group.
+exportList?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.export-toggle-all');
+  if (!btn) return;
+  const boxes = [...exportList.querySelectorAll(`input[data-kind="${btn.dataset.kind}"]`)];
+  const allOn = boxes.every(b => b.checked);
+  boxes.forEach(b => { b.checked = !allOn; });
+});
+
+document.getElementById('export-confirm')?.addEventListener('click', () => {
+  const selection = { models: new Set(), enums: new Set(), providers: new Set() };
+  exportList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => selection[cb.dataset.kind].add(cb.value));
+  if (!selection.models.size && !selection.enums.size && !selection.providers.size) {
+    showToast('Select at least one item to export');
+    return;
+  }
+  const r = exportModelsCode(selection);
+  closeExport();
+  if (!r.ok) { showToast('Nothing to export'); return; }
   const parts = [];
   if (r.models) parts.push(`${r.models} model${r.models === 1 ? '' : 's'}`);
   if (r.enums) parts.push(`${r.enums} enum${r.enums === 1 ? '' : 's'}`);
   if (r.providers) parts.push(`${r.providers} provider${r.providers === 1 ? '' : 's'}`);
-  let msg = 'Exported ' + (parts.join(' + ') || 'nothing');
-  if (r.skipped) msg += ` (${r.skipped} skipped — fix name errors)`;
-  showToast(msg);
+  showToast('Exported ' + (parts.join(' + ') || 'nothing'));
 });
+
+document.getElementById('export-close')?.addEventListener('click', closeExport);
+document.getElementById('export-cancel')?.addEventListener('click', closeExport);
+exportModal?.addEventListener('click', (e) => { if (e.target === exportModal) closeExport(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && exportModal && !exportModal.hidden) closeExport(); });
 
 // Nav icons.
 document.getElementById('nav-home')?.addEventListener('click', () => { window.location.href = '/dashboard'; });

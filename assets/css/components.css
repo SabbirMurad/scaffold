@@ -64,8 +64,10 @@ body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64
   overflow: hidden;
 }
 #top-card, #nav-card { flex-shrink: 0; }
-/* Let the nav-icon hover labels escape the card instead of being clipped */
-#top-card { overflow: visible; }
+/* Let the nav-icon hover labels / mode-tab tooltips escape the card */
+#top-card, #nav-card { overflow: visible; }
+/* …and paint the nav card (with its tab tooltips) above the panel below it. */
+#nav-card { position: relative; z-index: 5; }
 
 /* Nav icon row (Home / Sync / Export / Logout) under the title row */
 #nav-icons { display: flex; align-items: center; justify-content: space-around; gap: 4px; padding: 8px 8px; }
@@ -132,23 +134,26 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 #sidebar-toggle:hover img, #sidebar-open:hover img { filter: invert(90%); }
 
 /* Mode tabs (Design / Model / API) — stacked vertically */
-#mode-tabs { display: flex; flex-direction: column; gap: 2px; padding: 8px; flex-shrink: 0; }
+/* Mode tabs — a row of icon buttons; the name shows on hover as a tooltip. */
+#mode-tabs { display: flex; flex-direction: row; gap: 4px; padding: 8px; flex-shrink: 0; }
 .mode-tab {
-  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
-  padding: 8px 12px; background: none; border: 1px solid transparent;
+  position: relative; flex: 1; display: flex; align-items: center; justify-content: center;
+  height: 36px; padding: 0; background: none; border: 1px solid transparent;
   border-radius: 8px; color: var(--text3); font-family: var(--sans);
-  font-size: 13px; cursor: pointer; transition: color 0.1s, background 0.1s, border-color 0.1s;
+  cursor: pointer; transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 .mode-tab-icon { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; }
 .mode-tab-icon svg { width: 18px; height: 18px; }
 .mode-tab-icon svg text { font-family: var(--sans); font-weight: 700; }
-.mode-tab-label { flex: 1; min-width: 0; }
+.mode-tab-label { display: none; }
 .mode-tab:hover { color: var(--text); background: var(--surface2); }
 .mode-tab.active { color: var(--text); background: var(--surface3); }
 .mode-tab.active .mode-tab-icon { color: var(--accent); }
-/* Active indicator dot on the right edge of the row. */
-.mode-tab.active::after {
-  content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0;
+/* Hover tooltip showing the tab name (mirrors the toolbar tool tooltips). */
+.mode-tab[data-tooltip]:hover::after {
+  content: attr(data-tooltip); position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  background: var(--surface3); color: var(--text); padding: 3px 8px; border-radius: 5px; white-space: nowrap;
+  font-size: 11.5px; pointer-events: none; border: 1px solid var(--border2); z-index: 200;
 }
 #design-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 
@@ -211,6 +216,18 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 .share-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .share-badge.accepted { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
 .share-badge.pending { color: var(--text3); background: var(--surface3); }
+
+/* Export picker — checklist of what to include in the exported Dart project */
+.export-list { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; margin: 2px 0; }
+.export-group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.export-group-head > span { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text3); }
+.export-toggle-all { background: none; border: none; color: var(--accent); font-family: var(--sans); font-size: 11.5px; cursor: pointer; padding: 0; }
+.export-toggle-all:hover { text-decoration: underline; }
+.export-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.export-item:hover { background: var(--surface2); }
+.export-item input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.export-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
+.export-item-path { margin-left: auto; font-size: 11px; color: var(--text3); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
 
 /* Icon picker (Iconify) */
 .icon-modal { max-width: 540px; }

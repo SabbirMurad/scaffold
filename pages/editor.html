@@ -100,27 +100,27 @@
     </div>
     <div id="nav-card">
       <div id="mode-tabs">
-        <button class="mode-tab active" data-mode="design">
+        <button class="mode-tab active" data-mode="design" data-tooltip="Design">
           <span class="mode-tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="10" height="10" rx="2"/><circle cx="15.5" cy="15.5" r="5"/></svg></span>
           <span class="mode-tab-label">Design</span>
         </button>
-        <button class="mode-tab" data-mode="color">
+        <button class="mode-tab" data-mode="color" data-tooltip="Color">
           <span class="mode-tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.6-.8 1.6-1.6 0-.5-.3-.9-.6-1.2-.3-.3-.5-.6-.5-1 0-.8.7-1.4 1.5-1.4H15a4 4 0 0 0 4-4c0-4.4-3.1-7.8-7-7.8z"/><circle cx="7.5" cy="11.5" r=".4" fill="currentColor"/><circle cx="12" cy="8" r=".4" fill="currentColor"/><circle cx="16" cy="11" r=".4" fill="currentColor"/></svg></span>
           <span class="mode-tab-label">Color</span>
         </button>
-        <button class="mode-tab" data-mode="typography">
+        <button class="mode-tab" data-mode="typography" data-tooltip="Typography">
           <span class="mode-tab-icon"><svg viewBox="0 0 24 24" fill="none"><text x="12" y="17.5" text-anchor="middle" font-family="var(--sans)" font-size="16" font-weight="700" fill="currentColor">A</text></svg></span>
           <span class="mode-tab-label">Typography</span>
         </button>
-        <button class="mode-tab" data-mode="model">
+        <button class="mode-tab" data-mode="model" data-tooltip="Model">
           <span class="mode-tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span>
           <span class="mode-tab-label">Model</span>
         </button>
-        <button class="mode-tab" data-mode="mock">
+        <button class="mode-tab" data-mode="mock" data-tooltip="Mock Data">
           <span class="mode-tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="5" rx="1.5"/><rect x="3.5" y="11" width="17" height="5" rx="1.5"/><path d="M7 6.5h.01M7 13.5h.01"/><path d="M17 18.5l1.4 1.4 2.6-2.8"/></svg></span>
           <span class="mode-tab-label">Mock Data</span>
         </button>
-        <button class="mode-tab" data-mode="api">
+        <button class="mode-tab" data-mode="api" data-tooltip="Provider">
           <span class="mode-tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 4C6.6 4 6 5.4 6 7.3s.4 3-.9 4.7c1.3 1.7.9 2.8.9 4.7S6.6 20 8.5 20"/><path d="M15.5 4c1.9 0 2.5 1.4 2.5 3.3s-.4 3 .9 4.7c-1.3 1.7-.9 2.8-.9 4.7S17.4 20 15.5 20"/></svg></span>
           <span class="mode-tab-label">Provider</span>
         </button>
@@ -187,6 +187,22 @@
     <div id="share-people" class="share-people" hidden>
       <div class="share-people-head">People with access</div>
       <div id="share-people-list" class="share-people-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Export code Modal -->
+<div id="export-modal" class="modal-overlay" hidden>
+  <div class="modal share-modal-box">
+    <div class="modal-head">
+      <h3>Export code</h3>
+      <button type="button" class="modal-close" id="export-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-sub">Choose what to include in the exported Dart project.</p>
+    <div id="export-list" class="export-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn-ghost" id="export-cancel">Cancel</button>
+      <button type="submit" class="modal-btn" id="export-confirm">Export selected</button>
     </div>
   </div>
 </div>
