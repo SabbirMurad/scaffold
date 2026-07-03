@@ -41,6 +41,39 @@
       </button>
     </div>
 
+    <div class="tool-group">
+      <button class="tool-btn" id="tool-connect" data-tool="connect" data-tooltip="Connect — link to a screen">
+        <img src="/assets/icons/connect.svg" alt="Connect" width="15" height="15">
+      </button>
+      <button class="tool-btn" id="tool-comment" data-tool="comment" data-tooltip="Comment (C)">
+        <img src="/assets/icons/comment.svg" alt="Comment" width="15" height="15">
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Comment thread popover (Comment mode) -->
+  <div id="comment-popover" hidden>
+    <div class="cmt-head">
+      <span class="cmt-title" id="cmt-title">Comment</span>
+      <div class="cmt-head-actions">
+        <button type="button" id="cmt-resolve" title="Resolve" aria-label="Resolve">&#10003;</button>
+        <button type="button" id="cmt-delete" title="Delete" aria-label="Delete">&#128465;</button>
+        <button type="button" id="cmt-close" title="Close" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    <div id="cmt-thread" class="cmt-thread"></div>
+    <div class="cmt-composer">
+      <textarea id="cmt-input" rows="1" placeholder="Add a comment…"></textarea>
+      <button type="button" id="cmt-send" class="cmt-send">Send</button>
+    </div>
+  </div>
+
+  <!-- Connection editor popover (Connect mode) -->
+  <div id="flow-popover" hidden>
+    <div class="flow-pop-head"><span id="flow-pop-target">→ screen</span><button type="button" id="flow-pop-del" title="Remove link" aria-label="Remove link">&times;</button></div>
+    <div class="flow-pop-row"><span>Mode</span><div id="flow-pop-mode"></div></div>
+    <div class="flow-pop-row"><span>Transition</span><div id="flow-pop-trans"></div></div>
   </div>
 
   <!-- LEFT SIDEBAR -->
@@ -135,19 +168,26 @@
 
 <!-- Share Modal -->
 <div id="share-modal" class="modal-overlay" hidden>
-  <div class="modal">
+  <div class="modal share-modal-box">
     <div class="modal-head">
       <h3>Share project</h3>
       <button type="button" class="modal-close" id="share-close" aria-label="Close">&times;</button>
     </div>
-    <p class="modal-sub">Invite someone by email. Once they accept the request from their home page, they can view and edit this project.</p>
+    <p class="modal-sub">Invite someone by email. Once they accept the request from their home page, they get the access level you choose here.</p>
     <form id="share-form">
-      <input type="email" id="share-email" class="modal-input" placeholder="name@example.com" required autocomplete="off">
+      <div class="share-invite-row">
+        <input type="email" id="share-email" class="modal-input" placeholder="name@example.com" required autocomplete="off">
+        <div id="share-role-slot"></div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="modal-btn-ghost" id="share-cancel">Cancel</button>
         <button type="submit" class="modal-btn">Send invite</button>
       </div>
     </form>
+    <div id="share-people" class="share-people" hidden>
+      <div class="share-people-head">People with access</div>
+      <div id="share-people-list" class="share-people-list"></div>
+    </div>
   </div>
 </div>
 
@@ -187,10 +227,9 @@
       <button type="button" class="modal-close" id="image-close" aria-label="Close">&times;</button>
     </div>
     <div class="image-modal-bar">
-      <div class="icon-styles" id="image-cats"></div>
       <button type="button" class="modal-btn-ghost" id="image-upload">Upload from device</button>
     </div>
-    <input type="text" id="image-search" class="modal-input" placeholder="Search photos &amp; illustrations — e.g. mountain, office, texture" autocomplete="off" spellcheck="false">
+    <input type="text" id="image-search" class="modal-input" placeholder="Search photos — e.g. mountain, office, texture" autocomplete="off" spellcheck="false">
     <div class="image-hint">Click to add one &middot; Shift-click to select several</div>
     <div class="img-results" id="image-results"></div>
     <div class="image-action-bar" id="image-action-bar" hidden>

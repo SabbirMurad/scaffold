@@ -1,7 +1,54 @@
 /* Authentication page — a single centered glass card over the app background */
-#auth { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
+#auth { position: relative; display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; overflow: hidden; }
+
+/* ───────── Decorative glassmorphism backdrop ───────── */
+.auth-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+
+/* Soft, heavily-blurred colored light blobs */
+.auth-blob { position: absolute; border-radius: 50%; filter: blur(64px); will-change: transform; }
+.blob-1 {
+  width: 480px; height: 480px; top: -140px; left: -110px; opacity: 0.55;
+  background: radial-gradient(circle at 32% 32%, #1ECC7A, transparent 68%);
+  animation: auth-drift 20s ease-in-out infinite;
+}
+.blob-2 {
+  width: 560px; height: 560px; right: -160px; bottom: -180px; opacity: 0.42;
+  background: radial-gradient(circle at 50% 50%, #4d7cff, transparent 68%);
+  animation: auth-drift 26s ease-in-out infinite reverse;
+}
+.blob-3 {
+  width: 380px; height: 380px; left: 6%; bottom: 8%; opacity: 0.34;
+  background: radial-gradient(circle at 50% 50%, #a259ff, transparent 70%);
+  animation: auth-drift 23s ease-in-out infinite;
+}
+
+/* Floating translucent glass panels — frosted, bordered, tilted for depth */
+.auth-shape {
+  position: absolute; background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.10); border-radius: 26px;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 14px 46px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.10);
+  will-change: transform; animation: auth-float 12s ease-in-out infinite;
+}
+.shape-1 { width: 168px; height: 168px; top: 15%; left: 16%; --rot: -18deg; animation-duration: 13s; }
+.shape-2 { width: 118px; height: 118px; bottom: 17%; right: 19%; --rot: 22deg; border-radius: 50%; animation-duration: 10s; }
+.shape-3 { width: 96px;  height: 96px;  top: 66%; left: 27%; --rot: 12deg; animation-duration: 15s; }
+.shape-4 { width: 140px; height: 140px; top: 12%; right: 14%; --rot: 16deg; border-radius: 34px; animation-duration: 17s; }
+
+@keyframes auth-float {
+  0%, 100% { transform: translateY(0) rotate(var(--rot, 0deg)); }
+  50%      { transform: translateY(-20px) rotate(var(--rot, 0deg)); }
+}
+@keyframes auth-drift {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(34px, -26px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-blob, .auth-shape { animation: none; }
+}
 
 .auth-card {
+  position: relative; z-index: 1;
   width: 100%; max-width: 384px; padding: 32px 30px 28px;
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
@@ -46,6 +93,22 @@
 
 .auth-hint { display: none; } /* fields that only show in sign-up mode toggle this */
 body.signup .auth-hint { display: flex; }
+
+/* Divider + social sign-in */
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 16px; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.auth-divider span { font-size: 11.5px; color: var(--text3); white-space: nowrap; }
+
+.auth-social { display: flex; gap: 10px; }
+.auth-social-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px; border-radius: 10px; background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-family: var(--sans); font-size: 13.5px; font-weight: 500;
+  cursor: pointer; transition: background 0.1s, border-color 0.1s;
+}
+.auth-social-btn:hover { background: var(--surface3); border-color: var(--text3); }
+.auth-social-btn:active { transform: translateY(1px); }
+.auth-social-btn img { width: 18px; height: 18px; display: block; }
 
 .auth-foot { text-align: center; font-size: 12.5px; color: var(--text3); margin-top: 18px; }
 .auth-foot a { color: var(--accent); text-decoration: none; cursor: pointer; }

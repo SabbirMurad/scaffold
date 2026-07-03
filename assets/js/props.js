@@ -8,6 +8,10 @@ import { saveHistory } from './history.js';
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 
+// Shape toggle glyphs: a rounded square and a circle (sized by .shape-btn svg).
+const SHAPE_RECT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/></svg>`;
+const SHAPE_CIRCLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="7.7"/></svg>`;
+
 // Padding/Margin can show 2 combined inputs (Horizontal/Vertical) or 4 per-side
 // inputs. Transient UI preference (not per-node), toggled by the side icon.
 const boxExpanded = { pad: false, mar: false };
@@ -165,6 +169,57 @@ propsFields.addEventListener('dd:change', e => {
     case 'hmode': setSizeMode(node, 'h', v); break;
   }
 });
+
+// ───────── Navigation / Interactions (Phase 1: design only) ─────────
+// Screens are the top-level frame nodes.
+function screenFrames() { return state.nodes.filter(n => n.type === 'frame'); }
+function slugifyName(name) {
+  const s = (name || 'screen').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return '/' + (s || 'screen');
+}
+function routeOf(frame) {
+  return frame.routePath && frame.routePath.trim() ? frame.routePath.trim() : slugifyName(frame.name);
+}
+
+// Route + start-screen controls, shown for frame nodes.
+function screenSection(node) {
+  const others = screenFrames().filter(f => f.id !== node.id);
+  return `
+    <div class="prop-section">
+      <div class="prop-section-title">Screen</div>
+      <div class="prop-row">
+        <span class="prop-label" style="width:auto">Route</span>
+        <input class="prop-input" id="p-route" value="${esc(routeOf(node))}" placeholder="/home" style="flex:1">
+      </div>
+      <label class="prop-check" style="margin-top:8px">
+        <input type="checkbox" id="p-initial" ${node.isInitial ? 'checked' : ''}>
+        <span>Start screen (app opens here)</span>
+      </label>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">${others.length} other screen${others.length === 1 ? '' : 's'} can navigate here.</div>
+    </div>`;
+}
+
+const MODE_SHORT = { push: 'Push', replace: 'Replace', clear: 'Clear stack' };
+const TRANS_SHORT = { platform: 'Platform', fade: 'Fade', slideRight: 'Slide', none: 'None' };
+
+// Read-only interaction summary. Wiring is done visually with the Connect tool
+// (drag from a layer to a screen), so the panel just reports the current link.
+function interactionsSection(node) {
+  const a = node.action;
+  const hasNav = a && a.type === 'navigate' && a.targetFrameId;
+  const tgt = hasNav ? getNode(a.targetFrameId) : null;
+  return `
+    <div class="prop-section">
+      <div class="prop-section-title">Interactions</div>
+      ${hasNav && tgt ? `
+      <div style="font-size:12px;color:var(--text2);line-height:1.55">
+        On tap → navigate to <span style="color:var(--accent);font-weight:600">${esc(tgt.name)}</span>
+        <div style="color:var(--text3);font-size:11px;margin-top:2px">${MODE_SHORT[a.mode] || 'Push'} · ${TRANS_SHORT[a.transition] || 'Platform'} transition</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Edit or remove it with the <span style="color:var(--text2)">Connect</span> tool.</div>` : `
+      <div style="font-size:11.5px;color:var(--text3);line-height:1.55">Pick the <span style="color:var(--text2)">Connect</span> tool, then drag from this layer to a screen to link them.</div>`}
+    </div>`;
+}
 
 // Container auto-layout choices, shown as a row of icon toggles. 'Stack' overlaps
 // absolutely-positioned children, which can't scroll, so it's disabled while the
@@ -327,6 +382,7 @@ export function renderProps() {
       </div>
       ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
     </div>
+    ${node.type === 'frame' ? screenSection(node) : ''}
     ${node.type === 'container' ? layoutSection(node) : ''}
     ${(node.type === 'container' && ['none', 'row', 'column'].includes(node.layout || 'none')) || node.type === 'row' || node.type === 'column' ? `
     <div class="prop-section">
@@ -362,6 +418,7 @@ export function renderProps() {
     </div>
     ${node.type === 'container' || node.type === 'frame' ? boxSection('Padding', 'pad', node.padding) : ''}
     ${node.type === 'container' ? boxSection('Margin', 'mar', node.margin) : ''}
+    ${node.type !== 'frame' ? `
     <div class="prop-section">
       <div class="prop-section-title">Appearance</div>
       <div class="prop-row affix-row">
@@ -379,13 +436,13 @@ export function renderProps() {
         <button type="button" class="flip-btn ${node.flipH ? 'active' : ''}" style="margin-left:12px" data-flip="h" title="Flip horizontal">${FLIPH_ICON}</button>
         <button type="button" class="flip-btn ${node.flipV ? 'active' : ''}" data-flip="v" title="Flip vertical">${FLIPV_ICON}</button>
       </div>
-    </div>
+    </div>` : ''}
     ${node.type === 'container' ? `
     <div class="prop-section">
       <div class="prop-section-title">Shape</div>
       <div class="shape-toggle">
-        <button class="shape-btn ${node.shape !== 'circle' ? 'active' : ''}" data-shape="rect">Rectangle</button>
-        <button class="shape-btn ${node.shape === 'circle' ? 'active' : ''}" data-shape="circle">Circle</button>
+        <button class="shape-btn ${node.shape !== 'circle' ? 'active' : ''}" data-shape="rect" title="Rectangle" aria-label="Rectangle">${SHAPE_RECT_ICON}</button>
+        <button class="shape-btn ${node.shape === 'circle' ? 'active' : ''}" data-shape="circle" title="Circle" aria-label="Circle">${SHAPE_CIRCLE_ICON}</button>
       </div>
     </div>` : ''}
     ${node.type === 'container' ? `
@@ -488,10 +545,27 @@ export function renderProps() {
         ${state.typography.map(t => `<button class="typo-pick ${node.typoId === t.id ? 'selected' : ''}" data-picktypo="${t.id}" title="${esc(t.name)}">${esc(t.name)}</button>`).join('')}
       </div>`}
     </div>` : ''}
+    ${node.type !== 'frame' ? interactionsSection(node) : ''}
   `;
 
   // Bind inputs
   bindProp('p-name', v => { node.name = v; renderLayers(); });
+  if (node.type === 'frame') {
+    bindProp('p-route', v => {
+      let r = v.trim();
+      if (r && !r.startsWith('/')) r = '/' + r;
+      node.routePath = r;
+    });
+    const routeEl = document.getElementById('p-route');
+    if (routeEl) routeEl.addEventListener('change', () => saveHistory());
+    const initEl = document.getElementById('p-initial');
+    if (initEl) initEl.addEventListener('change', () => {
+      // Only one screen can be the start screen.
+      if (initEl.checked) state.nodes.forEach(n => { if (n.type === 'frame') n.isInitial = (n.id === node.id); });
+      else node.isInitial = false;
+      saveHistory();
+    });
+  }
   bindPropNum('p-x', v => { node.x = v; updateNodeEl(node); });
   bindPropNum('p-y', v => { node.y = v; updateNodeEl(node); });
   if (node.type !== 'frame') {

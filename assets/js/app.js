@@ -1,5 +1,5 @@
 import { state, getNode, makeNode, seedDefaults } from './state.js';
-import { canvasWrap, addMenu, frameMenu, closeMenus, showToast } from './utils.js';
+import { canvasWrap, addMenu, frameMenu, closeMenus, showToast, esc } from './utils.js';
 import { canvasToWorld, canAcceptChild, isSingleChild } from './nodes.js';
 import { saveHistory } from './history.js';
 import { render, applyTransform } from './render.js';
@@ -13,11 +13,13 @@ import { initTypography, renderTypography } from './typography.js';
 import { initMock, renderMock } from './mock.js';
 import { exportModelsCode } from './codegen.js';
 import { updateExportButton } from './validate.js';
-import { initDropdowns } from './dropdown.js';
+import { initDropdowns, ddTrigger } from './dropdown.js';
 import { initIconPicker } from './icons-picker.js';
 import { initFontPicker } from './google-fonts.js';
 import { initImagePicker } from './image-picker.js';
-import { addShare } from './shares.js';
+import { initFlow } from './flow.js';
+import { initComments } from './comments.js';
+import { addShare, sharesFor, setShareRole, ROLES } from './shares.js';
 
 // Initialize event systems
 initCanvasEvents();
@@ -31,6 +33,8 @@ initDropdowns();
 initIconPicker();
 initFontPicker();
 initImagePicker();
+initFlow();
+initComments();
 
 // Add element menu
 document.getElementById('btn-add-layer').addEventListener('click', e => {
@@ -147,8 +151,57 @@ document.getElementById('nav-logout')?.addEventListener('click', () => { window.
 // Share project — invite by email (the request shows up in the home Requests tab).
 const shareModal = document.getElementById('share-modal');
 const shareEmail = document.getElementById('share-email');
+const shareRoleSlot = document.getElementById('share-role-slot');
+const sharePeople = document.getElementById('share-people');
+const sharePeopleList = document.getElementById('share-people-list');
+const ROLE_LABEL = { viewer: 'Viewer', editor: 'Editor', owner: 'Owner' };
+const ROLE_OPTS = ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] }));
+
+// The role picker beside the email input, reset to Editor each time we open.
+function renderInviteRole() {
+  if (shareRoleSlot) shareRoleSlot.innerHTML = ddTrigger({ value: 'editor', options: ROLE_OPTS, triggerClass: 'dd-share' });
+}
+const inviteRole = () => shareRoleSlot?.querySelector('.dd-trigger')?.dataset.ddValue || 'editor';
+
+// A row per person the project is shared with, each with a role dropdown and a
+// pending/accepted badge. Editing a role updates the stored share in place.
+function renderSharePeople() {
+  if (!sharePeople) return;
+  const people = sharesFor(state.projectName);
+  sharePeople.hidden = people.length === 0;
+  sharePeopleList.innerHTML = people.map(p => {
+    const badge = p.status === 'accepted'
+      ? '<span class="share-badge accepted">Accepted</span>'
+      : '<span class="share-badge pending">Pending</span>';
+    const roleDd = ddTrigger({ value: p.role, options: ROLE_OPTS, data: { 'role-for': p.id }, triggerClass: 'dd-share' });
+    return `<div class="share-person" data-id="${p.id}">
+        <div class="share-ava">${esc((p.email[0] || '?').toUpperCase())}</div>
+        <div class="share-person-info">
+          <div class="share-person-email">${esc(p.email)}</div>
+          ${badge}
+        </div>
+        ${roleDd}
+      </div>`;
+  }).join('');
+}
+
+// The dropdown controller updates data-dd-value but leaves the visible label to
+// the consumer; sync it for every role picker inside the share modal.
+shareModal?.addEventListener('dd:change', e => {
+  const lbl = e.target.closest('.dd-trigger')?.querySelector('.dd-label');
+  if (lbl) lbl.textContent = ROLE_LABEL[e.detail.value] || e.detail.value;
+});
+
+sharePeopleList?.addEventListener('dd:change', e => {
+  const trig = e.target.closest('[data-role-for]');
+  if (!trig) return;
+  setShareRole(trig.dataset.roleFor, e.detail.value);
+  const email = trig.closest('.share-person')?.querySelector('.share-person-email')?.textContent;
+  showToast(`${email || 'Member'} is now ${ROLE_LABEL[e.detail.value] || e.detail.value}`);
+});
+
 const closeShare = () => { if (shareModal) { shareModal.hidden = true; document.getElementById('share-form')?.reset(); } };
-document.getElementById('nav-share')?.addEventListener('click', () => { shareModal.hidden = false; shareEmail?.focus(); });
+document.getElementById('nav-share')?.addEventListener('click', () => { shareModal.hidden = false; renderInviteRole(); renderSharePeople(); shareEmail?.focus(); });
 document.getElementById('share-close')?.addEventListener('click', closeShare);
 document.getElementById('share-cancel')?.addEventListener('click', closeShare);
 shareModal?.addEventListener('click', e => { if (e.target === shareModal) closeShare(); });
@@ -157,9 +210,12 @@ document.getElementById('share-form')?.addEventListener('submit', e => {
   e.preventDefault();
   const email = shareEmail.value.trim();
   if (!email) return;
-  addShare(email, state.projectName);
-  closeShare();
-  showToast(`Invitation sent to ${email}`);
+  const role = inviteRole();
+  addShare(email, state.projectName, role);
+  shareEmail.value = '';
+  renderInviteRole();
+  renderSharePeople();
+  showToast(`Invitation sent to ${email} as ${ROLE_LABEL[role] || role}`);
 });
 
 // Keep the export button's enabled/disabled state in sync with project validity.

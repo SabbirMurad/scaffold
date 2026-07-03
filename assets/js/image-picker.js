@@ -5,7 +5,8 @@ import { render } from './render.js';
 import { canvasWrap, esc, showToast } from './utils.js';
 
 // Stock-image picker — searches the free Openverse API (https://openverse.org),
-// a catalogue of openly-licensed photos & illustrations. No API key; CORS-enabled.
+// a catalogue of openly-licensed images. No API key; CORS-enabled. The search is
+// restricted to photographs (illustrations are excluded).
 // A picked image is fetched and inlined as a data-URL so the design stays
 // self-contained (same as an uploaded image), then dropped on the canvas as an
 // "image" node — reusing the placement rules of the icon picker.
@@ -14,25 +15,23 @@ import { canvasWrap, esc, showToast } from './utils.js';
 // selection exists) toggles a multi-select, and the action bar adds them all.
 
 const API = 'https://api.openverse.org/v1/images/';
-const CATS = [['all', 'All'], ['photograph', 'Photos'], ['illustration', 'Illustrations']];
 const MAX = 320;      // largest side of a freshly-placed image, in canvas px
 const CASCADE = 24;   // px offset between images placed together, so they don't fully overlap
 
-let modal, chipsEl, searchInput, results, uploadBtn, closeBtn, actionBar, countEl, addBtn, clearBtn;
-let activeCat = 'all';
+let modal, searchInput, results, uploadBtn, closeBtn, actionBar, countEl, addBtn, clearBtn;
 let searchToken = 0; // guards against out-of-order async responses
 let debounce;
 let seeded = false;
+// Pagination state for the infinite-scroll grid.
+let curQuery = '', curPage = 0, totalPages = 1, loading = false;
 const selected = new Map(); // thumbnail src -> { w, h }
 
 function msg(text) { results.innerHTML = `<div class="icon-msg">${esc(text)}</div>`; }
 
-function renderResults(items) {
-  if (!items.length) { msg('No images found — try another search.'); return; }
-  results.innerHTML = items.map(it =>
-    `<button class="img-tile" data-src="${esc(it.thumbnail)}" data-w="${it.width || 0}" data-h="${it.height || 0}" title="${esc(it.title || '')}">
+function tileHtml(it) {
+  return `<button class="img-tile" data-src="${esc(it.thumbnail)}" data-w="${it.width || 0}" data-h="${it.height || 0}" title="${esc(it.title || '')}">
        <img src="${esc(it.thumbnail)}" alt="" loading="lazy">
-     </button>`).join('');
+     </button>`;
 }
 
 // ───────── Multi-select ─────────
@@ -59,10 +58,8 @@ function clearSelection() {
 // ───────── Search ─────────
 
 // Openverse validates every result's link is still live before returning; that
-// step intermittently fails with 424 (Failed Dependency) — most often for
-// illustrations, whose sources (e.g. Wikimedia SVGs) are slower to probe.
-// `filter_dead=false` skips it, and we retry a couple of times as a guard
-// against a transient 424/5xx.
+// step intermittently fails with 424 (Failed Dependency). `filter_dead=false`
+// skips it, and we retry a couple of times as a guard against a transient 424/5xx.
 async function fetchWithRetry(url, tries = 3) {
   let res;
   for (let i = 0; i < tries; i++) {
@@ -73,25 +70,53 @@ async function fetchWithRetry(url, tries = 3) {
   return res;
 }
 
+// One page of photo results. Openverse pages are 1-indexed and page_size is
+// capped at 20 for anonymous use; illustrations are intentionally excluded.
+function fetchPage(q, page) {
+  return fetchWithRetry(`${API}?q=${encodeURIComponent(q)}&page_size=20&page=${page}&mature=false&filter_dead=false&category=photograph`);
+}
+
+// Fresh search — resets pagination and replaces the grid.
 async function runSearch() {
   clearSelection(); // results are about to change; drop any pending picks
   const q = searchInput.value.trim();
-  if (!q) { msg('Type to search free stock photos &amp; illustrations.'); return; }
-  const base = `${API}?q=${encodeURIComponent(q)}&page_size=20&mature=false&filter_dead=false`;
-  const cat = activeCat === 'all' ? '' : `&category=${activeCat}`;
+  curQuery = q; curPage = 0; totalPages = 1;
+  if (!q) { msg('Type to search free stock photos.'); return; }
   const token = ++searchToken;
   msg('Searching…');
   try {
-    let res = await fetchWithRetry(base + cat);
-    // A category filter can make Openverse 424 more readily; if it still fails
-    // after retries, fall back to the unfiltered query so results still appear.
-    if (!res.ok && cat) res = await fetchWithRetry(base);
+    const res = await fetchPage(q, 1);
     if (token !== searchToken) return; // a newer search superseded this one
     if (!res.ok) { msg('The image service is busy right now — please try again in a moment.'); return; }
     const data = await res.json();
-    renderResults(data.results || []);
+    const items = data.results || [];
+    if (!items.length) { msg('No images found — try another search.'); return; }
+    curPage = 1;
+    totalPages = data.page_count || 1;
+    results.innerHTML = items.map(tileHtml).join('');
+    results.scrollTop = 0;
   } catch {
     if (token === searchToken) msg('Could not reach the image service — check your connection.');
+  }
+}
+
+// Infinite scroll — append the next page as the grid nears its bottom.
+async function loadMore() {
+  if (loading || curPage === 0 || curPage >= totalPages) return;
+  loading = true;
+  const token = searchToken; // tie this fetch to the active search
+  try {
+    const res = await fetchPage(curQuery, curPage + 1);
+    if (token !== searchToken || !res.ok) return; // superseded, or transient — a later scroll retries
+    const data = await res.json();
+    if (token !== searchToken) return;
+    curPage += 1;
+    totalPages = data.page_count || totalPages;
+    results.insertAdjacentHTML('beforeend', (data.results || []).map(tileHtml).join(''));
+  } catch {
+    /* ignore; scrolling again retries */
+  } finally {
+    loading = false;
   }
 }
 
@@ -187,7 +212,6 @@ function close() { modal.hidden = true; clearSelection(); }
 export function initImagePicker() {
   modal = document.getElementById('image-modal');
   if (!modal) return; // not on this page
-  chipsEl = document.getElementById('image-cats');
   searchInput = document.getElementById('image-search');
   results = document.getElementById('image-results');
   uploadBtn = document.getElementById('image-upload');
@@ -197,19 +221,13 @@ export function initImagePicker() {
   addBtn = document.getElementById('image-add-sel');
   clearBtn = document.getElementById('image-clear-sel');
 
-  chipsEl.innerHTML = CATS.map(([v, l]) =>
-    `<button class="icon-chip ${v === 'all' ? 'active' : ''}" data-cat="${v}">${l}</button>`).join('');
-
-  chipsEl.addEventListener('click', e => {
-    const chip = e.target.closest('.icon-chip');
-    if (!chip) return;
-    activeCat = chip.dataset.cat;
-    chipsEl.querySelectorAll('.icon-chip').forEach(c => c.classList.toggle('active', c === chip));
-    runSearch();
-  });
-
   searchInput.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(runSearch, 300); });
   searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') { clearTimeout(debounce); runSearch(); } });
+
+  // Infinite scroll: fetch the next page as the grid nears its bottom.
+  results.addEventListener('scroll', () => {
+    if (results.scrollTop + results.clientHeight >= results.scrollHeight - 240) loadMore();
+  });
 
   // Plain click adds one; Shift-click (or clicking while a selection exists) toggles multi-select.
   results.addEventListener('click', e => {

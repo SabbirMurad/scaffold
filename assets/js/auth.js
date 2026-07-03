@@ -98,4 +98,10 @@ document.getElementById('otp-form')?.addEventListener('submit', (e) => {
   window.location.href = '/dashboard';
 });
 
+// Social sign-in (demo scaffold — no real OAuth). Like the email flow, it just
+// continues to the dashboard; OAuth providers are pre-verified, so no OTP step.
+document.querySelectorAll('.auth-social-btn').forEach((btn) => {
+  btn.addEventListener('click', () => { window.location.href = '/dashboard'; });
+});
+
 setMode('signin');

@@ -240,17 +240,24 @@ async fn main() -> io::Result<()> {
                     .use_last_modified(true),
             )
             .wrap_fn(|req, srv| {
-                /* Custom CACHE_CONTROL for Resources */
+                /* Custom CACHE_CONTROL for Resources.
+                   In development (APP_HTTP="allow") we send "no-cache" so edited
+                   CSS/JS is always revalidated and never served stale; in
+                   production we cache aggressively for 24h. */
                 srv.call(req).map(|mut res| {
                     if let Ok(response) = &mut res {
                         let request = response.request();
                         let uri = request.uri().to_string();
                         if uri.contains("/assets/") {
+                            let dev = env::var("APP_HTTP").map(|v| v == "allow").unwrap_or(false);
+                            let cache = if dev {
+                                "no-cache"
+                            } else {
+                                "public, max-age=86400, must-revalidate"
+                            };
                             response.headers_mut().insert(
                                 http::header::CACHE_CONTROL,
-                                http::header::HeaderValue::from_static(
-                                    "public, max-age=86400, must-revalidate",
-                                ),
+                                http::header::HeaderValue::from_static(cache),
                             );
                         }
                     }
@@ -263,17 +270,21 @@ async fn main() -> io::Result<()> {
                     .use_last_modified(true),
             )
             .wrap_fn(|req, srv| {
-                /* Custom CACHE_CONTROL for Resources */
+                /* Custom CACHE_CONTROL for Resources — see /assets/ block above. */
                 srv.call(req).map(|mut res| {
                     if let Ok(response) = &mut res {
                         let request = response.request();
                         let uri = request.uri().to_string();
                         if uri.contains("/components/") {
+                            let dev = env::var("APP_HTTP").map(|v| v == "allow").unwrap_or(false);
+                            let cache = if dev {
+                                "no-cache"
+                            } else {
+                                "public, max-age=86400, must-revalidate"
+                            };
                             response.headers_mut().insert(
                                 http::header::CACHE_CONTROL,
-                                http::header::HeaderValue::from_static(
-                                    "public, max-age=86400, must-revalidate",
-                                ),
+                                http::header::HeaderValue::from_static(cache),
                             );
                         }
                     }

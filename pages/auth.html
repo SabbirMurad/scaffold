@@ -10,6 +10,17 @@
 </head>
 <body>
 <div id="auth">
+  <!-- Decorative glassmorphism backdrop: colored blobs + floating glass shapes -->
+  <div class="auth-bg" aria-hidden="true">
+    <span class="auth-blob blob-1"></span>
+    <span class="auth-blob blob-2"></span>
+    <span class="auth-blob blob-3"></span>
+    <span class="auth-shape shape-1"></span>
+    <span class="auth-shape shape-2"></span>
+    <span class="auth-shape shape-3"></span>
+    <span class="auth-shape shape-4"></span>
+  </div>
+
   <div class="auth-card">
     <div class="auth-brand">
       <img class="auth-logo" src="/assets/icons/logo.svg" alt="">
@@ -41,6 +52,17 @@
         </div>
         <button type="submit" class="auth-submit" id="auth-submit">Sign in</button>
       </form>
+
+      <div class="auth-divider"><span>or continue with</span></div>
+
+      <div class="auth-social">
+        <button type="button" class="auth-social-btn" data-provider="Google">
+          <img src="/assets/icons/google.svg" alt=""> Google
+        </button>
+        <button type="button" class="auth-social-btn" data-provider="GitHub">
+          <img src="/assets/icons/github.svg" alt=""> GitHub
+        </button>
+      </div>
 
       <div class="auth-foot" id="auth-foot">
         Don&rsquo;t have an account? <a id="auth-switch">Sign up</a>

@@ -142,6 +142,16 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     fontWeight: d.fontWeight || '400',
     color: d.color || '#000000',
     alignment: { h: 'left', v: 'top' },
+    // Interaction (Phase 1 of navigation): what a tap on this node does. Any node
+    // can carry one; frames use `routePath`/`isInitial` as navigation targets.
+    //   type: 'none' | 'navigate' | 'back'
+    //   targetFrameId: the destination screen (a frame node id) when navigating
+    //   mode: 'push' | 'replace' | 'clear'   transition: 'platform'|'fade'|'slideRight'|'none'
+    action: { type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' },
+    // Frame-only: the route path this screen is reachable at, and whether it is
+    // the app's start screen. Empty routePath is auto-derived from the name.
+    routePath: '',
+    isInitial: false,
   };
   if (type === 'container') node.name = 'Container_' + state.nextContainerNum++;
   // Give new nodes a sensible default reference instead of an invisible one:

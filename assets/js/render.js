@@ -10,6 +10,7 @@ import { ensureFontLoaded } from './google-fonts.js';
 
 export function applyTransform() {
   canvas.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom})`;
+  canvas.style.setProperty('--zoom', state.zoom); // overlays (comment pins) counter-scale off this
   if (zoomLabel) zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
   drawRulers();
 }
@@ -21,6 +22,7 @@ export function render() {
   syncMeasuredSizes(); // fold fill/hug rendered sizes back into the model
   renderLayers();
   renderProps();
+  document.dispatchEvent(new Event('flow:render')); // let Connect mode redraw its arrows
 }
 
 export const FLEX_TYPES = ['row', 'column', 'wrap'];
@@ -328,6 +330,8 @@ export function applyTextStyle(el, node) {
 export function renderNode(node, parent) {
   const el = document.createElement('div');
   el.className = 'node ' + (node.type === 'text' ? 'text-node' : node.type);
+  // A node with a tap interaction gets a small corner badge (see .node.has-action).
+  if (node.action && node.action.type && node.action.type !== 'none') el.classList.add('has-action');
   el.id = 'node-' + node.id;
   el.dataset.id = node.id;
 
@@ -354,10 +358,11 @@ export function renderNode(node, parent) {
     if (isFlex(node)) applyFlexLayout(el, node);
   }
 
-  if (state.selected.has(node.id)) {
+  if (state.selected.has(node.id) && state.tool !== 'comment') {
     el.classList.add('selected');
-    // Locked nodes show only the selection outline — no resize/radius handles.
-    if (!node.locked) {
+    // Locked nodes — and every node in Connect mode — show only the selection
+    // outline, no resize/radius handles. Comment mode shows no selection at all.
+    if (!node.locked && state.tool !== 'connect') {
       // Auto-size text is content-driven, so it gets no resize handles (just the outline).
       if (node.type !== 'frame' && !(node.type === 'text' && node.autoSize)) addHandles(el, node);
       if ((node.type === 'container' || node.type === 'image') && node.shape !== 'circle' && node.radiusMode !== 'corners') addRadiusHandles(el, node);

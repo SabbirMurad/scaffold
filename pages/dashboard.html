@@ -29,6 +29,7 @@
       <button class="home-nav-item" data-page="settings"><img src="/assets/icons/settings.svg" alt="">Settings</button>
       <button class="home-nav-item" data-page="account"><img src="/assets/icons/account.svg" alt="">Account</button>
       <button class="home-nav-item" data-page="billing"><img src="/assets/icons/billing.svg" alt="">Billing</button>
+      <button class="home-nav-item" data-page="feedback"><img src="/assets/icons/feedback.svg" alt="">Feedback</button>
     </nav>
     <button class="home-logout" id="home-logout"><img src="/assets/icons/logout.svg" alt="">Logout</button>
   </aside>
@@ -55,8 +56,92 @@
     </section>
 
     <section class="home-page" data-page="settings">
-      <div class="home-page-head"><div><h1>Settings</h1><div class="home-page-sub">Manage your workspace preferences.</div></div></div>
-      <div class="home-placeholder">Settings coming soon.</div>
+      <div class="home-page-head"><div><h1>Settings</h1><div class="home-page-sub">Workspace &amp; app preferences. These apply across all your projects.</div></div></div>
+
+      <div class="acct-grid">
+        <!-- Editor & canvas defaults -->
+        <div class="acct-card">
+          <div class="acct-card-head"><h2>Editor &amp; canvas</h2></div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Default frame size</div><div class="acct-row-sub">New projects open at this size</div></div>
+            <div class="set-ctrl" data-setting="frameSize"></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Measurement units</div></div>
+            <div class="set-ctrl" data-setting="units"></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Show grid</div></div>
+            <label class="switch"><input type="checkbox" data-setting="showGrid"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Snap to grid</div></div>
+            <label class="switch"><input type="checkbox" data-setting="snapGrid"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Grid size</div></div>
+            <div class="set-num-wrap"><input type="number" class="set-num" data-setting="gridSize" min="1" max="64"><span class="set-unit">px</span></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Nudge distance</div><div class="acct-row-sub">Arrow-key move amount</div></div>
+            <div class="set-num-wrap"><input type="number" class="set-num" data-setting="nudge" min="1" max="64"><span class="set-unit">px</span></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Autosave</div></div>
+            <div class="set-ctrl" data-setting="autosave"></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Show rulers</div></div>
+            <label class="switch"><input type="checkbox" data-setting="showRulers"><span class="switch-track"></span></label>
+          </div>
+        </div>
+
+        <!-- Code generation -->
+        <div class="acct-card">
+          <div class="acct-card-head"><h2>Code generation</h2></div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">State management</div><div class="acct-row-sub">Pattern for generated providers</div></div>
+            <div class="set-ctrl" data-setting="stateMgmt"></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Naming convention</div></div>
+            <div class="set-ctrl" data-setting="naming"></div>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">const constructors</div><div class="acct-row-sub">Prefer const where possible</div></div>
+            <label class="switch"><input type="checkbox" data-setting="constWidgets"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Include comments</div><div class="acct-row-sub">Annotate the generated Dart</div></div>
+            <label class="switch"><input type="checkbox" data-setting="codeComments"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Max line length</div></div>
+            <div class="set-num-wrap"><input type="number" class="set-num" data-setting="lineLength" min="60" max="160"><span class="set-unit">cols</span></div>
+          </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="acct-card">
+          <div class="acct-card-head"><h2>Notifications</h2></div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Collaboration requests</div><div class="acct-row-sub">When someone wants to join a project</div></div>
+            <label class="switch"><input type="checkbox" data-setting="notifRequests"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Comments &amp; mentions</div></div>
+            <label class="switch"><input type="checkbox" data-setting="notifComments"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">Product updates</div><div class="acct-row-sub">Occasional news about new features</div></div>
+            <label class="switch"><input type="checkbox" data-setting="notifUpdates"><span class="switch-track"></span></label>
+          </div>
+          <div class="acct-row">
+            <div><div class="acct-row-label">In-app notifications</div></div>
+            <label class="switch"><input type="checkbox" data-setting="notifInApp"><span class="switch-track"></span></label>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="home-page" data-page="account">
@@ -176,7 +261,117 @@
 
     <section class="home-page" data-page="billing">
       <div class="home-page-head"><div><h1>Billing</h1><div class="home-page-sub">Plans, invoices and payment methods.</div></div></div>
-      <div class="home-placeholder">Billing coming soon.</div>
+
+      <div class="acct-grid">
+        <!-- Current plan -->
+        <div class="acct-card">
+          <div class="acct-card-head"><h2>Current plan</h2><span class="plan-badge">Pro</span></div>
+          <div class="plan-price"><span class="plan-amt">$12</span><span class="plan-per">/ month</span></div>
+          <div class="acct-row-sub" style="margin-top:2px">Renews on August 1, 2026 · billed monthly</div>
+          <div class="plan-usage">
+            <div class="plan-usage-row"><span>Projects</span><span>6 used</span></div>
+            <div class="plan-bar"><span style="width:40%"></span></div>
+            <div class="plan-usage-row"><span>Collaborators</span><span>3 of 10</span></div>
+            <div class="plan-bar"><span style="width:30%"></span></div>
+          </div>
+          <div class="acct-actions">
+            <button type="button" class="acct-btn-ghost" id="billing-cancel">Cancel subscription</button>
+            <button type="button" class="acct-btn" id="billing-change-plan">Change plan</button>
+          </div>
+        </div>
+
+        <!-- Payment method -->
+        <div class="acct-card">
+          <div class="acct-card-head"><h2>Payment method</h2></div>
+          <div class="pay-method">
+            <span class="pay-brand">VISA</span>
+            <div>
+              <div class="acct-row-label">Visa ending in 4242</div>
+              <div class="acct-row-sub">Expires 08 / 2027</div>
+            </div>
+          </div>
+          <div class="acct-row">
+            <div>
+              <div class="acct-row-label">Billing email</div>
+              <div class="acct-row-sub">sbbir0087@gmail.com</div>
+            </div>
+          </div>
+          <div class="acct-actions"><button type="button" class="acct-btn-ghost" id="billing-update-pay">Update payment method</button></div>
+        </div>
+      </div>
+
+      <!-- Plans -->
+      <h2 class="billing-title" id="billing-plans">Plans</h2>
+      <div class="plan-grid">
+        <div class="plan-card">
+          <div class="plan-card-name">Free</div>
+          <div class="plan-price"><span class="plan-amt">$0</span><span class="plan-per">/ mo</span></div>
+          <ul class="plan-feats">
+            <li>Up to 3 projects</li>
+            <li>1 collaborator</li>
+            <li>Community support</li>
+          </ul>
+          <button type="button" class="acct-btn-ghost plan-cta" data-plan="Free">Downgrade</button>
+        </div>
+        <div class="plan-card current">
+          <div class="plan-card-name">Pro <span class="plan-badge">Current</span></div>
+          <div class="plan-price"><span class="plan-amt">$12</span><span class="plan-per">/ mo</span></div>
+          <ul class="plan-feats">
+            <li>Unlimited projects</li>
+            <li>Up to 10 collaborators</li>
+            <li>Priority email support</li>
+            <li>Version history</li>
+          </ul>
+          <button type="button" class="acct-btn plan-cta" disabled>Current plan</button>
+        </div>
+        <div class="plan-card">
+          <div class="plan-card-name">Team</div>
+          <div class="plan-price"><span class="plan-amt">$29</span><span class="plan-per">/ mo</span></div>
+          <ul class="plan-feats">
+            <li>Everything in Pro</li>
+            <li>Unlimited collaborators</li>
+            <li>Shared component library</li>
+            <li>SSO &amp; audit log</li>
+          </ul>
+          <button type="button" class="acct-btn plan-cta" data-plan="Team">Upgrade</button>
+        </div>
+      </div>
+
+      <!-- Billing history -->
+      <h2 class="billing-title">Billing history</h2>
+      <div class="acct-card invoice-card">
+        <div class="invoice-row invoice-head"><span>Date</span><span>Amount</span><span>Status</span><span></span></div>
+        <div class="invoice-row"><span>Jul 1, 2026</span><span>$12.00</span><span class="invoice-paid">Paid</span><button type="button" class="acct-btn-ghost invoice-dl" data-invoice="Jul 2026">Download</button></div>
+        <div class="invoice-row"><span>Jun 1, 2026</span><span>$12.00</span><span class="invoice-paid">Paid</span><button type="button" class="acct-btn-ghost invoice-dl" data-invoice="Jun 2026">Download</button></div>
+        <div class="invoice-row"><span>May 1, 2026</span><span>$12.00</span><span class="invoice-paid">Paid</span><button type="button" class="acct-btn-ghost invoice-dl" data-invoice="May 2026">Download</button></div>
+      </div>
+    </section>
+
+    <section class="home-page" data-page="feedback">
+      <div class="home-page-head"><div><h1>Feedback</h1><div class="home-page-sub">Tell us what’s working and what isn’t. You can send up to 5 a day.</div></div></div>
+
+      <div class="fb-wrap">
+        <div class="acct-card">
+          <div class="acct-card-head"><h2>Send feedback</h2><span class="fb-remaining" id="fb-remaining"></span></div>
+          <form class="acct-form" id="feedback-form">
+            <div class="acct-field full">
+              <label>Type</label>
+              <div id="fb-type"></div>
+            </div>
+            <div class="acct-field full">
+              <label>Your feedback</label>
+              <textarea id="fb-text" class="fb-textarea" rows="5" maxlength="1000" placeholder="Share a bug, an idea, or anything on your mind…"></textarea>
+              <div class="acct-hint"><span id="fb-count">0</span> / 1000</div>
+            </div>
+            <div class="acct-actions"><button type="submit" class="acct-btn" id="fb-submit">Send feedback</button></div>
+          </form>
+        </div>
+
+        <div class="acct-card" id="fb-history-card" hidden>
+          <div class="acct-card-head"><h2>Your recent feedback</h2></div>
+          <div id="fb-history"></div>
+        </div>
+      </div>
     </section>
   </main>
 </div>

@@ -9,11 +9,19 @@ import { deleteSelected, duplicateSelected, groupSelected, ungroupSelected, copy
 let spacePanPrev = null;
 
 export function setTool(tool) {
+  const prev = state.tool;
   state.tool = tool;
   document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
     b.classList.toggle('active', b.dataset.tool === tool)
   );
+  document.body.classList.toggle('connect-mode', tool === 'connect');
+  document.body.classList.toggle('comment-mode', tool === 'comment');
   canvasWrap.style.cursor = tool === 'hand' ? 'grab' : (tool === 'select' ? 'default' : 'crosshair');
+  document.dispatchEvent(new CustomEvent('tool:change', { detail: tool }));
+  // Connect/Comment modes change how (or whether) the selection renders, so
+  // re-render whenever we enter or leave one of them.
+  const overlay = t => t === 'connect' || t === 'comment';
+  if (overlay(prev) || overlay(tool)) render();
 }
 
 export function initToolEvents() {
@@ -57,6 +65,7 @@ export function initToolEvents() {
     if (e.key === 'f' || e.key === 'F') { e.preventDefault(); document.getElementById('tool-frame').click(); }
     if (e.key === 'r' || e.key === 'R') setTool('container');
     if (e.key === 't' || e.key === 'T') setTool('text');
+    if (e.key === 'c' || e.key === 'C') setTool('comment');
     if (e.key === '0') fitView();
     if (e.key === '+' || e.key === '=') zoomAt(1.25);
     if (e.key === '-') zoomAt(0.8);
