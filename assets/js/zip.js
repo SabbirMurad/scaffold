@@ -1,6 +1,7 @@
 // Minimal STORE-only ZIP writer (no compression). Enough to bundle generated
-// text files — including nested paths like "lib/model/user.dart" — into a single
-// downloadable archive, with no external dependency.
+// files — text (Dart source, SVGs) or binary (image bytes as a Uint8Array),
+// including nested paths like "lib/model/user.dart" — into a single downloadable
+// archive, with no external dependency.
 
 function crc32(bytes) {
   let crc = ~0;
@@ -14,7 +15,8 @@ function crc32(bytes) {
 const u16 = n => [n & 0xff, (n >>> 8) & 0xff];
 const u32 = n => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
 
-// files: [{ name, content }] — name is the path inside the zip; content is text.
+// files: [{ name, content }] — name is the path inside the zip; content is a
+// string (encoded UTF-8) or a Uint8Array (written as-is, for binary assets).
 export function makeZip(files) {
   const enc = new TextEncoder();
   const chunks = [];
@@ -23,7 +25,7 @@ export function makeZip(files) {
 
   for (const f of files) {
     const nameBytes = enc.encode(f.name);
-    const data = enc.encode(f.content);
+    const data = f.content instanceof Uint8Array ? f.content : enc.encode(f.content);
     const crc = crc32(data);
 
     const localHeader = new Uint8Array([

@@ -3,7 +3,7 @@ import { canvasWrap } from './utils.js';
 import { render, updateNodeEl, zoomAt, fitView } from './render.js';
 import { renderProps } from './props.js';
 import { undo, redo } from './history.js';
-import { deleteSelected, duplicateSelected, groupSelected, ungroupSelected, copySelected, pasteClipboard } from './operations.js';
+import { deleteSelected, duplicateSelected, copySelected, pasteClipboard } from './operations.js';
 
 // Tool to restore after a temporary space-bar pan (null = not space-panning)
 let spacePanPrev = null;
@@ -58,8 +58,6 @@ export function initToolEvents() {
     if ((e.metaKey || e.ctrlKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') { e.preventDefault(); copySelected(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === 'v') { e.preventDefault(); pasteClipboard(); return; }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'g' && !e.shiftKey) { e.preventDefault(); groupSelected(); return; }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'G') { e.preventDefault(); ungroupSelected(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); state.nodes.forEach(n => state.selected.add(n.id)); render(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); return; }
     if (e.key === 'Escape') { state.selected.clear(); setTool('select'); render(); return; }
@@ -67,6 +65,7 @@ export function initToolEvents() {
     if (e.key === 'h' || e.key === 'H') setTool('hand');
     if (e.key === 'f' || e.key === 'F') { e.preventDefault(); document.getElementById('tool-frame').click(); }
     if (e.key === 'r' || e.key === 'R') setTool('container');
+    if (e.key === 's' || e.key === 'S') setTool('section');
     if (e.key === 't' || e.key === 'T') setTool('text');
     if (e.key === 'c' || e.key === 'C') setTool('comment');
     if (e.key === '0') fitView();

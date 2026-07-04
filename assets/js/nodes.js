@@ -1,7 +1,7 @@
 import { state, getNode } from './state.js';
 
-// Types that can contain children (valid drop targets)
-export const CONTAINER_TYPES = ['frame', 'container', 'row', 'column', 'wrap', 'stack'];
+// Types that can contain children (valid drop targets). A Section holds frames.
+export const CONTAINER_TYPES = ['frame', 'container', 'row', 'column', 'wrap', 'stack', 'section'];
 // Wrappers that hold exactly one child; the rest are multi-child layouts
 export const SINGLE_CHILD_TYPES = ['frame', 'container'];
 // Multi-child layout types (row/column/wrap are flex, stack is absolute)
@@ -21,7 +21,18 @@ export function flexKind(node) {
 }
 export function isFlex(node) { return flexKind(node) !== null; }
 export function isStack(node) {
-  return !!node && (node.type === 'stack' || (LAYOUT_HOST(node) && node.layout === 'stack'));
+  // Sections position their frames freely (absolute x/y), same as a stack.
+  return !!node && (node.type === 'stack' || node.type === 'section' || (LAYOUT_HOST(node) && node.layout === 'stack'));
+}
+
+// A "screen" frame: a routable page. That's a frame either at the canvas root or
+// directly inside a Section (which groups screens into a folder). A frame nested
+// inside another frame is a component, not a screen.
+export function isScreenFrame(node) {
+  if (!node || node.type !== 'frame') return false;
+  if (!node.parentId) return true;
+  const p = getNode(node.parentId);
+  return !!p && p.type === 'section';
 }
 // Holds exactly one child (pads + aligns it): a frame or container with no
 // auto-layout. Once a layout is chosen it lays its own children out instead.
@@ -31,11 +42,17 @@ export function isSingleChild(node) {
 // Lays its children out itself (flex or stack) rather than holding just one.
 export function isMultiChild(node) { return isFlex(node) || isStack(node); }
 
-// Whether `node` can accept `childId` as a child right now.
-// Multi-child layouts always can; single-child wrappers only if empty
-// (ignoring childId itself, so an existing child can be re-dropped/moved within).
-export function canAcceptChild(node, childId = null) {
+// Whether `node` can accept a child right now. `childType` (or the type resolved
+// from `childId`) refines the Section rules:
+//   • Sections are top-level only — nothing ever accepts a section as a child.
+//   • A Section only accepts frames (each becomes a file under its folder).
+// Otherwise: multi-child layouts always accept; single-child wrappers only if
+// empty (ignoring childId itself, so an existing child can be re-dropped within).
+export function canAcceptChild(node, childId = null, childType = null) {
   if (!node || !CONTAINER_TYPES.includes(node.type)) return false;
+  const ct = childType || (childId ? (getNode(childId)?.type || null) : null);
+  if (ct === 'section') return false;
+  if (node.type === 'section') return ct === 'frame';
   if (!isSingleChild(node)) return true;
   const kids = (node.children || []).filter(id => id !== childId);
   return kids.length === 0;
@@ -71,9 +88,9 @@ export function isDescendant(nodeId, ancestorId) {
   return false;
 }
 
-export function findFrameAt(wx, wy, excludeId = null) {
+export function findFrameAt(wx, wy, excludeId = null, childType = null) {
   const frames = [...state.nodes].reverse().filter(n =>
-    n.id !== excludeId && !isDescendant(n.id, excludeId) && canAcceptChild(n, excludeId)
+    n.id !== excludeId && !isDescendant(n.id, excludeId) && canAcceptChild(n, excludeId, childType)
   );
   for (const frame of frames) {
     const wp = getWorldPos(frame);
@@ -144,9 +161,9 @@ export function clearDropTargets() {
   document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
 }
 
-export function highlightDropTarget(worldX, worldY, excludeId = null) {
+export function highlightDropTarget(worldX, worldY, excludeId = null, childType = null) {
   clearDropTargets();
-  const frame = findFrameAt(worldX, worldY, excludeId);
+  const frame = findFrameAt(worldX, worldY, excludeId, childType);
   if (frame) {
     const el = document.getElementById('node-' + frame.id);
     if (el) el.classList.add('drop-target');

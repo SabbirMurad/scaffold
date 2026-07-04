@@ -2,8 +2,8 @@
 // shows up in the home page's Requests tab. Demo only: no real collaboration or
 // access control happens, this just models the flow across the two pages.
 
-const KEY = 'frameforge_shares';
-const SEED_FLAG = 'frameforge_shares_seeded';
+const KEY = 'Scaffold_shares';
+const SEED_FLAG = 'Scaffold_shares_seeded';
 
 // Populate the Requests tab with a few example join-requests the first time the
 // dashboard loads, so it isn't empty before the user has invited anyone. Runs

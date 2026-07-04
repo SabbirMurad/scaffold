@@ -152,7 +152,7 @@ function buildExportList(groups) {
     + group('enums', 'Enums', groups.enums.map(e => e.name))
     + group('providers', 'Providers', groups.providers.map(p => p.name))
     + group('screens', 'Screens', groups.screens.map(s => s.name))
-    + group('theme', 'Theme', groups.hasTheme ? ['App colors & theme'] : []);
+    + group('theme', 'Theme', groups.hasTheme ? [groups.hasTypography ? 'App colors, type & theme' : 'App colors & theme'] : []);
 }
 
 function openExportModal() {
@@ -377,4 +377,4 @@ applyTransform();
 render();
 renderThemeSwitch();
 updateExportButton();
-showToast('FrameForge ready \u2014 press V to select, R for container, T for text');
+showToast('Scaffold ready \u2014 press V to select, R for container, T for text');

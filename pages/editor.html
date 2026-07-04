@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FrameForge</title>
+<title>Scaffold</title>
 <link rel="icon" type="image/svg+xml" href="/assets/icons/logo.svg">
 <link rel="stylesheet" href="/assets/css/base.css">
 <link rel="stylesheet" href="/assets/css/components.css">
@@ -24,6 +24,9 @@
     </div>
 
     <div class="tool-group">
+      <button class="tool-btn" data-tool="section" data-tooltip="Section (S) — groups frames into a folder">
+        <img src="/assets/icons/section.svg" alt="Section" width="14" height="14">
+      </button>
       <button class="tool-btn" id="tool-frame" data-tooltip="Frame (F)">
         <img src="/assets/icons/frame.svg" alt="Frame" width="14" height="14">
       </button>
@@ -265,7 +268,6 @@
 <!-- Context Menu -->
 <div id="ctx-menu">
   <div class="ctx-item" data-action="duplicate"><span>Duplicate</span><span class="shortcut">&#8984;D</span></div>
-  <div class="ctx-item" data-action="group"><span>Group</span><span class="shortcut">&#8984;G</span></div>
   <div class="ctx-item" data-action="front"><span>Bring to Front</span></div>
   <div class="ctx-item" data-action="back"><span>Send to Back</span></div>
   <div class="ctx-sep"></div>

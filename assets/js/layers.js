@@ -36,7 +36,7 @@ export function renderLayers() {
 }
 
 function buildLayerItem(node, depth) {
-  const icons = { frame: '\u{1F5BC}', container: '\u25AD', row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', image: '\u{1F4F7}', icon: '\u2726', text: 'T' };
+  const icons = { section: '\u{1F4C1}', frame: '\u{1F4F1}', container: '\u25AD', row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', image: '\u{1F4F7}', icon: '\u2726', text: 'T' };
   const icon = node.type === 'container' && node.shape === 'circle' ? '\u2B24' : (icons[node.type] || '\u25AD');
   const item = document.createElement('div');
   item.className = 'layer-item' +
@@ -49,7 +49,7 @@ function buildLayerItem(node, depth) {
   const hasChildren = node.children && node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
   const caret = hasChildren
-    ? `<span class="layer-caret" title="${isCollapsed ? 'Expand' : 'Collapse'}">${isCollapsed ? '\u25b6' : '\u25bc'}</span>`
+    ? `<span class="layer-caret${isCollapsed ? ' collapsed' : ''}" title="${isCollapsed ? 'Expand' : 'Collapse'}"><img src="/assets/icons/arrow-down.svg" alt=""></span>`
     : `<span class="layer-caret layer-caret-empty"></span>`;
 
   item.innerHTML = `

@@ -60,23 +60,28 @@ function showForm() {
   setMode('signup'); // OTP only comes from sign-up, so return there
 }
 
-// OTP boxes: single digit each, auto-advance / backspace, and paste support.
-otpBoxes.forEach((box, i) => {
-  box.addEventListener('input', () => {
-    box.value = box.value.replace(/\D/g, '').slice(0, 1);
-    box.classList.toggle('filled', !!box.value);
-    if (box.value && i < otpBoxes.length - 1) otpBoxes[i + 1].focus();
+// Wire a group of single-digit code boxes: one digit each, auto-advance /
+// backspace, and paste support. Shared by the sign-up OTP and the reset code.
+function wireOtpBoxes(boxes) {
+  boxes.forEach((box, i) => {
+    box.addEventListener('input', () => {
+      box.value = box.value.replace(/\D/g, '').slice(0, 1);
+      box.classList.toggle('filled', !!box.value);
+      if (box.value && i < boxes.length - 1) boxes[i + 1].focus();
+    });
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !box.value && i > 0) boxes[i - 1].focus();
+    });
+    box.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, boxes.length);
+      digits.split('').forEach((d, j) => { boxes[j].value = d; boxes[j].classList.add('filled'); });
+      boxes[Math.min(digits.length, boxes.length - 1)].focus();
+    });
   });
-  box.addEventListener('keydown', (e) => {
-    if (e.key === 'Backspace' && !box.value && i > 0) otpBoxes[i - 1].focus();
-  });
-  box.addEventListener('paste', (e) => {
-    e.preventDefault();
-    const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, otpBoxes.length);
-    digits.split('').forEach((d, j) => { otpBoxes[j].value = d; otpBoxes[j].classList.add('filled'); });
-    otpBoxes[Math.min(digits.length, otpBoxes.length - 1)].focus();
-  });
-});
+}
+const clearBoxes = (boxes) => boxes.forEach(b => { b.value = ''; b.classList.remove('filled'); });
+wireOtpBoxes(otpBoxes);
 
 document.getElementById('otp-back')?.addEventListener('click', showForm);
 document.getElementById('otp-resend')?.addEventListener('click', () => {
@@ -103,5 +108,70 @@ document.getElementById('otp-form')?.addEventListener('submit', (e) => {
 document.querySelectorAll('.auth-social-btn').forEach((btn) => {
   btn.addEventListener('click', () => { window.location.href = '/dashboard'; });
 });
+
+// ───────── Forgot password (request code → verify code → set new password) ─────────
+// Demo only — no real code is sent or checked, and no password is stored.
+const resetView = document.getElementById('auth-reset');
+const resetEmail = document.getElementById('reset-email');
+const resetBoxes = [...document.querySelectorAll('.reset-box')];
+const resetSteps = {
+  request: document.getElementById('reset-request'),
+  code: document.getElementById('reset-code'),
+  new: document.getElementById('reset-new'),
+};
+wireOtpBoxes(resetBoxes);
+
+// Shared title/sub copy per reset step (reuses the card's heading like the OTP flow).
+const RESET_COPY = {
+  request: () => ['Reset password', 'Enter your email and we’ll send you a reset code.'],
+  code: () => ['Check your email', `Enter the 6-digit code we sent to <strong>${(resetEmail.value || 'your email').trim()}</strong>.`],
+  new: () => ['Set a new password', 'Choose a new password for your account.'],
+};
+
+function showReset(step) {
+  mainView.hidden = true;
+  otpView.hidden = true;
+  resetView.hidden = false;
+  const [t, s] = RESET_COPY[step]();
+  title.textContent = t;
+  sub.innerHTML = s;
+  Object.entries(resetSteps).forEach(([k, form]) => { form.hidden = k !== step; });
+  document.getElementById('reset-resend-foot').hidden = step !== 'code';
+  if (step === 'code') { clearBoxes(resetBoxes); resetBoxes[0].focus(); }
+  else if (step === 'request') { resetEmail.focus(); }
+}
+
+// Return to the sign-in form from any other view.
+function backToSignIn() {
+  otpView.hidden = true;
+  resetView.hidden = true;
+  mainView.hidden = false;
+  setMode('signin');
+}
+
+// Prefill the reset email with whatever was typed on the sign-in form.
+document.getElementById('auth-forgot-link')?.addEventListener('click', () => {
+  if (emailInput.value) resetEmail.value = emailInput.value;
+  showReset('request');
+});
+
+resetSteps.request.addEventListener('submit', (e) => { e.preventDefault(); showReset('code'); });
+resetSteps.code.addEventListener('submit', (e) => { e.preventDefault(); showReset('new'); });
+resetSteps.new.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const pw = document.getElementById('reset-pw').value;
+  const pw2 = document.getElementById('reset-pw2').value;
+  const err = document.getElementById('reset-error');
+  if (!pw || pw !== pw2) { err.hidden = false; return; }
+  err.hidden = true;
+  backToSignIn();
+  sub.textContent = 'Password updated — sign in with your new password.';
+});
+
+document.getElementById('reset-resend')?.addEventListener('click', () => {
+  clearBoxes(resetBoxes);
+  resetBoxes[0].focus();
+});
+document.getElementById('reset-back')?.addEventListener('click', backToSignIn);
 
 setMode('signin');

@@ -20,6 +20,15 @@ body.connect-mode .node.has-action::after {
 }
 .node.frame { background: white; overflow: hidden; }
 
+/* Section: a faint, non-clipping region that groups frames. Deliberately plain —
+   just a soft fill + dashed outline so the frames inside read as the content. */
+.node.section {
+  background: rgba(255,255,255,0.018);
+  border: 1px dashed rgba(255,255,255,0.14);
+  border-radius: 6px;
+}
+.node.section.selected { border-color: transparent; }
+
 /* Frame name tag: sits just above the frame's top-left, anchored there and
    counter-scaled off --zoom so it keeps a constant on-screen size. */
 .frame-label {
@@ -33,6 +42,12 @@ body.connect-mode .node.has-action::after {
 }
 .frame-label:hover { color: var(--text2); }
 .frame-label.selected { color: var(--accent); }
+/* Section labels read as headings — uppercase, bolder, a touch larger. */
+.frame-label.section-label {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text2);
+}
+.frame-label.section-label.selected { color: var(--accent); }
 body.comment-mode .frame-label { pointer-events: none; }
 
 /* Connect (prototype) mode — arrow overlay + wiring affordances */

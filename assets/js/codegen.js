@@ -1,5 +1,7 @@
-import { state } from './state.js';
+import { state, getNode } from './state.js';
+import { isScreenFrame } from './nodes.js';
 import { typeToString, modelError, enumError } from './models.js';
+import { generateScreenBody } from './widgetgen.js';
 import { makeZip } from './zip.js';
 
 // Flutter/Dart model code generation. Walks each model's typed fields and emits
@@ -312,17 +314,28 @@ function screenItems(screens) {
     usedClass.add(cls);
     const path = routeOf(fr);
     const params = (path.match(/:([a-zA-Z0-9_]+)/g) || []).map(s => s.slice(1));
-    return { fr, cname, cls, path, params, file: snake(fr.name) };
+    // A frame inside a Section lands in a folder named after the section, so the
+    // view path (and its import in route.dart) becomes lib/view/<section>/<frame>.dart.
+    const parent = fr.parentId ? getNode(fr.parentId) : null;
+    const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
+    return { fr, cname, cls, path, params, file: folder + snake(fr.name) };
   });
 }
 
-// A scaffold StatefulWidget per screen at lib/view/<file>.dart. Path params become
-// required String fields so the route builder (e.g. ProfileScreen(userId: userId))
-// compiles; the body is a bare Scaffold — screen contents are filled in later.
+// A StatefulWidget per screen at lib/view/<file>.dart. Path params become required
+// String fields so the route builder (e.g. ProfileScreen(userId: userId)) compiles;
+// the build() body is the frame's design translated to a Flutter widget tree.
 function generateViewFile(it) {
   const cls = it.cls;
+  const pkg = pkgName();
+  const { code, ctx } = generateScreenBody(it.fr);
+
   const L = [];
   L.push(`import 'package:flutter/material.dart';`);
+  if (ctx.svg) L.push(`import 'package:flutter_svg/flutter_svg.dart';`);
+  if (ctx.screenutil) L.push(`import 'package:flutter_screenutil/flutter_screenutil.dart';`);
+  if (ctx.colors) L.push(`import 'package:${pkg}/constants/colors.dart';`);
+  if (ctx.typo) L.push(`import 'package:${pkg}/constants/typography.dart';`);
   L.push('');
   L.push(`class ${cls} extends StatefulWidget {`);
   if (it.params.length) {
@@ -339,12 +352,24 @@ function generateViewFile(it) {
   L.push('');
   L.push(`class _${cls}State extends State<${cls}> {`);
   L.push(`  @override`);
+  L.push(`  void initState() {`);
+  L.push(`    super.initState();`);
+  L.push(`  }`);
+  L.push('');
+  L.push(`  @override`);
+  L.push(`  void dispose() {`);
+  L.push(`    super.dispose();`);
+  L.push(`  }`);
+  L.push('');
+  L.push(`  @override`);
   L.push(`  Widget build(BuildContext context) {`);
-  L.push(`    return const Scaffold();`);
+  L.push(`    return ${code};`);
   L.push(`  }`);
   L.push(`}`);
   L.push('');
-  return L.join('\n');
+  // Return the .dart content plus any asset files the screen references, so the
+  // exporter can bundle icon SVGs (assets/icons/) and image bytes (assets/images/).
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images };
 }
 
 // Build lib/route.dart: one GoRoute per screen, unique constant + class names,
@@ -363,7 +388,9 @@ function generateRouteFile(items) {
   items.forEach(it => L.push(`  static final String ${it.cname} = '${it.path}';`));
   L.push('');
   L.push('  static void push(String route) => allRoutes.push(route);');
+  L.push('');
   L.push('  static void go(String route) => allRoutes.go(route);');
+  L.push('');
   L.push('  static void pop() {');
   L.push('    if (allRoutes.canPop()) {');
   L.push('      allRoutes.pop();');
@@ -518,6 +545,41 @@ function generateThemesFile(colors, themes, roles) {
   return L.join('\n');
 }
 
+// ───────── Typography (typography.dart) generation ─────────
+
+// lib/constants/typography.dart — a VTextStyle set of static TextStyle getters,
+// one per Typography style. Sizes use flutter_screenutil's `.sp`; the text colour
+// references the matching VColors constant (from colors.dart). Style names are
+// already validated as camelCase identifiers, so they map straight to getters.
+function generateTypographyFile(styles) {
+  const pkg = pkgName();
+  const num = (n) => String(Number(n));          // 16 → "16", 1.4 → "1.4", -0.4 → "-0.4"
+  const colorOf = (s) => (s.colorId ? state.colors.find(c => c.id === s.colorId) : null);
+  const usesColor = styles.some(s => colorOf(s));
+
+  const L = [];
+  L.push(`import 'package:flutter/material.dart';`);
+  L.push(`import 'package:flutter_screenutil/flutter_screenutil.dart';`);
+  if (usesColor) L.push(`import 'package:${pkg}/constants/colors.dart';`);
+  L.push('');
+  L.push(`abstract class VTextStyle {`);
+  styles.forEach((s, idx) => {
+    L.push(`  static TextStyle get ${s.name} => TextStyle(`);
+    L.push(`    fontFamily: '${s.fontFamily}',`);
+    L.push(`    fontSize: ${num(s.fontSize)}.sp,`);
+    L.push(`    fontWeight: FontWeight.w${s.fontWeight},`);
+    const col = colorOf(s);
+    if (col) L.push(`    color: VColors.${col.name},`);
+    if (Number(s.letterSpacing) !== 0) L.push(`    letterSpacing: ${num(s.letterSpacing)},`);
+    L.push(`    height: ${num(s.lineHeight)},`);
+    L.push(`  );`);
+    if (idx < styles.length - 1) L.push('');
+  });
+  L.push(`}`);
+  L.push('');
+  return L.join('\n');
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), { href: url, download: filename });
@@ -535,22 +597,34 @@ export function collectExportables() {
   models.forEach(m => m.properties.forEach(p => collectRefs(p.type, refs)));
   const enums = state.enums.filter(e => enumError(e) === null && refs.has(e.name));
   const providers = state.providers;
-  // Screens are root frames (nested frames are components, not routable pages)
-  // with a valid, exportable route path.
+  // Screens are page frames (root, or directly inside a Section — nested frames
+  // are components, not routable pages) with a valid, exportable route path.
   const screens = state.nodes.filter(n =>
-    n.type === 'frame' && !n.parentId && routeExportable(routeOf(n)));
+    isScreenFrame(n) && routeExportable(routeOf(n)));
   // The theme system (colors.dart + themes.dart) is exportable once there's at
   // least one color and one theme to generate from.
   const hasTheme = state.colors.length > 0 && state.themes.length > 0;
-  return { models, enums, providers, screens, hasTheme };
+  // Typography (typography.dart) rides with the theme unit, so it's reported for
+  // the picker label only when the theme unit is itself exportable.
+  const hasTypography = hasTheme && state.typography.length > 0;
+  return { models, enums, providers, screens, hasTheme, hasTypography };
 }
 
 // The Dart file an exported item lands at (shown in the export picker). Each
 // screen has its own view file (plus a shared lib/route.dart wiring them up);
 // the theme unit produces two shared files.
 export function dartPath(kind, name) {
-  if (kind === 'screens') return `lib/view/${snake(name)}.dart`;
-  if (kind === 'theme') return 'lib/constants/colors.dart + lib/themes.dart';
+  if (kind === 'screens') {
+    const fr = state.nodes.find(n => n.type === 'frame' && n.name === name);
+    const parent = fr && fr.parentId ? getNode(fr.parentId) : null;
+    const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
+    return `lib/view/${folder}${snake(name)}.dart`;
+  }
+  if (kind === 'theme') {
+    return state.typography.length
+      ? 'lib/constants/colors.dart + typography.dart + lib/themes.dart'
+      : 'lib/constants/colors.dart + lib/themes.dart';
+  }
   return `lib/${kind === 'providers' ? 'provider' : 'model'}/${snake(name)}.dart`;
 }
 
@@ -577,11 +651,24 @@ export function exportModelsCode(selection = null) {
   providers.forEach(p => files.push({ name: `lib/provider/${snake(p.name)}.dart`, content: generateProviderFile(p) }));
   if (screens.length) {
     const items = screenItems(screens);
-    items.forEach(it => files.push({ name: `lib/view/${it.file}.dart`, content: generateViewFile(it) }));
+    const iconAssets = new Map();  // assets/icons/<name>.svg  → svg markup   (deduped across screens)
+    const imageAssets = new Map(); // assets/images/<name>.<ext> → image bytes (deduped across screens)
+    items.forEach(it => {
+      const { content, icons, images } = generateViewFile(it);
+      files.push({ name: `lib/view/${it.file}.dart`, content });
+      icons.forEach((svg, path) => iconAssets.set(path, svg));
+      images.forEach((bytes, path) => imageAssets.set(path, bytes));
+    });
     files.push({ name: 'lib/route.dart', content: generateRouteFile(items) });
+    iconAssets.forEach((svg, path) => files.push({ name: path, content: svg }));
+    imageAssets.forEach((bytes, path) => files.push({ name: path, content: bytes }));
   }
   if (wantTheme) {
     files.push({ name: 'lib/constants/colors.dart', content: generateColorsFile(state.colors, state.themes) });
+    // Typography rides with the theme unit (it references VColors from colors.dart).
+    if (state.typography.length) {
+      files.push({ name: 'lib/constants/typography.dart', content: generateTypographyFile(state.typography) });
+    }
     files.push({ name: 'lib/themes.dart', content: generateThemesFile(state.colors, state.themes, state.colorRoles || {}) });
   }
 

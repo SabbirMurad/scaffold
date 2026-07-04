@@ -17,7 +17,10 @@ export function applyTransform() {
 
 export function render() {
   canvas.querySelectorAll('.node, .frame-label').forEach(e => e.remove());
-  const roots = state.nodes.filter(n => !n.parentId);
+  // Sections are big region backdrops that group frames, so paint them first
+  // (behind) — any root frame not inside a section still sits on top of them.
+  const roots = state.nodes.filter(n => !n.parentId)
+    .sort((a, b) => (a.type === 'section' ? 0 : 1) - (b.type === 'section' ? 0 : 1));
   roots.forEach(n => renderNode(n, canvas));
   syncMeasuredSizes(); // fold fill/hug rendered sizes back into the model
   renderLayers();
@@ -358,6 +361,9 @@ export function renderNode(node, parent) {
     el.textContent = node.text;
   } else if (node.type === 'icon') {
     applyIcon(el, node, true);
+  } else if (node.type === 'section') {
+    // Section chrome (faint fill + outline) is styled entirely in CSS (.node.section);
+    // it deliberately carries no fill/stroke/radius so its frames show through.
   } else {
     applyFill(el, node);
     applyStroke(el, node);
@@ -391,16 +397,16 @@ export function renderNode(node, parent) {
   syncTextSize(el, node);
   attachNodeEvents(el, node);
 
-  // Frames show their name on a small label above the top-left corner (Figma
-  // style). It lives beside the frame — not inside it — because frames clip
-  // their overflow, and counter-scales off --zoom so it stays a constant size.
-  if (node.type === 'frame') addFrameLabel(node, parent);
+  // Frames (and Sections) show their name on a small label above the top-left
+  // corner (Figma style). It lives beside the node — not inside it — and
+  // counter-scales off --zoom so it stays a constant on-screen size.
+  if (node.type === 'frame' || node.type === 'section') addFrameLabel(node, parent);
 }
 
-// A constant-size name tag above a frame; clicking it selects the frame.
+// A constant-size name tag above a frame/section; clicking it selects the node.
 function addFrameLabel(node, parent) {
   const label = document.createElement('div');
-  label.className = 'frame-label' + (state.selected.has(node.id) ? ' selected' : '');
+  label.className = 'frame-label' + (node.type === 'section' ? ' section-label' : '') + (state.selected.has(node.id) ? ' selected' : '');
   label.id = 'frame-label-' + node.id;
   label.textContent = node.name || 'Frame';
   label.style.left = node.x + 'px';
@@ -459,8 +465,8 @@ export function positionRadiusHandles(el, node) {
 export function updateNodeEl(node) {
   const el = document.getElementById('node-' + node.id);
   if (!el) return;
-  // Keep a frame's floating name tag glued to it while it's being dragged/moved.
-  if (node.type === 'frame') {
+  // Keep a frame's/section's floating name tag glued to it while it moves.
+  if (node.type === 'frame' || node.type === 'section') {
     const label = document.getElementById('frame-label-' + node.id);
     if (label) { label.style.left = node.x + 'px'; label.style.top = node.y + 'px'; }
   }

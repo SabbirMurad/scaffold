@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FrameForge — Sign in</title>
+<title>Scaffold — Sign in</title>
 <link rel="icon" type="image/svg+xml" href="/assets/icons/logo.svg">
 <link rel="stylesheet" href="/assets/css/base.css">
 <link rel="stylesheet" href="/assets/css/auth.css">
@@ -24,7 +24,7 @@
   <div class="auth-card">
     <div class="auth-brand">
       <img class="auth-logo" src="/assets/icons/logo.svg" alt="">
-      <span class="auth-brand-name">FrameForge</span>
+      <span class="auth-brand-name">Scaffold</span>
     </div>
 
     <div class="auth-title" id="auth-title">Welcome back</div>
@@ -50,6 +50,7 @@
           <label for="auth-password">Password</label>
           <input id="auth-password" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password" required>
         </div>
+        <div class="auth-forgot"><a id="auth-forgot-link">Forgot password?</a></div>
         <button type="submit" class="auth-submit" id="auth-submit">Sign in</button>
       </form>
 
@@ -84,6 +85,48 @@
       </form>
       <div class="auth-foot">Didn&rsquo;t get a code? <a id="otp-resend">Resend</a></div>
       <div class="auth-foot"><a id="otp-back">&larr; Back</a></div>
+    </div>
+
+    <!-- Forgot password (3 steps: request code → verify code → set new password) -->
+    <div id="auth-reset" hidden>
+      <!-- Step 1: request a reset code -->
+      <form class="auth-form" id="reset-request">
+        <div class="auth-field">
+          <label for="reset-email">Email</label>
+          <input id="reset-email" type="email" placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <button type="submit" class="auth-submit">Send reset code</button>
+      </form>
+
+      <!-- Step 2: verify the 6-digit code -->
+      <form class="auth-form" id="reset-code" hidden>
+        <div class="otp-inputs">
+          <input class="otp-box reset-box" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 1">
+          <input class="otp-box reset-box" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 2">
+          <input class="otp-box reset-box" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 3">
+          <input class="otp-box reset-box" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 4">
+          <input class="otp-box reset-box" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 5">
+          <input class="otp-box reset-box" type="text" inputmode="numeric" maxlength="1" aria-label="Digit 6">
+        </div>
+        <button type="submit" class="auth-submit">Verify code</button>
+      </form>
+
+      <!-- Step 3: choose a new password -->
+      <form class="auth-form" id="reset-new" hidden>
+        <div class="auth-field">
+          <label for="reset-pw">New password</label>
+          <input id="reset-pw" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" required>
+        </div>
+        <div class="auth-field">
+          <label for="reset-pw2">Confirm password</label>
+          <input id="reset-pw2" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" required>
+        </div>
+        <div class="auth-error" id="reset-error" hidden>Passwords don&rsquo;t match.</div>
+        <button type="submit" class="auth-submit">Reset password</button>
+      </form>
+
+      <div class="auth-foot" id="reset-resend-foot" hidden>Didn&rsquo;t get a code? <a id="reset-resend">Resend</a></div>
+      <div class="auth-foot"><a id="reset-back">&larr; Back to sign in</a></div>
     </div>
   </div>
 </div>

@@ -117,7 +117,11 @@ export function drawFlow() {
 function frameUnder(cx, cy) {
   for (const el of document.elementsFromPoint(cx, cy)) {
     const nEl = el.closest && el.closest('.node.frame');
-    if (nEl) { const n = getNode(nEl.dataset.id); if (n && !n.parentId) return n; }
+    if (nEl) {
+      const n = getNode(nEl.dataset.id);
+      // A page frame (root, or directly inside a Section) is a navigation target.
+      if (n && (!n.parentId || getNode(n.parentId)?.type === 'section')) return n;
+    }
   }
   return null;
 }
@@ -128,7 +132,7 @@ function onDown(e) {
   if (wire) { e.stopPropagation(); e.preventDefault(); selectConn(wire.dataset.src); return; }
   const nodeEl = e.target.closest && e.target.closest('.node');
   const n = nodeEl && getNode(nodeEl.dataset.id);
-  if (n && n.type !== 'frame') {
+  if (n && n.type !== 'frame' && n.type !== 'section') {
     e.stopPropagation(); e.preventDefault();
     dragFrom = n.id;
     dragStart = centerOf(nodeRect(n.id));

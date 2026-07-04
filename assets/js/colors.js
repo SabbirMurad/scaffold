@@ -4,6 +4,7 @@ import { gradientCss, render } from './render.js';
 import { saveHistory } from './history.js';
 import { renderProps } from './props.js';
 import { SCHEME_ROLES } from './codegen.js';
+import { ddTrigger } from './dropdown.js';
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -275,9 +276,8 @@ function renderBoard() {
 // own per-theme value.
 function renderRoleMap() {
   if (state.colors.length === 0) return '';
-  const opt = (roleId) => `
-    <option value="">None</option>
-    ${state.colors.map(c => `<option value="${c.id}" ${state.colorRoles[roleId] === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}`;
+  // Shared option list for every role: "None" + each color variable.
+  const roleOptions = [{ value: '', label: 'None' }, ...state.colors.map(c => ({ value: c.id, label: c.name }))];
   return `
     <div class="model-board-head" style="margin-top:22px">
       <span class="model-board-title">Theme Roles</span>
@@ -287,7 +287,7 @@ function renderRoleMap() {
       ${SCHEME_ROLES.map(r => `
       <label class="role-row">
         <span class="role-label">${r.label}</span>
-        <select class="role-select" data-role="${r.id}">${opt(r.id)}</select>
+        ${ddTrigger({ value: state.colorRoles[r.id] || '', options: roleOptions, data: { role: r.id }, triggerClass: 'dd-block role-dd' })}
       </label>`).join('')}
     </div>`;
 }
@@ -528,11 +528,15 @@ export function initColors() {
       if (tile && tile.dataset.tile !== state.selectedColorId) { state.selectedColorId = tile.dataset.tile; renderColors(); }
     });
 
-    // Theme-role dropdowns: assign a color id (or clear) to a ColorScheme role.
-    board.addEventListener('change', e => {
-      const sel = e.target.closest('[data-role]');
-      if (!sel) return;
-      state.colorRoles[sel.dataset.role] = sel.value || null;
+    // Theme-role dropdowns (custom dd): assign a color id (or clear) to a role.
+    // The dd controller sets data-dd-value but not the visible label, so sync it.
+    board.addEventListener('dd:change', e => {
+      const trig = e.target.closest('[data-role]');
+      if (!trig) return;
+      const val = e.detail.value;
+      state.colorRoles[trig.dataset.role] = val || null;
+      const label = trig.querySelector('.dd-label');
+      if (label) label.textContent = val ? (getColor(val)?.name || 'None') : 'None';
       saveHistory();
     });
 

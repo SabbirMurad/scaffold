@@ -9,6 +9,7 @@ export const state = {
   nextId: 1,
   nextFrameNum: 1,
   nextContainerNum: 1,
+  nextSectionNum: 1,
   // Color tab: reusable color variables (solid or gradient). Fully theme-aware —
   // themes live in `state.themes` and each color has one shared name but a
   // per-theme value stored in `color.values[themeId]`. The top-level
@@ -130,6 +131,9 @@ function routeFromName(name) {
 export function makeNode(type, x, y, w, h, parentId = null) {
   const defaults = {
     frame:     { fill: '#ffffff', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Frame' },
+    // A Section is just a named, resizable region that groups frames (→ a folder
+    // in generated code). It carries no visual styling of its own.
+    section:   { fill: 'transparent', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Section' },
     container: { fill: 'transparent', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Container' },
     row:       { fill: 'transparent', stroke: '#c7c7c7', strokeW: 1, strokeOpacity: 1, strokeStyle: 'dashed', opacity: 1, name: 'Row' },
     column:    { fill: 'transparent', stroke: '#c7c7c7', strokeW: 1, strokeOpacity: 1, strokeStyle: 'dashed', opacity: 1, name: 'Column' },
@@ -207,6 +211,8 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     isInitial: false,
   };
   if (type === 'container') node.name = 'Container_' + state.nextContainerNum++;
+  // Sections become folders in generated code, so name them like a snake_case dir.
+  if (type === 'section') node.name = 'section_' + state.nextSectionNum++;
   // Frames get a numbered name and a concrete route derived from it *once*, at
   // creation. The route is then independent — renaming the frame won't change it.
   if (type === 'frame') {

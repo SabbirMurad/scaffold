@@ -205,19 +205,34 @@ function frameNameError(name) {
   return null;
 }
 
-// True if any frame in the design (display tab) has an invalid name or route.
-// Export is gated on this so screens can't generate into broken Dart. Checks all
-// frames, matching what the props panel flags with an error.
-export function anyFrameError() {
-  return state.nodes.some(n =>
-    n.type === 'frame' && (frameNameError(n.name) !== null || routeError(routeOf(n)) !== null));
+// Nodes whose name becomes a code identifier: a frame (→ file + class) or a
+// section (→ folder). Both are validated as snake_case in the panel.
+function isIdentNode(node) {
+  return node.type === 'frame' || node.type === 'section';
 }
 
-// The top-level screen (root frame) a node belongs to, walking up parents.
+// True if any frame or section has an invalid name (or, for frames, route).
+// Export is gated on this so screens can't generate into broken Dart / a broken
+// folder name. Checks every such node, matching what the props panel flags.
+export function anyFrameError() {
+  return state.nodes.some(n =>
+    (n.type === 'frame' && (frameNameError(n.name) !== null || routeError(routeOf(n)) !== null)) ||
+    (n.type === 'section' && frameNameError(n.name) !== null));
+}
+
+// The page-level screen frame a node belongs to: the outermost ancestor frame
+// that sits at the canvas root or directly inside a Section. (A frame nested in
+// another frame is a component, so we keep climbing past it.)
 function ownerScreenId(node) {
-  let cur = node;
-  while (cur && cur.parentId) cur = getNode(cur.parentId);
-  return cur && cur.type === 'frame' ? cur.id : null;
+  let cur = node, screen = null;
+  while (cur) {
+    if (cur.type === 'frame') {
+      const p = cur.parentId ? getNode(cur.parentId) : null;
+      if (!p || p.type === 'section') screen = cur.id;
+    }
+    cur = cur.parentId ? getNode(cur.parentId) : null;
+  }
+  return screen;
 }
 
 // How many *other* screens have a layer whose tap navigates to this frame.
@@ -406,13 +421,22 @@ function plainSizeField(node, axis) {
   return `<label class="input-affix disabled"><span class="input-affix-label">${axis === 'w' ? 'W' : 'H'}</span><input class="prop-input bare" id="${id}" type="number" value="${val}" readonly title="${title}"></label>`;
 }
 
+// A plain editable size input (section — freely resizable, no Fill/Hug modes).
+function editSizeField(node, axis) {
+  const id = axis === 'w' ? 'p-w' : 'p-h';
+  const val = Math.round(axis === 'w' ? node.w : node.h);
+  return `<label class="input-affix"><span class="input-affix-label">${axis === 'w' ? 'W' : 'H'}</span><input class="prop-input bare" id="${id}" type="number" value="${val}" min="1"></label>`;
+}
+
 // Width gains the Fixed/Fill/Hug dropdown for containers/images and for fixed-width
 // text; height only for containers/images (text height always hugs its content).
 function sizeWField(node) {
+  if (node.type === 'section') return editSizeField(node, 'w');
   return (SIZE_MODE_TYPES.includes(node.type) || (node.type === 'text' && !node.autoSize))
     ? sizeField(node, 'w') : plainSizeField(node, 'w');
 }
 function sizeHField(node) {
+  if (node.type === 'section') return editSizeField(node, 'h');
   return SIZE_MODE_TYPES.includes(node.type) ? sizeField(node, 'h') : plainSizeField(node, 'h');
 }
 
@@ -432,10 +456,10 @@ export function renderProps() {
     <div class="prop-section">
       <div class="prop-row">
         <span class="prop-label-wide" style="width:100%;display:block">
-          <input class="prop-input${node.type === 'frame' && frameNameError(node.name) ? ' invalid' : ''}" id="p-name" value="${esc(node.name)}" style="width:100%" placeholder="Layer name">
+          <input class="prop-input${isIdentNode(node) && frameNameError(node.name) ? ' invalid' : ''}" id="p-name" value="${esc(node.name)}" style="width:100%" placeholder="Layer name">
         </span>
       </div>
-      ${node.type === 'frame' ? `<div class="prop-error" id="p-name-err" style="${frameNameError(node.name) ? '' : 'display:none'}">${frameNameError(node.name) || ''}</div>` : ''}
+      ${isIdentNode(node) ? `<div class="prop-error" id="p-name-err" style="${frameNameError(node.name) ? '' : 'display:none'}">${frameNameError(node.name) || ''}</div>` : ''}
       ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
     </div>
     ${node.type === 'frame' ? screenSection(node) : ''}
@@ -474,7 +498,7 @@ export function renderProps() {
     </div>
     ${node.type === 'container' || node.type === 'frame' ? boxSection('Padding', 'pad', node.padding) : ''}
     ${node.type === 'container' ? boxSection('Margin', 'mar', node.margin) : ''}
-    ${node.type !== 'frame' ? `
+    ${node.type !== 'frame' && node.type !== 'section' ? `
     <div class="prop-section">
       <div class="prop-section-title">Appearance</div>
       <div class="prop-row affix-row">
@@ -601,13 +625,13 @@ export function renderProps() {
         ${state.typography.map(t => `<button class="typo-pick ${node.typoId === t.id ? 'selected' : ''}" data-picktypo="${t.id}" title="${esc(t.name)}">${esc(t.name)}</button>`).join('')}
       </div>`}
     </div>` : ''}
-    ${node.type !== 'frame' ? interactionsSection(node) : ''}
+    ${node.type !== 'frame' && node.type !== 'section' ? interactionsSection(node) : ''}
   `;
 
   // Bind inputs
   bindProp('p-name', v => {
     node.name = v;
-    if (node.type === 'frame') {
+    if (isIdentNode(node)) {
       const err = frameNameError(v);
       const inp = document.getElementById('p-name');
       const errEl = document.getElementById('p-name-err');

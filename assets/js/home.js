@@ -237,7 +237,7 @@ delBtn?.addEventListener('click', () => {
 
 // ───────── Settings (workspace & app preferences — localStorage scaffold) ─────────
 // Persisted only; these are the defaults future editor/codegen work would read.
-const SETTINGS_KEY = 'frameforge_settings';
+const SETTINGS_KEY = 'Scaffold_settings';
 const SET_OPTS = {
   frameSize: [
     { value: 'iphone15', label: 'iPhone 15 · 393×852' },
@@ -338,7 +338,7 @@ cancelBtn?.addEventListener('click', () => {
 });
 
 // ───────── Feedback (stored locally; capped at 5 submissions per calendar day) ─────────
-const FB_KEY = 'frameforge_feedback';
+const FB_KEY = 'Scaffold_feedback';
 const FB_MAX_PER_DAY = 5;
 const FB_TYPES = ['Bug', 'Idea', 'Question', 'Other'].map(t => ({ value: t, label: t }));
 

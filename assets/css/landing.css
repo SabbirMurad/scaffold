@@ -1,4 +1,4 @@
-/* Landing page — marketing front for FrameForge, over the shared app background.
+/* Landing page — marketing front for Scaffold, over the shared app background.
    base.css locks html/body to overflow:hidden for the editor; the landing page
    scrolls, so re-enable vertical scrolling and natural height here. */
 html, body.landing {

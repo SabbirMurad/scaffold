@@ -1,4 +1,4 @@
-import { state, getNode, makeNode } from './state.js';
+import { state, getNode } from './state.js';
 import { showToast } from './utils.js';
 import { saveHistory } from './history.js';
 import { render } from './render.js';
@@ -124,50 +124,6 @@ export function duplicateSelected() {
   state.selected = newSel;
   saveHistory();
   render();
-}
-
-export function groupSelected() {
-  if (state.selected.size < 2) { showToast('Select 2+ elements to group'); return; }
-  const ids = [...state.selected];
-  const nodes = ids.map(id => getNode(id)).filter(Boolean);
-  const minX = Math.min(...nodes.map(n => n.x));
-  const minY = Math.min(...nodes.map(n => n.y));
-  const maxX = Math.max(...nodes.map(n => n.x + n.w));
-  const maxY = Math.max(...nodes.map(n => n.y + n.h));
-  // A group is a multi-child, freely-positioned box → a stack (not a single-child frame)
-  const group = makeNode('stack', minX - 8, minY - 8, maxX - minX + 16, maxY - minY + 16);
-  group.name = 'Group';
-  group.fill = 'transparent';
-  group.stroke = '#888';
-  group.strokeW = 1;
-  group.strokeStyle = 'solid';
-  group.children = ids;
-  nodes.forEach(n => { n.parentId = group.id; n.x -= group.x; n.y -= group.y; });
-  ids.forEach(id => { const i = state.nodes.findIndex(n => n.id === id); if (i !== -1) state.nodes.splice(i, 1); });
-  state.nodes.push(...nodes);
-  state.nodes.push(group);
-  state.selected.clear();
-  state.selected.add(group.id);
-  saveHistory();
-  render();
-  showToast('Grouped ' + ids.length + ' elements');
-}
-
-export function ungroupSelected() {
-  state.selected.forEach(id => {
-    const group = getNode(id);
-    if (!group || !group.children.length) return;
-    group.children.forEach(cid => {
-      const c = getNode(cid);
-      if (c) { c.x += group.x; c.y += group.y; c.parentId = null; }
-    });
-    const gi = state.nodes.findIndex(n => n.id === id);
-    if (gi !== -1) state.nodes.splice(gi, 1);
-  });
-  state.selected.clear();
-  saveHistory();
-  render();
-  showToast('Ungrouped');
 }
 
 export function bringToFront() {

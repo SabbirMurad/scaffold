@@ -5,7 +5,7 @@ import { saveHistory } from './history.js';
 import { render, updateNodeEl, applyTransform, positionRadiusHandles, applyDragTransform } from './render.js';
 import { renderProps } from './props.js';
 import { setTool } from './tools.js';
-import { duplicateSelected, groupSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace } from './operations.js';
+import { duplicateSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace } from './operations.js';
 
 let dragging = null;
 let resizing = null;
@@ -419,7 +419,7 @@ function onWrapMouseDown(e) {
   const cy = e.clientY - wrapRect.top;
   const world = canvasToWorld(cx, cy);
 
-  if (['container', 'text'].includes(state.tool)) {
+  if (['container', 'text', 'section'].includes(state.tool)) {
     drawStart = { cx, cy, x: world.x, y: world.y };
     e.preventDefault();
     return;
@@ -550,10 +550,11 @@ function onWrapMouseMove(e) {
     const wx = e.clientX - rect.left;
     const wy = e.clientY - rect.top;
     const world = canvasToWorld(wx, wy);
-    if (state.tool !== 'frame') highlightDropTarget(world.x, world.y);
-    // Live preview of the rectangle being drawn (container) so it's visible
+    // Frames and sections are top-level, so they never highlight a drop target.
+    if (!['frame', 'section'].includes(state.tool)) highlightDropTarget(world.x, world.y, null, state.tool);
+    // Live preview of the rectangle being drawn (container/section) so it's visible
     // before the mouse is released. Text is auto-sized, so it gets no preview box.
-    if (state.tool === 'container') {
+    if (state.tool === 'container' || state.tool === 'section') {
       const sx = Math.min(drawStart.cx, wx);
       const sy = Math.min(drawStart.cy, wy);
       selBox.style.display = 'block';
@@ -663,7 +664,9 @@ function onWrapMouseUp(e) {
     const anchorY = isText ? drawStart.y : worldY;
     const midX = (drawStart.x + world.x) / 2;
     const midY = (drawStart.y + world.y) / 2;
-    const parentFrame = state.tool !== 'frame' ? findFrameAt(isText ? drawStart.x : midX, isText ? drawStart.y : midY) : null;
+    // Frames and sections are top-level; everything else can nest into a frame.
+    const parentFrame = !['frame', 'section'].includes(state.tool)
+      ? findFrameAt(isText ? drawStart.x : midX, isText ? drawStart.y : midY, null, state.tool) : null;
 
     let localX = anchorX, localY = anchorY;
     if (parentFrame) {
@@ -678,11 +681,26 @@ function onWrapMouseUp(e) {
       }
     }
 
+    const isSection = state.tool === 'section';
     const node = makeNode(state.tool, localX, localY, w, h, parentFrame ? parentFrame.id : null);
     if (parentFrame) {
       parentFrame.children.push(node.id);
     }
     state.nodes.push(node);
+    // Drawing a Section over existing root frames adopts them (Figma-style), so
+    // they become files under the section's folder. Only frames fully inside the
+    // drawn box are captured; each keeps its on-screen spot (reparent converts
+    // world→section-local coords).
+    if (isSection) {
+      const sx = node.x, sy = node.y, sr = node.x + node.w, sb = node.y + node.h;
+      state.nodes
+        .filter(n => n.type === 'frame' && !n.parentId)
+        .forEach(fr => {
+          if (fr.x >= sx && fr.y >= sy && fr.x + fr.w <= sr && fr.y + fr.h <= sb) {
+            reparentNode(fr, node.id);
+          }
+        });
+    }
     state.selected.clear();
     state.selected.add(node.id);
     setTool('select');
@@ -856,7 +874,6 @@ export function initCanvasEvents() {
     if (!item) return;
     const action = item.dataset.action;
     if (action === 'duplicate') duplicateSelected();
-    if (action === 'group') groupSelected();
     if (action === 'delete') deleteSelected();
     if (action === 'front') bringToFront();
     if (action === 'back') sendToBack();
