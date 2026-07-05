@@ -26,6 +26,25 @@ function snapshot() {
   return JSON.stringify(obj);
 }
 
+// The persisted project document: the same state slices undo/redo tracks, as a
+// plain object for the project API. `state.projectName` is intentionally left
+// out — the name lives on the project's metadata, not inside the document.
+export function serializeDocument() {
+  const obj = {};
+  KEYS.forEach(k => { obj[k] = state[k]; });
+  return obj;
+}
+
+// Load a document fetched from the server into state, replacing the tracked
+// slices and resetting undo history (the caller seeds the first snapshot).
+export function loadDocument(doc) {
+  if (!doc) return;
+  KEYS.forEach(k => { if (k in doc) state[k] = doc[k]; });
+  state.history = [];
+  state.historyIndex = -1;
+  state.selected.clear();
+}
+
 export function saveHistory() {
   const snap = snapshot();
   // Ignore no-op commits (e.g. a blur with no change) to avoid dead entries.

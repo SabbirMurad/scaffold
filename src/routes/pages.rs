@@ -15,6 +15,10 @@ pub fn router(cfg: &mut web::ServiceConfig) {
         )
         .route(
             "/editor",
+            web::get().to(Markup::editor_redirect)
+        )
+        .route(
+            "/editor/{id}",
             web::get().to(Markup::editor)
         )
         .route(

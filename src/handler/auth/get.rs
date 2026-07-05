@@ -32,11 +32,12 @@ pub async fn task(email_or_username: web::Path<String>,) -> Result<HttpResponse,
     }
 
     let account_core = option.unwrap();
+    let user_id = account_core.uuid.clone();
 
     let collection = db.collection::<model::Account::AccountProfile>("account_profile");
 
     let result = collection.find_one(
-        doc!{"uuid": account_core.uuid}
+        doc!{"uuid": &user_id}
     ).await;
 
     if let Err(error) = result {
@@ -54,6 +55,7 @@ pub async fn task(email_or_username: web::Path<String>,) -> Result<HttpResponse,
     let account_profile = option.unwrap();
 
     let data = serde_json::json!({
+        "user_id": user_id,
         "full_name": account_profile.full_name,
         "profile_picture": account_profile.profile_picture,
     });

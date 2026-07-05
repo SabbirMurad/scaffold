@@ -122,6 +122,17 @@
 .project-pin:hover { background: rgba(20,20,24,0.65); }
 .project-card.pinned .project-pin { background: var(--accent); }
 .project-card.pinned .project-pin:hover { background: var(--accent2); }
+
+/* Delete button — sits left of the pin, revealed on hover/focus like it. */
+.project-del {
+  position: absolute; top: 8px; right: 42px; width: 28px; height: 28px; z-index: 2;
+  display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+  background: rgba(20,20,24,0.45); border: none; border-radius: 8px; cursor: pointer;
+  color: #fff; font-size: 18px; opacity: 0; transition: opacity 0.12s, background 0.12s;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.project-card:hover .project-del, .project-card:focus-within .project-del { opacity: 1; }
+.project-del:hover { background: var(--red, #f55b5b); }
 .project-preview {
   height: 116px; display: flex; align-items: center; justify-content: center;
   font-size: 34px; font-weight: 600; color: rgba(255,255,255,0.92);

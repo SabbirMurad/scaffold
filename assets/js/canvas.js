@@ -370,37 +370,45 @@ export function attachNodeEvents(el, node) {
         lastTextClick = { id: node.id, t: now };
       }
 
-      if (e.altKey) {
-        // Alt+drag → duplicate; the copy is made on the first move (so Alt+click does nothing)
-        state.selected.clear();
-        state.selected.add(node.id);
-      } else if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !state.selected.has(node.id)) {
-        state.selected.clear();
-        state.selected.add(node.id);
-      } else {
-        state.selected.add(node.id);
-      }
-      render();
-
-      cancelDragFrame();       // drop any pending frame from an interrupted drag
-      restoreDragAncestors();  // clear any leftover un-clip from an interrupted drag
-      dragging = {
-        node,
-        startX: e.clientX,
-        startY: e.clientY,
-        origX: node.x,
-        origY: node.y,
-        altClone: e.altKey ? node : null,
-        multi: (!e.altKey && state.selected.size > 1) ? [...state.selected].map(id => {
-          const n = getNode(id);
-          return n ? { node: n, ox: n.x, oy: n.y } : null;
-        }).filter(Boolean) : null,
-      };
-      // Single free-node drags snap to other elements' edges/centers (deferred for Alt-clone)
-      if (!dragging.multi && !dragging.altClone && isFreeNode(node)) dragging.snapTargets = captureSnapTargets(node);
-      saveHistory();
+      beginNodeDrag(node, e);
     }
   });
+}
+
+// Select a node and arm the shared drag state for the mouse press `e`. Used by
+// a node's own mousedown above and by its floating name label (render.js), so
+// pressing/dragging the label behaves exactly like the frame body: click
+// selects (shift adds), drag moves, Alt+drag duplicates.
+export function beginNodeDrag(node, e) {
+  if (e.altKey) {
+    // Alt+drag → duplicate; the copy is made on the first move (so Alt+click does nothing)
+    state.selected.clear();
+    state.selected.add(node.id);
+  } else if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !state.selected.has(node.id)) {
+    state.selected.clear();
+    state.selected.add(node.id);
+  } else {
+    state.selected.add(node.id);
+  }
+  render();
+
+  cancelDragFrame();       // drop any pending frame from an interrupted drag
+  restoreDragAncestors();  // clear any leftover un-clip from an interrupted drag
+  dragging = {
+    node,
+    startX: e.clientX,
+    startY: e.clientY,
+    origX: node.x,
+    origY: node.y,
+    altClone: e.altKey ? node : null,
+    multi: (!e.altKey && state.selected.size > 1) ? [...state.selected].map(id => {
+      const n = getNode(id);
+      return n ? { node: n, ox: n.x, oy: n.y } : null;
+    }).filter(Boolean) : null,
+  };
+  // Single free-node drags snap to other elements' edges/centers (deferred for Alt-clone)
+  if (!dragging.multi && !dragging.altClone && isFreeNode(node)) dragging.snapTargets = captureSnapTargets(node);
+  saveHistory();
 }
 
 function onWrapMouseDown(e) {
@@ -426,7 +434,10 @@ function onWrapMouseDown(e) {
   }
 
   if (state.tool === 'select') {
-    const clickedNode = e.target.closest('.node');
+    // This runs in the capture phase (before node/label handlers), so presses on
+    // a node body or a frame name label must be exempted here — otherwise the
+    // marquee starts underneath their drag and sweeps its own selection.
+    const clickedNode = e.target.closest('.node, .frame-label');
     if (!clickedNode) {
       state.selected.clear();
       render();

@@ -93,6 +93,17 @@
 }
 .auth-submit:hover { background: var(--accent2); }
 .auth-submit:active { transform: translateY(1px); }
+.auth-submit:disabled, .auth-social-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+/* Shared status banner (errors / success / info) shown under the subtitle */
+.auth-flash {
+  font-size: 12.5px; text-align: center; line-height: 1.4;
+  padding: 9px 12px; border-radius: 9px; margin: -6px 0 18px;
+  border: 1px solid transparent;
+}
+.auth-flash.error   { color: #ff8f8f; background: rgba(255,107,107,0.10); border-color: rgba(255,107,107,0.28); }
+.auth-flash.success { color: #57d9a3; background: rgba(30,204,122,0.10); border-color: rgba(30,204,122,0.30); }
+.auth-flash.info    { color: var(--text2); background: var(--surface2); border-color: var(--border); }
 
 .auth-hint { display: none; } /* fields that only show in sign-up mode toggle this */
 body.signup .auth-hint { display: flex; }

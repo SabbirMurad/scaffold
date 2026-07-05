@@ -1,9 +1,11 @@
-import { state, getNode } from './state.js';
-import { canvasWrap } from './utils.js';
+import { state, getNode, makeNode } from './state.js';
+import { canvasWrap, showToast } from './utils.js';
 import { render, updateNodeEl, zoomAt, fitView } from './render.js';
 import { renderProps } from './props.js';
-import { undo, redo } from './history.js';
+import { undo, redo, saveHistory } from './history.js';
 import { deleteSelected, duplicateSelected, copySelected, pasteClipboard } from './operations.js';
+import { extractFigmaHtml } from './figkiwi.js';
+import { importFigma } from './figpaste.js';
 
 // Tool to restore after a temporary space-bar pan (null = not space-panning)
 let spacePanPrev = null;
@@ -57,7 +59,8 @@ export function initToolEvents() {
 
     if ((e.metaKey || e.ctrlKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') { e.preventDefault(); copySelected(); return; }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'v') { e.preventDefault(); pasteClipboard(); return; }
+    // Ctrl+V is handled by the 'paste' event below (a keydown can't read the
+    // system clipboard, and we want Figma/image/SVG pastes to just work).
     if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); state.nodes.forEach(n => state.selected.add(n.id)); render(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); return; }
     if (e.key === 'Escape') { state.selected.clear(); setTool('select'); render(); return; }
@@ -103,4 +106,103 @@ export function initToolEvents() {
       spacePanPrev = null;
     }
   });
+
+  // ── System paste (Ctrl+V) ──
+  // One handler for every clipboard flavour: a Figma copy (its HTML carries the
+  // full binary design — decoded by figkiwi/figpaste), a raw image, an SVG, and
+  // finally the internal element clipboard as the fallback.
+  document.addEventListener('paste', e => {
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement.isContentEditable) return;
+    if (!document.body.classList.contains('design-mode')) return;
+    e.preventDefault();
+    handleSystemPaste(e.clipboardData).then(handled => { if (!handled) pasteClipboard(); });
+  });
+}
+
+// The world-space point pastes land at: the centre of the current viewport.
+function pasteWorldPoint() {
+  return {
+    x: (canvasWrap.clientWidth / 2 - state.panX) / state.zoom,
+    y: (canvasWrap.clientHeight / 2 - state.panY) / state.zoom,
+  };
+}
+
+// Select the freshly pasted roots and commit the whole paste as one undo step.
+function finishPaste(ids) {
+  state.selected = new Set(ids);
+  saveHistory();
+  render();
+  renderProps();
+}
+
+async function handleSystemPaste(cb) {
+  if (!cb) return false;
+
+  // 1) Figma: the pasted HTML embeds the copied selection in binary form.
+  const figBytes = extractFigmaHtml(cb.getData('text/html'));
+  if (figBytes) {
+    try {
+      const at = pasteWorldPoint();
+      const r = await importFigma(figBytes, at.x, at.y);
+      finishPaste(r.rootIds);
+      const extras = [];
+      if (r.newColors) extras.push(`${r.newColors} color${r.newColors > 1 ? 's' : ''}`);
+      if (r.newTypos) extras.push(`${r.newTypos} text style${r.newTypos > 1 ? 's' : ''}`);
+      if (r.icons) extras.push(`${r.icons} icon${r.icons > 1 ? 's' : ''}`);
+      if (r.vectors) extras.push(`${r.vectors} vector${r.vectors > 1 ? 's' : ''} as boxes`);
+      showToast(`Pasted ${r.count} layer${r.count > 1 ? 's' : ''} from Figma${extras.length ? ' — ' + extras.join(', ') : ''}`);
+    } catch (err) {
+      console.error('Figma paste failed:', err);
+      showToast('Couldn’t import the Figma clipboard — try Copy as SVG/PNG');
+    }
+    return true;
+  }
+
+  // 2) A raw image (screenshot, Figma "Copy as PNG", …) → an image node.
+  const imgItem = [...(cb.items || [])].find(it => it.type && it.type.startsWith('image/'));
+  if (imgItem) {
+    const file = imgItem.getAsFile();
+    if (file) {
+      const src = await new Promise(res => {
+        const rd = new FileReader();
+        rd.onload = () => res(rd.result);
+        rd.readAsDataURL(file);
+      });
+      const dim = await new Promise(res => {
+        const im = new Image();
+        im.onload = () => res({ w: im.naturalWidth || 200, h: im.naturalHeight || 200 });
+        im.onerror = () => res({ w: 200, h: 200 });
+        im.src = src;
+      });
+      const scale = Math.min(1, 480 / Math.max(dim.w, dim.h)); // keep huge shots manageable
+      const at = pasteWorldPoint();
+      const node = makeNode('image', at.x, at.y, Math.round(dim.w * scale), Math.round(dim.h * scale));
+      node.src = src;
+      state.nodes.push(node);
+      finishPaste([node.id]);
+      showToast('Pasted image');
+      return true;
+    }
+  }
+
+  // 3) SVG markup (Figma "Copy as SVG") → an icon node rendered inline.
+  const text = cb.getData('text/plain') || '';
+  if (/^\s*<svg[\s>]/i.test(text)) {
+    const vb = /viewBox\s*=\s*"[\d.\s-]*?([\d.]+)\s+([\d.]+)"/.exec(text);
+    const wAttr = /\bwidth\s*=\s*"([\d.]+)/.exec(text);
+    const hAttr = /\bheight\s*=\s*"([\d.]+)/.exec(text);
+    const w = Math.round(+((wAttr && wAttr[1]) || (vb && vb[1]) || 100)) || 100;
+    const h = Math.round(+((hAttr && hAttr[1]) || (vb && vb[2]) || 100)) || 100;
+    const at = pasteWorldPoint();
+    const node = makeNode('icon', at.x, at.y, Math.min(w, 512), Math.min(h, 512));
+    node.svg = text.trim();
+    node.colorId = null; // pasted SVGs carry their own colours — don't tint
+    state.nodes.push(node);
+    finishPaste([node.id]);
+    showToast('Pasted SVG');
+    return true;
+  }
+
+  return false; // not an external paste → internal element clipboard
 }

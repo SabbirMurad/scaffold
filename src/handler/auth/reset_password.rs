@@ -92,7 +92,7 @@ pub async fn task(form_data: web::Json<ResetPasswordFormData>) -> Result<HttpRes
 
     //deleting reset request
     let collection = db.collection::
-    <Account::PasswordResetRequest>("account_reset_request");
+    <Account::PasswordResetRequest>("password_reset_request");
 
     let result = collection.delete_one(
         doc!{"uuid": &reset.uuid, "user_id": &post_data.user_id},

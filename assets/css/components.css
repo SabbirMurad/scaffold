@@ -216,6 +216,53 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 .share-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .share-badge.accepted { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
 .share-badge.pending { color: var(--text3); background: var(--surface3); }
+.share-badge.declined { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
+/* Remove-collaborator button + loading/empty state in the share modal */
+.share-remove {
+  flex-shrink: 0; width: 26px; height: 26px; padding: 0; line-height: 1; margin-left: 2px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 7px; cursor: pointer;
+  color: var(--text3); font-size: 17px; transition: color 0.1s, background 0.1s;
+}
+.share-remove:hover { color: #fff; background: var(--red, #f55b5b); }
+.share-empty { font-size: 12.5px; color: var(--text3); padding: 6px 2px; }
+.share-badge.request { color: var(--accent); background: var(--accent-glow, color-mix(in srgb, var(--accent) 16%, transparent)); }
+/* Accept/decline buttons for a pending access request in the share modal */
+.share-req-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.share-req-accept, .share-req-decline {
+  font-family: var(--sans); font-size: 12px; font-weight: 600; padding: 5px 10px;
+  border-radius: 7px; cursor: pointer; border: 1px solid transparent;
+}
+.share-req-accept { background: var(--accent); color: #fff; }
+.share-req-accept:hover { background: var(--accent2); }
+.share-req-decline { background: transparent; border-color: var(--border2); color: var(--text2); }
+.share-req-decline:hover { color: var(--text); background: var(--surface3); }
+
+/* ───────── Access gate (shared project opened without access) ───────── */
+.access-gate {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: var(--bg, #131417);
+}
+.access-card {
+  width: 100%; max-width: 400px; text-align: center; padding: 36px 32px;
+  background: var(--glass-bg, rgba(38,39,43,0.76));
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.09)); border-radius: 16px;
+  box-shadow: var(--glass-shadow, 0 20px 60px rgba(0,0,0,0.5));
+}
+.access-icon { font-size: 40px; line-height: 1; margin-bottom: 14px; }
+.access-title { font-size: 18px; font-weight: 600; color: var(--text); }
+.access-sub { font-size: 13.5px; line-height: 1.5; color: var(--text3); margin-top: 8px; }
+.access-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+.access-btn {
+  display: block; width: 100%; padding: 11px; border-radius: 10px; border: 1px solid transparent;
+  background: var(--accent); color: #fff; font-family: var(--sans); font-size: 14px; font-weight: 600;
+  text-decoration: none; cursor: pointer; transition: background 0.1s;
+}
+.access-btn:hover { background: var(--accent2); }
+.access-btn:disabled { opacity: 0.6; cursor: default; }
+.access-btn.ghost { background: transparent; border-color: var(--border2); color: var(--text2); }
+.access-btn.ghost:hover { background: var(--surface3); color: var(--text); }
 
 /* Export picker — checklist of what to include in the exported Dart project */
 .export-list { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; margin: 2px 0; }

@@ -1,7 +1,7 @@
 import { state, getNode, makeNode, seedDefaults } from './state.js';
 import { canvasWrap, addMenu, frameMenu, closeMenus, showToast, esc } from './utils.js';
 import { canvasToWorld, canAcceptChild, isSingleChild } from './nodes.js';
-import { saveHistory } from './history.js';
+import { saveHistory, serializeDocument, loadDocument } from './history.js';
 import { render, applyTransform } from './render.js';
 import { initCanvasEvents } from './canvas.js';
 import { initToolEvents, setTool } from './tools.js';
@@ -10,6 +10,9 @@ import { initModels, renderModels } from './models.js';
 import { initApi, renderApi } from './api.js';
 import { initColors, renderColors, renderThemeSwitch, applyTheme } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
+import { logout, getAuth } from './session.js';
+import { getProject, saveProjectDoc, updateProject, requestAccess,
+  listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite } from './projects.js';
 import { initMock, renderMock } from './mock.js';
 import { exportModelsCode, collectExportables, dartPath } from './codegen.js';
 import { updateExportButton } from './validate.js';
@@ -19,7 +22,6 @@ import { initFontPicker } from './google-fonts.js';
 import { initImagePicker } from './image-picker.js';
 import { initFlow } from './flow.js';
 import { initComments } from './comments.js';
-import { addShare, sharesFor, setShareRole, ROLES } from './shares.js';
 
 // Initialize event systems
 initCanvasEvents();
@@ -207,17 +209,71 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && exportMo
 
 // Nav icons.
 document.getElementById('nav-home')?.addEventListener('click', () => { window.location.href = '/dashboard'; });
-document.getElementById('nav-sync')?.addEventListener('click', () => showToast('Sync — coming soon'));
-document.getElementById('nav-logout')?.addEventListener('click', () => { window.location.href = '/authentication'; });
 
-// Share project — invite by email (the request shows up in the home Requests tab).
+// ───────── Project persistence ─────────
+// The project this editor is bound to (from ?id=…). null → an unsaved scratch
+// session (nothing is persisted until it's opened from a real project).
+let currentProjectId = null;
+let currentVersion = null;
+let lastSavedJson = null;     // last successfully-saved document, to skip no-op autosaves
+let autosaveTimer = null;
+
+// Save the design document. `manual` surfaces success/failure via a toast;
+// autosave stays silent unless something needs the user's attention.
+async function saveProject(manual = false) {
+  if (!currentProjectId) {
+    if (manual) showToast('Open a project from the dashboard to save');
+    return;
+  }
+  const doc = serializeDocument();
+  const json = JSON.stringify(doc);
+  if (!manual && json === lastSavedJson) return; // nothing changed
+
+  const res = await saveProjectDoc(currentProjectId, doc, currentVersion);
+  if (res.ok) {
+    lastSavedJson = json;
+    currentVersion = (res.data && res.data.version) != null ? res.data.version : currentVersion;
+    if (manual) showToast('Project saved');
+  } else if (res.status === 409) {
+    showToast('This project changed elsewhere — reload before saving');
+  } else if (res.status === 401) {
+    showToast('Your session expired — sign in again to save');
+  } else if (manual) {
+    showToast(res.error || 'Couldn’t save the project');
+  }
+}
+
+function startAutosave() {
+  lastSavedJson = JSON.stringify(serializeDocument());
+  clearInterval(autosaveTimer);
+  autosaveTimer = setInterval(() => saveProject(false), 5000);
+  // Flush on tab-hide so a quick close doesn't lose the last few seconds.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveProject(false);
+  });
+}
+
+document.getElementById('nav-sync')?.addEventListener('click', () => saveProject(true));
+document.getElementById('nav-logout')?.addEventListener('click', () => { logout(); });
+
+// Share project — invite collaborators by email (backed by the collaborators
+// API). Roles are lowercase in the UI (viewer/editor) and capitalized on the
+// wire (Viewer/Editor); ownership isn't assignable via invites.
 const shareModal = document.getElementById('share-modal');
 const shareEmail = document.getElementById('share-email');
 const shareRoleSlot = document.getElementById('share-role-slot');
 const sharePeople = document.getElementById('share-people');
 const sharePeopleList = document.getElementById('share-people-list');
 const ROLE_LABEL = { viewer: 'Viewer', editor: 'Editor', owner: 'Owner' };
-const ROLE_OPTS = ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] }));
+const SHARE_ROLES = ['viewer', 'editor'];
+const ROLE_OPTS = SHARE_ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] }));
+const toApiRole = (r) => (r || 'editor').charAt(0).toUpperCase() + (r || 'editor').slice(1);
+const toUiRole = (r) => (r || '').toLowerCase();
+const STATUS_BADGE = {
+  Accepted: '<span class="share-badge accepted">Accepted</span>',
+  Declined: '<span class="share-badge declined">Declined</span>',
+  Pending: '<span class="share-badge pending">Pending</span>',
+};
 
 // The role picker beside the email input, reset to Editor each time we open.
 function renderInviteRole() {
@@ -225,24 +281,48 @@ function renderInviteRole() {
 }
 const inviteRole = () => shareRoleSlot?.querySelector('.dd-trigger')?.dataset.ddValue || 'editor';
 
-// A row per person the project is shared with, each with a role dropdown and a
-// pending/accepted badge. Editing a role updates the stored share in place.
-function renderSharePeople() {
-  if (!sharePeople) return;
-  const people = sharesFor(state.projectName);
+// A row per collaborator: avatar, email, status badge, a role dropdown, and a
+// remove button. Fetched fresh from the server each time the modal opens.
+async function renderSharePeople() {
+  if (!sharePeople || !sharePeopleList) return;
+  if (!currentProjectId) {
+    sharePeople.hidden = false;
+    sharePeopleList.innerHTML = '<div class="share-empty">Save this project to invite collaborators.</div>';
+    return;
+  }
+  sharePeopleList.innerHTML = '<div class="share-empty">Loading…</div>';
+  const res = await listCollaborators(currentProjectId);
+  if (!res.ok) {
+    sharePeople.hidden = false;
+    sharePeopleList.innerHTML = `<div class="share-empty">${esc(res.error || 'Couldn’t load collaborators')}</div>`;
+    return;
+  }
+  // Declined records are dropped; the rest render newest-relevant first with a
+  // pending access-request pinned to the top so the owner notices it.
+  const people = (Array.isArray(res.data) ? res.data : []).filter(p => p.status !== 'Declined');
+  const isRequest = (p) => p.kind === 'Request' && p.status === 'Pending';
+  people.sort((a, b) => Number(isRequest(b)) - Number(isRequest(a)));
   sharePeople.hidden = people.length === 0;
   sharePeopleList.innerHTML = people.map(p => {
-    const badge = p.status === 'accepted'
-      ? '<span class="share-badge accepted">Accepted</span>'
-      : '<span class="share-badge pending">Pending</span>';
-    const roleDd = ddTrigger({ value: p.role, options: ROLE_OPTS, data: { 'role-for': p.id }, triggerClass: 'dd-share' });
-    return `<div class="share-person" data-id="${p.id}">
-        <div class="share-ava">${esc((p.email[0] || '?').toUpperCase())}</div>
+    const controls = isRequest(p)
+      // An access request → the owner grants or declines it.
+      ? `<div class="share-req-actions">
+          <button type="button" class="share-req-decline" data-decline="${p.uuid}">Decline</button>
+          <button type="button" class="share-req-accept" data-accept="${p.uuid}">Accept</button>
+        </div>`
+      // An invite or a member → role picker + remove.
+      : `${ddTrigger({ value: toUiRole(p.role), options: ROLE_OPTS, data: { 'role-for': p.uuid }, triggerClass: 'dd-share' })}
+        <button type="button" class="share-remove" data-remove="${p.uuid}" title="Remove" aria-label="Remove collaborator">&times;</button>`;
+    const badge = isRequest(p)
+      ? '<span class="share-badge request">Wants access</span>'
+      : (STATUS_BADGE[p.status] || STATUS_BADGE.Pending);
+    return `<div class="share-person" data-id="${p.uuid}">
+        <div class="share-ava">${esc((p.email_address[0] || '?').toUpperCase())}</div>
         <div class="share-person-info">
-          <div class="share-person-email">${esc(p.email)}</div>
+          <div class="share-person-email">${esc(p.email_address)}</div>
           ${badge}
         </div>
-        ${roleDd}
+        ${controls}
       </div>`;
   }).join('');
 }
@@ -254,12 +334,33 @@ shareModal?.addEventListener('dd:change', e => {
   if (lbl) lbl.textContent = ROLE_LABEL[e.detail.value] || e.detail.value;
 });
 
-sharePeopleList?.addEventListener('dd:change', e => {
+// Change a collaborator's role.
+sharePeopleList?.addEventListener('dd:change', async e => {
   const trig = e.target.closest('[data-role-for]');
-  if (!trig) return;
-  setShareRole(trig.dataset.roleFor, e.detail.value);
+  if (!trig || !currentProjectId) return;
   const email = trig.closest('.share-person')?.querySelector('.share-person-email')?.textContent;
-  showToast(`${email || 'Member'} is now ${ROLE_LABEL[e.detail.value] || e.detail.value}`);
+  const res = await setCollaboratorRole(currentProjectId, trig.dataset.roleFor, toApiRole(e.detail.value));
+  if (res.ok) showToast(`${email || 'Member'} is now ${ROLE_LABEL[e.detail.value] || e.detail.value}`);
+  else { showToast(res.error || 'Couldn’t change role'); renderSharePeople(); }
+});
+
+// Remove a collaborator, or grant/decline a pending access request.
+sharePeopleList?.addEventListener('click', async e => {
+  if (!currentProjectId) return;
+  const accept = e.target.closest('[data-accept]');
+  const decline = e.target.closest('[data-decline]');
+  if (accept || decline) {
+    const id = (accept || decline).dataset[accept ? 'accept' : 'decline'];
+    const res = await respondInvite(currentProjectId, id, accept ? 'Accepted' : 'Declined');
+    if (res.ok) { showToast(accept ? 'Access granted' : 'Request declined'); renderSharePeople(); }
+    else showToast(res.error || 'Couldn’t update the request');
+    return;
+  }
+  const btn = e.target.closest('[data-remove]');
+  if (!btn) return;
+  const res = await removeCollaborator(currentProjectId, btn.dataset.remove);
+  if (res.ok) { showToast('Collaborator removed'); renderSharePeople(); }
+  else showToast(res.error || 'Couldn’t remove collaborator');
 });
 
 const closeShare = () => { if (shareModal) { shareModal.hidden = true; document.getElementById('share-form')?.reset(); } };
@@ -268,16 +369,21 @@ document.getElementById('share-close')?.addEventListener('click', closeShare);
 document.getElementById('share-cancel')?.addEventListener('click', closeShare);
 shareModal?.addEventListener('click', e => { if (e.target === shareModal) closeShare(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && shareModal && !shareModal.hidden) closeShare(); });
-document.getElementById('share-form')?.addEventListener('submit', e => {
+document.getElementById('share-form')?.addEventListener('submit', async e => {
   e.preventDefault();
   const email = shareEmail.value.trim();
   if (!email) return;
+  if (!currentProjectId) { showToast('Save this project before inviting'); return; }
   const role = inviteRole();
-  addShare(email, state.projectName, role);
-  shareEmail.value = '';
-  renderInviteRole();
-  renderSharePeople();
-  showToast(`Invitation sent to ${email} as ${ROLE_LABEL[role] || role}`);
+  const res = await inviteCollaborator(currentProjectId, email, toApiRole(role));
+  if (res.ok) {
+    shareEmail.value = '';
+    renderInviteRole();
+    renderSharePeople();
+    showToast(`Invitation sent to ${email} as ${ROLE_LABEL[role] || role}`);
+  } else {
+    showToast(res.error || 'Couldn’t send the invitation');
+  }
 });
 
 // Keep the export button's enabled/disabled state in sync with project validity.
@@ -286,11 +392,20 @@ document.getElementById('share-form')?.addEventListener('submit', e => {
 ['input', 'change', 'dd:change', 'click', 'keyup'].forEach(ev =>
   document.addEventListener(ev, () => updateExportButton()));
 
-// Project name (editable)
+// Project name (editable) — renames the bound project (debounced) as you type.
 const projectNameInput = document.getElementById('project-name');
+let renameTimer = null;
 if (projectNameInput) {
   projectNameInput.value = state.projectName;
-  projectNameInput.addEventListener('input', () => { state.projectName = projectNameInput.value; });
+  projectNameInput.addEventListener('input', () => {
+    state.projectName = projectNameInput.value;
+    if (!currentProjectId) return;
+    clearTimeout(renameTimer);
+    renameTimer = setTimeout(() => {
+      const name = state.projectName.trim();
+      if (name) updateProject(currentProjectId, { name });
+    }, 700);
+  });
 }
 
 // Collapse / expand the left sidebar
@@ -370,11 +485,104 @@ document.getElementById('theme-switch')?.addEventListener('click', (e) => {
   if (btn) applyTheme(btn.dataset.themesw);
 });
 
-// Boot
-seedDefaults(); // pre-create white/black colors + a default "body" type style
-saveHistory();
-applyTransform();
-render();
-renderThemeSwitch();
-updateExportButton();
-showToast('Scaffold ready \u2014 press V to select, R for container, T for text');
+// Full-screen gate shown when a shared project link is opened by someone who
+// can't view it: sign in, request access, or "not found". Covers the editor
+// chrome entirely (the editor never initializes in this case).
+function showAccessScreen(kind, projectId) {
+  const el = document.createElement('div');
+  el.className = 'access-gate';
+
+  const view = (icon, title, sub, actions) => `
+    <div class="access-card">
+      <div class="access-icon">${icon}</div>
+      <div class="access-title">${title}</div>
+      <div class="access-sub">${sub}</div>
+      <div class="access-actions">${actions}</div>
+    </div>`;
+
+  const dashBtn = '<a class="access-btn ghost" href="/dashboard">Back to dashboard</a>';
+
+  if (kind === 'signin') {
+    const target = encodeURIComponent(`/editor/${projectId}`);
+    el.innerHTML = view('\ud83d\udd12', 'Sign in to view this project',
+      'This project is private. Sign in to request access to it.',
+      `<a class="access-btn" href="/authentication?next=${target}">Sign in</a>`);
+  } else if (kind === 'notfound') {
+    el.innerHTML = view('\ud83d\udd0d', 'Project not found',
+      'This project doesn\u2019t exist, or it was deleted.', dashBtn);
+  } else { // denied
+    el.innerHTML = view('\ud83d\udd12', 'You don\u2019t have access to this project',
+      'Ask the owner for access \u2014 they\u2019ll see your request and can let you in.',
+      `<button type="button" class="access-btn" id="access-request">Request access</button>${dashBtn}`);
+  }
+
+  document.body.appendChild(el);
+
+  const requestBtn = el.querySelector('#access-request');
+  requestBtn?.addEventListener('click', async () => {
+    requestBtn.disabled = true;
+    requestBtn.textContent = 'Sending\u2026';
+    const res = await requestAccess(projectId);
+    const card = el.querySelector('.access-card');
+    if (res.ok) {
+      card.innerHTML = `
+        <div class="access-icon">\u2705</div>
+        <div class="access-title">Request sent</div>
+        <div class="access-sub">The owner will review your request. You\u2019ll be able to open the project once they grant access.</div>
+        <div class="access-actions">${dashBtn}</div>`;
+    } else if (res.status === 409) {
+      // Already invited / requested / a member \u2014 tell them and offer a retry.
+      card.innerHTML = `
+        <div class="access-icon">\u23f3</div>
+        <div class="access-title">${esc(res.error || 'Request already pending')}</div>
+        <div class="access-sub">If you were just granted access, reload to open the project.</div>
+        <div class="access-actions"><button type="button" class="access-btn" onclick="location.reload()">Reload</button>${dashBtn}</div>`;
+    } else {
+      requestBtn.disabled = false;
+      requestBtn.textContent = 'Request access';
+      showToast(res.error || 'Couldn\u2019t send the request');
+    }
+  });
+}
+
+// Boot \u2014 load the project named in ?id= before first paint. A shared link opened
+// by someone without access shows the access screen instead of the editor; no id
+// starts a fresh scratch canvas.
+async function boot() {
+  // The project id is a path segment: /editor/<id>.
+  const match = window.location.pathname.match(/^\/editor\/([^/]+)/);
+  const projectId = match ? decodeURIComponent(match[1]) : null;
+
+  if (projectId) {
+    if (!getAuth()) { showAccessScreen('signin', projectId); return; }
+    const res = await getProject(projectId);
+    if (res.status === 401) { window.location.href = '/authentication'; return; }
+    if (res.status === 403) { showAccessScreen('denied', projectId); return; }
+    if (res.status === 404) { showAccessScreen('notfound', projectId); return; }
+    if (res.ok && res.data) {
+      currentProjectId = projectId;
+      currentVersion = res.data.document && res.data.document.version != null
+        ? res.data.document.version : null;
+      if (res.data.project && res.data.project.name) state.projectName = res.data.project.name;
+      if (res.data.document && res.data.document.content) loadDocument(res.data.document.content);
+    } else {
+      showToast(res.error || 'Couldn\u2019t load this project');
+    }
+  }
+
+  seedDefaults(); // fills any gaps (themes, white/black, default type style) after a load
+  saveHistory();
+  applyTransform();
+  render();
+  renderThemeSwitch();
+  updateExportButton();
+  if (projectNameInput) projectNameInput.value = state.projectName;
+
+  if (currentProjectId) {
+    startAutosave();
+    showToast('Project loaded');
+  } else {
+    showToast('Scaffold ready \u2014 press V to select, R for container, T for text');
+  }
+}
+boot();

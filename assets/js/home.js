@@ -2,7 +2,8 @@
 // Settings, Account, Billing) by toggling the matching <section>.
 
 import { ddTrigger, initDropdowns } from './dropdown.js';
-import { getShares, setShareStatus, removeShare, pendingCount, seedDemoShares } from './shares.js';
+import { logout, getAuth } from './session.js';
+import { listProjects, createProject, updateProject, deleteProject, myInvites, respondInvite } from './projects.js';
 
 const navItems = document.querySelectorAll('.home-nav-item');
 const pages = document.querySelectorAll('.home-page');
@@ -16,38 +17,61 @@ function showPage(name) {
 
 navItems.forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.page)));
 
-// ───────── Demo projects ─────────
-// Placeholder list until real projects are persisted. Each card opens the editor.
-const demoProjects = [
-  { name: 'Mobile Banking App', edited: 'Edited 2 hours ago',  c1: '#5b8af5', c2: '#3d6de0', pinned: true },
-  { name: 'E-commerce Store',   edited: 'Edited yesterday',    c1: '#f5576c', c2: '#f093fb', pinned: false },
-  { name: 'Fitness Tracker',    edited: 'Edited 3 days ago',   c1: '#11998e', c2: '#38ef7d', pinned: false },
-  { name: 'Travel Booking',     edited: 'Edited last week',    c1: '#f7971e', c2: '#ffd200', pinned: false },
-  { name: 'Recipe Manager',     edited: 'Edited 2 weeks ago',  c1: '#7b4397', c2: '#dc2430', pinned: false },
-  { name: 'Podcast Player',     edited: 'Edited last month',   c1: '#2193b0', c2: '#6dd5ed', pinned: false },
-];
-
+// ───────── Projects ─────────
+// Loaded from the project API. Each card opens the editor bound to that project.
+let projects = [];
 const projectSearch = document.getElementById('project-search');
+
+// "Edited 3 hours ago" style relative time from an epoch-millis timestamp.
+function timeAgo(ms) {
+  if (!ms) return 'just now';
+  const s = Math.floor((Date.now() - ms) / 1000);
+  const units = [
+    [31536000, 'year'], [2592000, 'month'], [604800, 'week'],
+    [86400, 'day'], [3600, 'hour'], [60, 'minute'],
+  ];
+  for (const [secs, label] of units) {
+    const n = Math.floor(s / secs);
+    if (n >= 1) return `${n} ${label}${n > 1 ? 's' : ''} ago`;
+  }
+  return 'just now';
+}
 
 function makeCard(p) {
   const card = document.createElement('div');
   card.className = 'project-card' + (p.pinned ? ' pinned' : '');
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
+  const from = p.thumbnail_from || '#5b8af5';
+  const to = p.thumbnail_to || '#3d6de0';
   card.innerHTML = `
     <button type="button" class="project-pin" title="${p.pinned ? 'Unpin' : 'Pin'}" aria-label="${p.pinned ? 'Unpin project' : 'Pin project'}"></button>
-    <div class="project-preview" style="background:linear-gradient(135deg, ${p.c1}, ${p.c2})">${p.name.charAt(0)}</div>
+    <button type="button" class="project-del" title="Delete project" aria-label="Delete project">&times;</button>
+    <div class="project-preview" style="background:linear-gradient(135deg, ${from}, ${to})">${escHtml((p.name || '?').charAt(0))}</div>
     <div class="project-meta">
-      <div class="project-name">${p.name}</div>
-      <div class="project-edited">${p.edited}</div>
+      <div class="project-name">${escHtml(p.name || 'Untitled')}</div>
+      <div class="project-edited">Edited ${timeAgo(p.modified_at)}</div>
     </div>`;
-  const open = () => { window.location.href = '/editor'; };
-  card.addEventListener('click', e => { if (!e.target.closest('.project-pin')) open(); });
+
+  const open = () => { window.location.href = `/editor/${encodeURIComponent(p.uuid)}`; };
+  card.addEventListener('click', e => { if (!e.target.closest('.project-pin, .project-del')) open(); });
   card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
-  card.querySelector('.project-pin').addEventListener('click', e => {
+
+  // Pin toggles optimistically, reverting if the request fails.
+  card.querySelector('.project-pin').addEventListener('click', async e => {
     e.stopPropagation();
     p.pinned = !p.pinned;
     renderProjects();
+    const res = await updateProject(p.uuid, { pinned: p.pinned });
+    if (!res.ok) { p.pinned = !p.pinned; renderProjects(); toast(res.error || 'Couldn’t update project'); }
+  });
+
+  card.querySelector('.project-del').addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!confirm(`Delete “${p.name || 'Untitled'}”?`)) return;
+    const res = await deleteProject(p.uuid);
+    if (res.ok) { projects = projects.filter(x => x.uuid !== p.uuid); renderProjects(); toast('Project deleted'); }
+    else toast(res.error || 'Couldn’t delete project');
   });
   return card;
 }
@@ -56,22 +80,37 @@ function renderProjects() {
   const grid = document.getElementById('projects-grid');
   if (!grid) return;
   const q = (projectSearch?.value || '').trim().toLowerCase();
-  const matches = demoProjects.filter(p => p.name.toLowerCase().includes(q));
-  // Pinned first, otherwise keep the original order (stable).
-  const sorted = matches.map((p, i) => ({ p, i }))
-    .sort((a, b) => (b.p.pinned - a.p.pinned) || (a.i - b.i))
-    .map(x => x.p);
+  const matches = projects.filter(p => (p.name || '').toLowerCase().includes(q));
+  // Pinned first, then most-recently edited.
+  const sorted = matches.slice().sort((a, b) =>
+    (Number(b.pinned) - Number(a.pinned)) || ((b.modified_at || 0) - (a.modified_at || 0)));
 
   grid.innerHTML = '';
   if (!sorted.length) {
-    grid.innerHTML = `<div class="home-placeholder">No projects match “${q}”.</div>`;
+    grid.innerHTML = q
+      ? `<div class="home-placeholder">No projects match “${escHtml(q)}”.</div>`
+      : `<div class="home-placeholder">No projects yet. Click “New project” to start.</div>`;
     return;
   }
   sorted.forEach(p => grid.appendChild(makeCard(p)));
 }
 
+async function loadProjects() {
+  if (!getAuth()) { window.location.href = '/authentication'; return; }
+  const grid = document.getElementById('projects-grid');
+  if (grid) grid.innerHTML = `<div class="home-placeholder">Loading projects…</div>`;
+  const res = await listProjects();
+  if (res.status === 401) { window.location.href = '/authentication'; return; }
+  if (res.ok) {
+    projects = Array.isArray(res.data) ? res.data : [];
+    renderProjects();
+  } else if (grid) {
+    grid.innerHTML = `<div class="home-placeholder">Couldn’t load projects. ${escHtml(res.error || '')}</div>`;
+  }
+}
+
 projectSearch?.addEventListener('input', renderProjects);
-renderProjects();
+loadProjects();
 
 // ───────── Toast ─────────
 let toastEl = null, toastTimer = null;
@@ -152,71 +191,70 @@ if (tzField) {
 }
 initDropdowns();
 
-// ───────── Requests (collaboration invites from the editor) ─────────
+// ───────── Requests — invitations addressed to you ─────────
+// Pending collaboration invites to *this* user (from the collaborators API).
+// Accepting adds the project to your list; declining dismisses the invite.
 const escHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const ROLE_LABEL = { viewer: 'Viewer', editor: 'Editor', owner: 'Owner' };
+let incomingInvites = [];
 
 function updateRequestsBadge() {
   const badge = document.getElementById('requests-badge');
-  if (badge) badge.textContent = pendingCount() ? String(pendingCount()) : '';
+  if (badge) badge.textContent = incomingInvites.length ? String(incomingInvites.length) : '';
 }
 
-const ROLE_LABEL = { viewer: 'Viewer', editor: 'Editor', owner: 'Owner' };
-
-function reqRow(r, actions) {
-  const roleLabel = ROLE_LABEL[r.role] || 'Editor';
-  const verb = r.status === 'accepted' ? 'Has' : 'Wants';
+function reqRow(inv) {
+  const roleLabel = ROLE_LABEL[(inv.role || '').toLowerCase()] || inv.role || 'Editor';
+  const name = inv.project_name || 'Untitled';
   return `<div class="req-item">
-      <div class="req-ava">${escHtml(r.email[0] || '?')}</div>
+      <div class="req-ava">${escHtml(name.charAt(0).toUpperCase())}</div>
       <div class="req-info">
-        <div class="req-email">${escHtml(r.email)}</div>
-        <div class="req-sub">${verb} <strong>${roleLabel}</strong> access to <strong>${escHtml(r.project)}</strong></div>
+        <div class="req-email">${escHtml(name)}</div>
+        <div class="req-sub">You're invited as <strong>${roleLabel}</strong></div>
       </div>
-      <div class="req-actions">${actions}</div>
+      <div class="req-actions">
+        <button type="button" class="acct-btn-ghost" data-decline="${inv.uuid}">Decline</button>
+        <button type="button" class="acct-btn" data-accept="${inv.uuid}">Accept</button>
+      </div>
     </div>`;
 }
 
-function renderRequests() {
+async function renderRequests() {
   const list = document.getElementById('requests-list');
-  if (!list) return;
-  // Declined invites are dismissed outright, so only pending + accepted remain.
-  const reqs = getShares().filter(r => r.status !== 'declined');
-  const pending = reqs.filter(r => r.status === 'pending');
-  const accepted = reqs.filter(r => r.status === 'accepted');
+  if (!list || !getAuth()) return;
+  list.innerHTML = '<div class="home-placeholder">Loading…</div>';
 
-  if (!reqs.length) {
-    list.innerHTML = '<div class="home-placeholder">No collaboration requests yet. Share a project from the editor to send one.</div>';
-    updateRequestsBadge();
+  const res = await myInvites();
+  if (!res.ok) {
+    if (res.status === 401) { window.location.href = '/authentication'; return; }
+    list.innerHTML = `<div class="home-placeholder">Couldn’t load invitations. ${escHtml(res.error || '')}</div>`;
     return;
   }
 
-  let html = '';
-  if (pending.length) {
-    html += `<div class="req-group-head">Pending requests</div>`;
-    html += pending.map(r => reqRow(r,
-      `<button type="button" class="acct-btn-ghost" data-decline="${r.id}">Decline</button>` +
-      `<button type="button" class="acct-btn" data-accept="${r.id}">Accept</button>`)).join('');
-  }
-  if (accepted.length) {
-    html += `<div class="req-group-head">People with access</div>`;
-    html += accepted.map(r => reqRow(r,
-      `<span class="req-status accepted">Accepted</span>` +
-      `<button type="button" class="acct-btn-ghost req-revoke" data-remove="${r.id}">Remove</button>`)).join('');
-  }
-  list.innerHTML = html;
-
-  list.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', () => {
-    setShareStatus(b.dataset.accept, 'accepted'); renderRequests(); toast('Request accepted — they can now access this project');
-  }));
-  list.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', () => {
-    removeShare(b.dataset.decline); renderRequests(); toast('Request declined');
-  }));
-  list.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => {
-    removeShare(b.dataset.remove); renderRequests(); toast('Access removed');
-  }));
+  incomingInvites = Array.isArray(res.data) ? res.data : [];
   updateRequestsBadge();
+
+  if (!incomingInvites.length) {
+    list.innerHTML = '<div class="home-placeholder">No pending invitations.</div>';
+    return;
+  }
+
+  list.innerHTML = `<div class="req-group-head">Pending invitations</div>` + incomingInvites.map(reqRow).join('');
+
+  const respond = async (uuid, status, okMsg) => {
+    const inv = incomingInvites.find(i => i.uuid === uuid);
+    if (!inv) return;
+    const r = await respondInvite(inv.project_id, uuid, status);
+    if (r.ok) { toast(okMsg); renderRequests(); }
+    else toast(r.error || 'Couldn’t update invitation');
+  };
+  list.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click',
+    () => respond(b.dataset.accept, 'Accepted', 'Invitation accepted — the project is now in your list')));
+  list.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click',
+    () => respond(b.dataset.decline, 'Declined', 'Invitation declined')));
 }
 
-seedDemoShares(); // one-time example requests so the tab isn't empty on first load
 renderRequests();
 
 // Delete account: two-step confirm. Deletion is intentionally a no-op (demo).
@@ -422,12 +460,20 @@ document.getElementById('feedback-form')?.addEventListener('submit', (e) => {
 renderFeedbackMeta();
 renderFeedbackHistory();
 
-// New project → straight into the editor (the demo project list is added later).
-document.getElementById('new-project-btn')?.addEventListener('click', () => {
-  window.location.href = '/editor';
+// New project → create it, then open the editor bound to it.
+document.getElementById('new-project-btn')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const res = await createProject({ name: 'Untitled Project' });
+  btn.disabled = false;
+  if (res.ok && res.data && res.data.uuid) {
+    window.location.href = `/editor/${encodeURIComponent(res.data.uuid)}`;
+  } else if (res.status === 401) {
+    window.location.href = '/authentication';
+  } else {
+    toast(res.error || 'Couldn’t create project');
+  }
 });
 
-// Logout → authentication page (built in a later task).
-document.getElementById('home-logout')?.addEventListener('click', () => {
-  window.location.href = '/authentication';
-});
+// Logout → purge the session, clear tokens, back to the authentication page.
+document.getElementById('home-logout')?.addEventListener('click', () => { logout(); });

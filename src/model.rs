@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 pub mod account;
 pub use account as Account;
 
+pub mod project;
+pub use project as Project;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AllowedImageType { Gif, Png, Jpeg, Webp }
 

@@ -5,7 +5,7 @@ import { canvas, zoomLabel, canvasWrap } from './utils.js';
 import { drawRulers } from './rulers.js';
 import { renderLayers } from './layers.js';
 import { renderProps } from './props.js';
-import { attachNodeEvents } from './canvas.js';
+import { attachNodeEvents, beginNodeDrag } from './canvas.js';
 import { ensureFontLoaded } from './google-fonts.js';
 
 export function applyTransform() {
@@ -403,7 +403,9 @@ export function renderNode(node, parent) {
   if (node.type === 'frame' || node.type === 'section') addFrameLabel(node, parent);
 }
 
-// A constant-size name tag above a frame/section; clicking it selects the node.
+// A constant-size name tag above a frame/section. Pressing it acts on the node
+// exactly like pressing the node body: click selects (shift adds), drag moves,
+// Alt+drag duplicates — so a frame can be grabbed by its name, Figma-style.
 function addFrameLabel(node, parent) {
   const label = document.createElement('div');
   label.className = 'frame-label' + (node.type === 'section' ? ' section-label' : '') + (state.selected.has(node.id) ? ' selected' : '');
@@ -411,12 +413,10 @@ function addFrameLabel(node, parent) {
   label.textContent = node.name || 'Frame';
   label.style.left = node.x + 'px';
   label.style.top = node.y + 'px';
-  label.addEventListener('pointerdown', e => {
-    if (state.tool !== 'select') return;
+  label.addEventListener('mousedown', e => {
+    if (state.tool !== 'select' || node.locked) return;
     e.stopPropagation();
-    if (!e.shiftKey && !e.metaKey && !e.ctrlKey) state.selected.clear();
-    state.selected.add(node.id);
-    render();
+    beginNodeDrag(node, e);
   });
   parent.appendChild(label);
 }
