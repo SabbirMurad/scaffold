@@ -13,11 +13,11 @@ pub struct ReqBody {
     description: Option<String>,
     thumbnail_from: Option<String>,
     thumbnail_to: Option<String>,
-    pinned: Option<bool>,
 }
 
-// Update a project's metadata (name, description, thumbnail, pin). Requires
-// editor access or higher.
+// Update a project's shared metadata (name, description, thumbnail). Requires
+// editor access or higher. Per-user state like pinning lives in its own
+// endpoint (see pin.rs) since it must not be shared across members.
 pub async fn task(
     req: HttpRequest,
     path: web::Path<String>,
@@ -57,9 +57,6 @@ pub async fn task(
     }
     if let Some(to) = &body.thumbnail_to {
         set.insert("thumbnail_to", to.trim());
-    }
-    if let Some(pinned) = body.pinned {
-        set.insert("pinned", pinned);
     }
 
     if set.is_empty() {

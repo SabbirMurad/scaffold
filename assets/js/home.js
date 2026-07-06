@@ -3,7 +3,8 @@
 
 import { ddTrigger, initDropdowns } from './dropdown.js';
 import { logout, getAuth } from './session.js';
-import { listProjects, createProject, updateProject, deleteProject, myInvites, respondInvite } from './projects.js';
+import { listProjects, createProject, updateProject, pinProject, deleteProject, myInvites, respondInvite } from './projects.js';
+import { listFeedback, sendFeedback } from './feedback.js';
 
 const navItems = document.querySelectorAll('.home-nav-item');
 const pages = document.querySelectorAll('.home-page');
@@ -12,7 +13,7 @@ function showPage(name) {
   navItems.forEach(b => b.classList.toggle('active', b.dataset.page === name));
   pages.forEach(p => p.classList.toggle('active', p.dataset.page === name));
   if (name === 'requests') renderRequests(); // refresh in case an invite just arrived
-  if (name === 'feedback') renderFeedbackMeta(); // recompute today's remaining count
+  if (name === 'feedback') loadFeedback(); // refresh cap state + history from the server
 }
 
 navItems.forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.page)));
@@ -62,7 +63,7 @@ function makeCard(p) {
     e.stopPropagation();
     p.pinned = !p.pinned;
     renderProjects();
-    const res = await updateProject(p.uuid, { pinned: p.pinned });
+    const res = await pinProject(p.uuid, p.pinned);
     if (!res.ok) { p.pinned = !p.pinned; renderProjects(); toast(res.error || 'Couldn’t update project'); }
   });
 
@@ -375,18 +376,12 @@ cancelBtn?.addEventListener('click', () => {
   cancelConfirm = setTimeout(() => { cancelBtn.classList.remove('confirming'); cancelBtn.textContent = 'Cancel subscription'; }, 4000);
 });
 
-// ───────── Feedback (stored locally; capped at 5 submissions per calendar day) ─────────
-const FB_KEY = 'Scaffold_feedback';
-const FB_MAX_PER_DAY = 5;
+// ───────── Feedback (server-backed; capped at 5 submissions per calendar day) ─────────
 const FB_TYPES = ['Bug', 'Idea', 'Question', 'Other'].map(t => ({ value: t, label: t }));
 
-function getFeedback() { try { return JSON.parse(localStorage.getItem(FB_KEY)) || []; } catch { return []; } }
-function saveFeedback(list) { try { localStorage.setItem(FB_KEY, JSON.stringify(list)); } catch { /* storage unavailable */ } }
-function sameDay(ts) {
-  const d = new Date(ts), n = new Date();
-  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
-}
-function feedbackTodayCount() { return getFeedback().filter(f => sameDay(f.ts)).length; }
+// Cap state + recent history, loaded from the server (the daily cap is enforced
+// server-side; this is just what the UI needs to render).
+let fbState = { max_per_day: 5, used_today: 0, items: [] };
 
 function relTime(ts) {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -414,9 +409,9 @@ if (fbType) {
 }
 
 function renderFeedbackMeta() {
-  const left = Math.max(0, FB_MAX_PER_DAY - feedbackTodayCount());
+  const left = Math.max(0, fbState.max_per_day - fbState.used_today);
   if (fbRemaining) {
-    fbRemaining.textContent = left ? `${left} of ${FB_MAX_PER_DAY} left today` : 'Daily limit reached';
+    fbRemaining.textContent = left ? `${left} of ${fbState.max_per_day} left today` : 'Daily limit reached';
     fbRemaining.classList.toggle('none', left === 0);
   }
   if (fbSubmit) {
@@ -427,34 +422,52 @@ function renderFeedbackMeta() {
 
 function renderFeedbackHistory() {
   if (!fbHistory) return;
-  const items = getFeedback().slice(0, 8); // newest first (unshifted on add)
+  const items = fbState.items.slice(0, 8); // server returns newest first
   if (fbHistoryCard) fbHistoryCard.hidden = items.length === 0;
   fbHistory.innerHTML = items.map(f => `
     <div class="fb-item">
-      <span class="fb-type-chip">${escHtml(f.type)}</span>
+      <span class="fb-type-chip">${escHtml(f.kind)}</span>
       <div class="fb-item-body">
-        <div class="fb-item-text">${escHtml(f.text)}</div>
-        <div class="fb-item-time">${escHtml(relTime(f.ts))}</div>
+        <div class="fb-item-text">${escHtml(f.message)}</div>
+        <div class="fb-item-time">${escHtml(relTime(f.created_at))}</div>
       </div>
     </div>`).join('');
 }
 
+// Pull the caller's cap state + recent history from the server and re-render.
+async function loadFeedback() {
+  const res = await listFeedback();
+  if (res.ok && res.data) {
+    fbState = {
+      max_per_day: res.data.max_per_day ?? 5,
+      used_today: res.data.used_today ?? 0,
+      items: Array.isArray(res.data.items) ? res.data.items : [],
+    };
+  }
+  renderFeedbackMeta();
+  renderFeedbackHistory();
+}
+
 fbText?.addEventListener('input', () => { if (fbCount) fbCount.textContent = String(fbText.value.length); });
 
-document.getElementById('feedback-form')?.addEventListener('submit', (e) => {
+document.getElementById('feedback-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (feedbackTodayCount() >= FB_MAX_PER_DAY) { toast(`You can only send ${FB_MAX_PER_DAY} feedbacks a day — try again tomorrow`); renderFeedbackMeta(); return; }
   const text = fbText.value.trim();
   if (!text) { toast('Write a little something first'); return; }
   const type = fbType?.querySelector('.dd-trigger')?.dataset.ddValue || 'Other';
-  const list = getFeedback();
-  list.unshift({ type, text, ts: Date.now() });
-  saveFeedback(list);
-  fbText.value = '';
-  if (fbCount) fbCount.textContent = '0';
-  renderFeedbackMeta();
-  renderFeedbackHistory();
-  toast('Thanks for your feedback!');
+
+  if (fbSubmit) fbSubmit.disabled = true;
+  const res = await sendFeedback(type, text);
+  if (res.ok) {
+    fbText.value = '';
+    if (fbCount) fbCount.textContent = '0';
+    toast('Thanks for your feedback!');
+  } else {
+    toast(res.error || 'Couldn’t send feedback');
+  }
+  // Re-sync cap state + history from the server either way (a 429 means the cap
+  // was hit, e.g. from another tab).
+  await loadFeedback();
 });
 
 renderFeedbackMeta();

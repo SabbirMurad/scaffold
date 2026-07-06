@@ -18,6 +18,27 @@ pub use save as Save;
 pub mod update;
 pub use update as Update;
 
+pub mod pin;
+pub use pin as Pin;
+
+pub mod image_upload;
+pub use image_upload as ImageUpload;
+
+pub mod comments_list;
+pub use comments_list as CommentsList;
+
+pub mod comment_create;
+pub use comment_create as CommentCreate;
+
+pub mod comment_reply;
+pub use comment_reply as CommentReply;
+
+pub mod comment_update;
+pub use comment_update as CommentUpdate;
+
+pub mod comment_delete;
+pub use comment_delete as CommentDelete;
+
 pub mod delete;
 pub use delete as Delete;
 
@@ -49,6 +70,18 @@ pub fn role_rank(role: &ProjectRole) -> u8 {
         ProjectRole::Editor => 2,
         ProjectRole::Owner => 3,
     }
+}
+
+// A user's display name, for denormalising onto comment messages. Falls back to a
+// neutral label if the profile can't be read (never blocks writing the comment).
+pub async fn account_name(db: &Database, user_id: &str) -> String {
+    db.collection::<crate::Model::Account::AccountProfile>("account_profile")
+        .find_one(doc! { "uuid": user_id })
+        .await
+        .ok()
+        .flatten()
+        .map(|profile| profile.full_name)
+        .unwrap_or_else(|| "Someone".to_string())
 }
 
 // snake_case identity from a project name, used as the generated package/route

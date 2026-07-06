@@ -7,6 +7,7 @@ import { renderLayers } from './layers.js';
 import { renderProps } from './props.js';
 import { attachNodeEvents, beginNodeDrag } from './canvas.js';
 import { ensureFontLoaded } from './google-fonts.js';
+import { resolvedSrc } from './images.js';
 
 export function applyTransform() {
   canvas.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom})`;
@@ -138,7 +139,9 @@ function applyFill(el, node) {
     let src = node;
     if (node.colorId) { const c = getColorById(node.colorId); if (c) src = c; }
     const isGrad = src.fillType === 'linear' || src.fillType === 'radial';
-    const pic = node.src ? `url("${node.src}")` : '';
+    // node.src may be an `img:` ref → resolved to a blob URL (or '' while it loads).
+    const picUrl = resolvedSrc(node.src);
+    const pic = picUrl ? `url("${picUrl}")` : '';
     const fit = IMAGE_FIT[node.fit] || 'cover';
     if (isGrad) {
       el.style.backgroundColor = 'transparent';
@@ -293,7 +296,7 @@ function applyRadius(el, node) {
     const r = node.radii || { tl: 0, tr: 0, br: 0, bl: 0 };
     el.style.borderRadius = `${r.tl}px ${r.tr}px ${r.br}px ${r.bl}px`;
   } else {
-    el.style.borderRadius = node.radius + 'px';
+    el.style.borderRadius = (node.radius || 0) + 'px';
   }
 }
 
@@ -352,7 +355,7 @@ export function renderNode(node, parent) {
   applyPosition(el, node);
   applySize(el, node);
   applyNodeTransform(el, node);
-  el.style.opacity = node.opacity;
+  el.style.opacity = node.opacity != null ? node.opacity : 1;
   el.style.display = node.visible ? '' : 'none';
   applyWrapperAlignment(el, node);
 
@@ -474,7 +477,7 @@ export function updateNodeEl(node) {
   applySize(el, node);
   applyNodeTransform(el, node);
   applyWrapperAlignment(el, node);
-  el.style.opacity = node.opacity;
+  el.style.opacity = node.opacity != null ? node.opacity : 1;
   if (node.type === 'text') {
     applyTextStyle(el, node);
     el.textContent = node.text;

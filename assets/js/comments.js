@@ -2,12 +2,20 @@
 // commenting surface: click anywhere to drop a pin and start a thread; click an
 // existing pin to read/reply, resolve, or delete it. Pins are an overlay pinned
 // to world coordinates (so they pan/zoom with the canvas) but counter-scaled so
-// they stay a constant on-screen size. Demo only — threads live for the session.
+// they stay a constant on-screen size.
+//
+// Threads are persisted per project (see projects.js / the /comments endpoints):
+// loaded when the project opens and each time the Comment tool is activated, and
+// written through on create/reply/resolve/delete. An unsaved scratch session (no
+// project id) keeps the old session-only behaviour.
 
 import { state } from './state.js';
-import { canvas, canvasWrap, esc } from './utils.js';
+import { canvas, canvasWrap, esc, showToast } from './utils.js';
+import { listComments, createComment, replyComment, resolveComment, deleteComment } from './projects.js';
 
-let comments = [];      // { id, x, y, resolved, messages: [{ author, text, ts }] }
+// Local thread shape: { id (client handle), serverId (null until saved), x, y,
+// resolved, messages: [{ author, text, ts }] }.
+let comments = [];
 let seq = 0;
 let layer;              // #comment-layer overlay inside #canvas
 let activeId = null;    // the open thread's comment id
@@ -16,6 +24,35 @@ let pop, popTitle, thread, input, sendBtn, resolveBtn, delBtn, closeBtn;
 
 const get = id => comments.find(c => c.id === id);
 const isDraft = c => c && c.messages.length === 0;
+
+// Map a server thread → local shape (server messages carry author_name/created_at).
+function fromServer(t) {
+  return {
+    id: 'cm' + (++seq),
+    serverId: t.uuid,
+    x: t.x, y: t.y,
+    resolved: !!t.resolved,
+    messages: (t.messages || []).map(m => ({ author: m.author_name, text: m.text, ts: m.created_at })),
+  };
+}
+// Fold a server thread back into an existing local one, keeping its client id.
+function applyServer(c, t) {
+  c.serverId = t.uuid;
+  c.x = t.x; c.y = t.y;
+  c.resolved = !!t.resolved;
+  c.messages = (t.messages || []).map(m => ({ author: m.author_name, text: m.text, ts: m.created_at }));
+}
+
+// Load the project's threads from the server. No-op (keeps local state) for an
+// unsaved scratch session. Called on project open and on Comment-tool activation;
+// a thread is never open at those moments, so replacing the array is safe.
+export async function loadComments() {
+  if (!state.projectId) return;
+  const res = await listComments(state.projectId);
+  if (!res.ok || !Array.isArray(res.data)) return;
+  comments = res.data.map(fromServer);
+  drawPins();
+}
 
 function worldOf(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
@@ -96,17 +133,36 @@ function closeThread() {
   drawPins();
 }
 
-function sendMessage() {
+async function sendMessage() {
   const c = get(activeId);
   if (!c) return;
   const text = input.value.trim();
   if (!text) return;
-  c.messages.push({ author, text, ts: Date.now() });
-  input.value = '';
-  input.style.height = '';
-  renderThread(c);
-  drawPins();
-  positionPopover();
+
+  // Unsaved scratch session → keep the session-only behaviour (no persistence).
+  if (!state.projectId) {
+    c.messages.push({ author, text, ts: Date.now() });
+    input.value = ''; input.style.height = '';
+    renderThread(c); drawPins(); positionPopover();
+    return;
+  }
+
+  // First message creates the thread; later ones are replies. Server-derived
+  // author name + ids come back on the thread, so we render from its response.
+  input.disabled = true; sendBtn.disabled = true;
+  const res = c.serverId
+    ? await replyComment(state.projectId, c.serverId, text)
+    : await createComment(state.projectId, c.x, c.y, text);
+  input.disabled = false; sendBtn.disabled = false;
+
+  if (res.ok && res.data) {
+    applyServer(c, res.data);
+    input.value = ''; input.style.height = '';
+    renderThread(c); drawPins(); positionPopover();
+    input.focus();
+  } else {
+    showToast(res.error || 'Couldn’t post comment');
+  }
 }
 
 function positionPopover() {
@@ -132,7 +188,7 @@ function onClick(e) {
   // Empty canvas → drop a new pin and start composing.
   const p = worldOf(e.clientX, e.clientY);
   if (isDraft(get(activeId))) closeThread(); // drop any previous unsent draft
-  const c = { id: 'cm' + (++seq), x: p.x, y: p.y, resolved: false, messages: [] };
+  const c = { id: 'cm' + (++seq), serverId: null, x: p.x, y: p.y, resolved: false, messages: [] };
   comments.push(c);
   drawPins();
   openThread(c.id);
@@ -164,14 +220,29 @@ export function initComments() {
     input.style.height = Math.min(120, input.scrollHeight + border) + 'px';
   });
 
-  resolveBtn?.addEventListener('click', () => {
+  resolveBtn?.addEventListener('click', async () => {
     const c = get(activeId); if (!c || isDraft(c)) return;
-    c.resolved = !c.resolved; renderThread(c); drawPins();
+    const next = !c.resolved;
+    c.resolved = next; renderThread(c); drawPins();          // optimistic
+    if (!state.projectId || !c.serverId) return;             // scratch session
+    const res = await resolveComment(state.projectId, c.serverId, next);
+    if (!res.ok) { c.resolved = !next; renderThread(c); drawPins(); showToast(res.error || 'Couldn’t update comment'); }
   });
-  delBtn?.addEventListener('click', () => {
+  delBtn?.addEventListener('click', async () => {
     const c = get(activeId); if (!c) return;
-    comments = comments.filter(x => x !== c);
-    activeId = null; pop.hidden = true; drawPins();
+    // An unsent draft (or scratch session) is only local → just drop it.
+    if (!state.projectId || !c.serverId) {
+      comments = comments.filter(x => x !== c);
+      activeId = null; pop.hidden = true; drawPins();
+      return;
+    }
+    const res = await deleteComment(state.projectId, c.serverId);
+    if (res.ok) {
+      comments = comments.filter(x => x !== c);
+      activeId = null; pop.hidden = true; drawPins();
+    } else {
+      showToast(res.error || 'Couldn’t delete comment'); // e.g. non-owner → 403
+    }
   });
   closeBtn?.addEventListener('click', closeThread);
 
@@ -182,7 +253,10 @@ export function initComments() {
   }, true);
 
   document.addEventListener('flow:render', drawPins); // redraw pins after a canvas render
-  document.addEventListener('tool:change', e => { if (e.detail !== 'comment') closeThread(); drawPins(); });
+  document.addEventListener('tool:change', e => {
+    if (e.detail !== 'comment') { closeThread(); drawPins(); return; }
+    loadComments(); // refresh threads (and pins) each time the tool is opened
+  });
 
   (function tick() { positionPopover(); requestAnimationFrame(tick); })();
 }

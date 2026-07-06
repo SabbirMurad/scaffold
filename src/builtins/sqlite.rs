@@ -28,12 +28,23 @@ pub fn create_initial_tables() -> Result<(), Error> {
         .expect("SQLITE_IMG_PATH must be set on .env file");
 
     let db_conn = Connection::open(db_path)?;
+    // Design images: raw bytes live here; the Mongo design document only stores a
+    // reference (the uuid). `project_id` scopes each image to its project so the
+    // serve endpoint can gate access by project membership.
     let _result = db_conn.execute(
         "CREATE TABLE IF NOT EXISTS image (
             uuid          TEXT PRIMARY KEY,
-            original      BLOB NOT NULL,
-            webp          BLOB NOT NULL
+            project_id    TEXT NOT NULL,
+            mime          TEXT NOT NULL,
+            bytes         BLOB NOT NULL,
+            width         INTEGER NOT NULL,
+            height        INTEGER NOT NULL,
+            created_at    INTEGER NOT NULL
         );", ()
+    )?;
+    // Bulk lookups / cleanup by project (e.g. deleting a project's images).
+    let _result = db_conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_image_project ON image(project_id);", ()
     )?;
 
     let _result = db_conn.execute(

@@ -6,6 +6,9 @@ pub use account as Account;
 pub mod project;
 pub use project as Project;
 
+pub mod feedback;
+pub use feedback as Feedback;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AllowedImageType { Gif, Png, Jpeg, Webp }
 

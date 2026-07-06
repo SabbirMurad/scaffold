@@ -3,6 +3,7 @@ import { canvasToWorld, canAcceptChild, isSingleChild } from './nodes.js';
 import { saveHistory } from './history.js';
 import { render } from './render.js';
 import { canvasWrap, esc, showToast } from './utils.js';
+import { finalizeImages } from './images.js';
 
 // Stock-image picker — searches the free Openverse API (https://openverse.org),
 // a catalogue of openly-licensed images. No API key; CORS-enabled. The search is
@@ -156,6 +157,7 @@ function placeImage(src, natW, natH) {
   const node = addImageNode(src, natW, natH, currentParent(), 0);
   state.selected.clear(); state.selected.add(node.id);
   saveHistory(); render();
+  finalizeImages(); // inline data URI → uploaded ref (remote-URL fallback left as-is)
 }
 
 function placeImages(items) {
@@ -164,6 +166,7 @@ function placeImages(items) {
   state.selected.clear();
   items.forEach((it, i) => state.selected.add(addImageNode(it.src, it.w, it.h, parent, i).id));
   saveHistory(); render();
+  finalizeImages(); // inline data URIs → uploaded refs (remote-URL fallbacks left as-is)
 }
 
 // Fetch an image and inline it as a data-URL so the project is self-contained;

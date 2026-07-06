@@ -1,7 +1,8 @@
 import { state, getNode, makeNode, seedDefaults } from './state.js';
 import { canvasWrap, addMenu, frameMenu, closeMenus, showToast, esc } from './utils.js';
 import { canvasToWorld, canAcceptChild, isSingleChild } from './nodes.js';
-import { saveHistory, serializeDocument, loadDocument } from './history.js';
+import { saveHistory, serializeDocument, loadDocument, commitCurrent } from './history.js';
+import { finalizeImages, imagesPending, resolveRefsForExport } from './images.js';
 import { render, applyTransform } from './render.js';
 import { initCanvasEvents } from './canvas.js';
 import { initToolEvents, setTool } from './tools.js';
@@ -21,7 +22,7 @@ import { initIconPicker } from './icons-picker.js';
 import { initFontPicker } from './google-fonts.js';
 import { initImagePicker } from './image-picker.js';
 import { initFlow } from './flow.js';
-import { initComments } from './comments.js';
+import { initComments, loadComments } from './comments.js';
 
 // Initialize event systems
 initCanvasEvents();
@@ -37,6 +38,12 @@ initFontPicker();
 initImagePicker();
 initFlow();
 initComments();
+
+// Image resolution is async (bytes are fetched with the bearer token): re-render
+// when a ref's blob URL becomes available, and fold an inline→ref swap into the
+// current undo step (then re-render) once uploads finish.
+document.addEventListener('image:resolved', () => render());
+document.addEventListener('image:committed', () => { commitCurrent(); render(); });
 
 // Add element menu
 document.getElementById('btn-add-layer').addEventListener('click', e => {
@@ -95,6 +102,7 @@ function createImageNode(src, w, h) {
   const node = makeNode('image', x, y, w, h, parent ? parent.id : null);
   node.src = src;
   finalizeNew(node, parent);
+  finalizeImages(); // upload the inline bytes to the backend, swap src → ref
 }
 
 addMenu.addEventListener('click', e => {
@@ -183,13 +191,15 @@ exportList?.addEventListener('click', (e) => {
   boxes.forEach(b => { b.checked = !allOn; });
 });
 
-document.getElementById('export-confirm')?.addEventListener('click', () => {
+document.getElementById('export-confirm')?.addEventListener('click', async () => {
   const selection = { models: new Set(), enums: new Set(), providers: new Set(), screens: new Set(), theme: new Set() };
   exportList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => selection[cb.dataset.kind].add(cb.value));
   if (!selection.models.size && !selection.enums.size && !selection.providers.size && !selection.screens.size && !selection.theme.size) {
     showToast('Select at least one item to export');
     return;
   }
+  // Image nodes hold `img:` refs; fetch their bytes so codegen can bundle assets.
+  await resolveRefsForExport(state.nodes);
   const r = exportModelsCode(selection);
   closeExport();
   if (!r.ok) { showToast('Nothing to export'); return; }
@@ -215,8 +225,17 @@ document.getElementById('nav-home')?.addEventListener('click', () => { window.lo
 // session (nothing is persisted until it's opened from a real project).
 let currentProjectId = null;
 let currentVersion = null;
-let lastSavedJson = null;     // last successfully-saved document, to skip no-op autosaves
+// Per-slice JSON of what the server currently holds (nodes, colors, models, …), so
+// a save can send only the slices that actually changed instead of the whole doc.
+let lastSavedSlices = {};
 let autosaveTimer = null;
+
+// Snapshot each top-level slice of a document as a JSON string, for change detection.
+function docSlices(doc) {
+  const slices = {};
+  for (const k in doc) slices[k] = JSON.stringify(doc[k]);
+  return slices;
+}
 
 // Save the design document. `manual` surfaces success/failure via a toast;
 // autosave stays silent unless something needs the user's attention.
@@ -225,13 +244,23 @@ async function saveProject(manual = false) {
     if (manual) showToast('Open a project from the dashboard to save');
     return;
   }
-  const doc = serializeDocument();
-  const json = JSON.stringify(doc);
-  if (!manual && json === lastSavedJson) return; // nothing changed
+  // Don't autosave mid-upload: an image node may still hold a bulky inline data
+  // URI that's about to become a compact ref. Manual saves proceed regardless.
+  if (!manual && imagesPending()) return;
 
-  const res = await saveProjectDoc(currentProjectId, doc, currentVersion);
+  const doc = serializeDocument();
+  const slices = docSlices(doc);
+  // Send only the slices whose JSON differs from what the server last accepted.
+  const patch = {};
+  let dirty = false;
+  for (const k in slices) {
+    if (slices[k] !== lastSavedSlices[k]) { patch[k] = doc[k]; dirty = true; }
+  }
+  if (!dirty) { if (manual) showToast('Project saved'); return; } // nothing changed
+
+  const res = await saveProjectDoc(currentProjectId, patch, currentVersion);
   if (res.ok) {
-    lastSavedJson = json;
+    for (const k in patch) lastSavedSlices[k] = slices[k]; // the slices we just persisted
     currentVersion = (res.data && res.data.version) != null ? res.data.version : currentVersion;
     if (manual) showToast('Project saved');
   } else if (res.status === 409) {
@@ -243,8 +272,11 @@ async function saveProject(manual = false) {
   }
 }
 
-function startAutosave() {
-  lastSavedJson = JSON.stringify(serializeDocument());
+function startAutosave(serverContent) {
+  // Baseline against what the SERVER holds — not the post-seedDefaults state — so
+  // seeded/migrated slices the server doesn't have yet are treated as dirty and get
+  // persisted on the first save (a partial save won't resend them otherwise).
+  lastSavedSlices = docSlices(serverContent || {});
   clearInterval(autosaveTimer);
   autosaveTimer = setInterval(() => saveProject(false), 5000);
   // Flush on tab-hide so a quick close doesn't lose the last few seconds.
@@ -552,6 +584,7 @@ async function boot() {
   // The project id is a path segment: /editor/<id>.
   const match = window.location.pathname.match(/^\/editor\/([^/]+)/);
   const projectId = match ? decodeURIComponent(match[1]) : null;
+  let serverContent = {}; // what the server holds at load, for the save baseline
 
   if (projectId) {
     if (!getAuth()) { showAccessScreen('signin', projectId); return; }
@@ -561,10 +594,14 @@ async function boot() {
     if (res.status === 404) { showAccessScreen('notfound', projectId); return; }
     if (res.ok && res.data) {
       currentProjectId = projectId;
+      state.projectId = projectId; // let image uploads (images.js) target this project
       currentVersion = res.data.document && res.data.document.version != null
         ? res.data.document.version : null;
       if (res.data.project && res.data.project.name) state.projectName = res.data.project.name;
-      if (res.data.document && res.data.document.content) loadDocument(res.data.document.content);
+      if (res.data.document && res.data.document.content) {
+        serverContent = res.data.document.content;
+        loadDocument(serverContent);
+      }
     } else {
       showToast(res.error || 'Couldn\u2019t load this project');
     }
@@ -579,7 +616,8 @@ async function boot() {
   if (projectNameInput) projectNameInput.value = state.projectName;
 
   if (currentProjectId) {
-    startAutosave();
+    startAutosave(serverContent);
+    loadComments(); // pull existing comment threads for this project
     showToast('Project loaded');
   } else {
     showToast('Scaffold ready \u2014 press V to select, R for container, T for text');

@@ -6,6 +6,7 @@ import { undo, redo, saveHistory } from './history.js';
 import { deleteSelected, duplicateSelected, copySelected, pasteClipboard } from './operations.js';
 import { extractFigmaHtml } from './figkiwi.js';
 import { importFigma } from './figpaste.js';
+import { finalizeImages } from './images.js';
 
 // Tool to restore after a temporary space-bar pan (null = not space-panning)
 let spacePanPrev = null;
@@ -134,6 +135,9 @@ function finishPaste(ids) {
   saveHistory();
   render();
   renderProps();
+  // A pasted image (raw clipboard, or nested inside a Figma paste) arrives as an
+  // inline data URI — upload it to the backend and swap in a ref.
+  finalizeImages();
 }
 
 async function handleSystemPaste(cb) {

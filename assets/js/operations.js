@@ -41,7 +41,10 @@ function instantiate(tree, parentId, x, y) {
   node.parentId = parentId || null;
   node.x = x;
   node.y = y;
-  node.children = [];
+  // Fresh children array (clearing any stale ids copied from the source); an
+  // image is a leaf, so it carries none.
+  if (node.type === 'image') delete node.children;
+  else node.children = [];
   state.nodes.push(node);
   if (parentId) {
     const p = getNode(parentId);

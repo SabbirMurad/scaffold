@@ -29,10 +29,42 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             "/{id}",
             web::delete().to(Handler::Project::Delete::task)   // archive (soft-delete)
         )
+        .route(
+            "/{id}/pin",
+            web::post().to(Handler::Project::Pin::task)        // per-user pin / unpin
+        )
+        // Design image upload — raw image bytes as the body. A higher payload limit
+        // than the default is allowed here since images are larger than JSON bodies.
+        .service(
+            web::resource("/{id}/image")
+                .app_data(web::PayloadConfig::new(15 * 1024 * 1024))
+                .route(web::post().to(Handler::Project::ImageUpload::task))
+        )
         // Access requests (from someone who can't open the project yet)
         .route(
             "/{id}/request-access",
             web::post().to(Handler::Project::RequestAccess::task)
+        )
+        // Comments (Figma-style threads pinned to the canvas)
+        .route(
+            "/{id}/comments",
+            web::get().to(Handler::Project::CommentsList::task)
+        )
+        .route(
+            "/{id}/comments",
+            web::post().to(Handler::Project::CommentCreate::task)   // start a thread
+        )
+        .route(
+            "/{id}/comments/{comment_id}",
+            web::patch().to(Handler::Project::CommentUpdate::task)  // resolve / reopen
+        )
+        .route(
+            "/{id}/comments/{comment_id}",
+            web::delete().to(Handler::Project::CommentDelete::task) // owner only
+        )
+        .route(
+            "/{id}/comments/{comment_id}/messages",
+            web::post().to(Handler::Project::CommentReply::task)    // append a reply
         )
         // Collaborators
         .route(

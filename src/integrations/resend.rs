@@ -6,7 +6,7 @@ const PRIMARY_COL: &str = "#5b35d5";
 const SECONDARY_BG: &str = "#F8F8FC";
 const SECONDARY_TEXT: &str = "#84809f";
 const BG_COL: &str = "#dedcee";
-const PROJECT_NAME: &str = "Fanari";
+const PROJECT_NAME: &str = "Scaffold";
 const SUPPORT_URL: &str = "https://example.com/support";
 
 

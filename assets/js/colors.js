@@ -193,14 +193,6 @@ function deleteTheme(id) {
   renderColors();
 }
 
-function toggleBrightness(id) {
-  const t = state.themes.find(x => x.id === id);
-  if (!t) return;
-  t.brightness = t.brightness === 'dark' ? 'light' : 'dark';
-  saveHistory();
-  renderColors();
-}
-
 // ── Design-tab theme preview switch ──
 // Change which theme the whole app previews. Colors reference the active theme's
 // value (mirrored on the top-level fields), so switching + repainting recolors
@@ -238,7 +230,7 @@ function renderThemeBar() {
     <div class="theme-bar">
       ${state.themes.map(t => `
       <div class="theme-chip ${t.id === state.activeThemeId ? 'active' : ''}" data-theme="${t.id}">
-        <button class="theme-bright" data-themebright="${t.id}" title="${t.brightness === 'dark' ? 'Dark' : 'Light'} theme — click to toggle">${t.brightness === 'dark' ? MOON : SUN}</button>
+        <span class="theme-bright" title="${t.brightness === 'dark' ? 'Dark' : 'Light'} theme">${t.brightness === 'dark' ? MOON : SUN}</span>
         <span class="theme-name">${esc(t.name)}</span>
       </div>`).join('')}
     </div>`;
@@ -516,8 +508,6 @@ export function initColors() {
   if (board) {
     board.addEventListener('click', e => {
       if (e.target.id === 'color-new') return addColor();
-      const brightBtn = e.target.closest('[data-themebright]');
-      if (brightBtn) return toggleBrightness(brightBtn.dataset.themebright);
       const chip = e.target.closest('.theme-chip');
       if (chip && chip.dataset.theme !== state.activeThemeId) { loadTheme(chip.dataset.theme); renderColors(); return; }
       if (chip) return; // clicked the already-active chip — no-op

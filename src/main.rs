@@ -77,6 +77,9 @@ async fn main() -> io::Result<()> {
     log::info!("\nExecuting Sqlite3 Prerequisites...");
     BuiltIns::sqlite::create_initial_tables().expect("Failed to initiate!\n");
 
+    log::info!("\nEnsuring MongoDB indexes...");
+    BuiltIns::mongo::MongoDB.ensure_indexes().await;
+
     let mut listenfd = ListenFd::from_env();
 
     let host = env::var("APP_HOST").expect("APP_HOST must be set on .env file");
@@ -293,6 +296,8 @@ async fn main() -> io::Result<()> {
             })
             .configure(Routes::Auth::router)
             .configure(Routes::Project::router)
+            .configure(Routes::Feedback::router)
+            .configure(Routes::Image::router)
             .configure(Routes::Pages::router)
     });
 

@@ -26,12 +26,58 @@ function snapshot() {
   return JSON.stringify(obj);
 }
 
+// Node types that lay out children (the "container family"); the layout fields
+// belong to these, never to leaf nodes (text/image/icon).
+const LAYOUT_TYPES = ['frame', 'container', 'section', 'row', 'column', 'wrap', 'stack'];
+
+// Each type-specific field → the node types allowed to keep it when persisting.
+// Any other type is stripped of it, so a frame doesn't carry text/image/icon fields
+// (svg, src, fontSize, text, …) and a leaf doesn't carry layout fields it never
+// uses. Every read of these is type-gated or has a default fallback, so pruning is
+// safe; the in-memory shape and undo snapshots keep the full object.
+const FIELD_OWNERS = {
+  src: ['image'], fit: ['image'],
+  svg: ['icon'], iconId: ['icon'],
+  text: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
+  routePath: ['frame'], isInitial: ['frame'],
+  layout: LAYOUT_TYPES, scroll: LAYOUT_TYPES, gap: LAYOUT_TYPES, gapH: LAYOUT_TYPES, gapV: LAYOUT_TYPES,
+};
+
+// Fields a specific type must NOT carry, even though other types use them. Frames
+// (screens) and sections (which "carry no visual styling of their own") expose no
+// stroke / appearance / shadow controls (see props.js + render's empty section
+// branch), so those never apply to them. An image has no padding UI (padding is only
+// for single-child frame/container). Reads of these are guarded, or aren't run for
+// the type, so dropping them is safe.
+const NO_STYLE = ['frame', 'section'];
+const FIELD_EXCLUDE = {
+  stroke: NO_STYLE, strokeW: NO_STYLE, strokeOpacity: NO_STYLE, strokeStyle: NO_STYLE, strokeColorId: NO_STYLE,
+  opacity: NO_STYLE, radius: NO_STYLE, radii: NO_STYLE, radiusMode: NO_STYLE,
+  rotation: NO_STYLE, flipH: NO_STYLE, flipV: NO_STYLE, shadows: NO_STYLE, shape: NO_STYLE,
+  padding: ['image'],
+};
+
+// A shallow copy of a node minus fields that don't belong to its type.
+function pruneNode(node) {
+  const out = {};
+  for (const k in node) {
+    const owners = FIELD_OWNERS[k];
+    if (owners && !owners.includes(node.type)) continue;      // owned only by other types
+    const excluded = FIELD_EXCLUDE[k];
+    if (excluded && excluded.includes(node.type)) continue;   // explicitly not for this type
+    out[k] = node[k];
+  }
+  return out;
+}
+
 // The persisted project document: the same state slices undo/redo tracks, as a
 // plain object for the project API. `state.projectName` is intentionally left
-// out — the name lives on the project's metadata, not inside the document.
+// out — the name lives on the project's metadata, not inside the document. Nodes
+// are pruned to their type-relevant fields so the stored document stays lean.
 export function serializeDocument() {
   const obj = {};
   KEYS.forEach(k => { obj[k] = state[k]; });
+  obj.nodes = (state.nodes || []).map(pruneNode);
   return obj;
 }
 
@@ -52,6 +98,14 @@ export function saveHistory() {
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex = state.history.length - 1;
+}
+
+// Replace the current undo snapshot with the live state, without adding a new
+// entry. Used to fold an async finalization (swapping inline images for uploaded
+// refs) into the same undo step that created the images.
+export function commitCurrent() {
+  if (state.historyIndex < 0) return;
+  state.history[state.historyIndex] = snapshot();
 }
 
 export function undo() {

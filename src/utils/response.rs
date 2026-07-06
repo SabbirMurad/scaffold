@@ -49,6 +49,12 @@ impl Response {
     )
   }
 
+  pub fn too_many_requests(message: &str) -> HttpResponse {
+    HttpResponse::TooManyRequests().content_type("application/json").json(
+      Response { message: message.to_string() }
+    )
+  }
+
   pub fn ok_message(message: &str) -> HttpResponse {
     HttpResponse::Ok().content_type("application/json").json(
       Response { message: message.to_string() }

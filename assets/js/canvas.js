@@ -873,6 +873,12 @@ export function initCanvasEvents() {
   canvasWrap.addEventListener('mousemove', designOnly(onWrapMouseMove));
   canvasWrap.addEventListener('mouseup', designOnly(onWrapMouseUp));
   canvasWrap.addEventListener('wheel', designOnly(onWheel), { passive: false });
+  // Kill the browser's ctrl/⌘ + wheel page zoom everywhere — the canvas does its
+  // own zoom (onWheel above); over any other panel we still never want the browser
+  // default. Must be non-passive so preventDefault takes effect.
+  window.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
+  }, { passive: false });
   canvasWrap.addEventListener('contextmenu', designOnly(onContextMenu));
   canvasWrap.addEventListener('dblclick', designOnly(onDblClick));
 

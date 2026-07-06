@@ -60,18 +60,27 @@ pub async fn task(
         }
     }
 
-    // Convert the incoming JSON to BSON explicitly so it stores as native BSON
-    // (not stringified) and round-trips back out as plain JSON.
-    let content_bson = match to_bson(&body.content) {
-        Ok(bson) => bson,
-        Err(error) => {
-            log::error!("{:?}", error);
-            return Ok(Response::internal_server_error(&error.to_string()));
-        }
+    // The client sends a partial document: only the top-level slices it changed
+    // (nodes, colors, models, …). Merge each one into `content.<slice>` rather than
+    // replacing the whole `content`, so an untouched tab isn't rewritten. A full
+    // save is just the case where every slice is present.
+    let content_obj = match body.content.as_object() {
+        Some(map) => map,
+        None => return Ok(Response::bad_request("content must be an object")),
     };
 
     let mut set = Document::new();
-    set.insert("content", content_bson);
+    for (slice, value) in content_obj {
+        // Convert to native BSON so it stores structured (not stringified).
+        let value_bson = match to_bson(value) {
+            Ok(bson) => bson,
+            Err(error) => {
+                log::error!("{:?}", error);
+                return Ok(Response::internal_server_error(&error.to_string()));
+            }
+        };
+        set.insert(format!("content.{slice}"), value_bson);
+    }
     set.insert("modified_at", now);
     set.insert("modified_by", &user.user_id);
 

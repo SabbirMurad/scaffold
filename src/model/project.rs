@@ -52,7 +52,6 @@ pub struct ProjectCore {
     pub thumbnail_from: String,         // hex, e.g. "#5b8af5"
     pub thumbnail_to: String,           // hex, e.g. "#3d6de0"
     pub thumbnail_image: Option<ImageStruct>,
-    pub pinned: bool,
 
     pub created_at: i64,                 // epoch millis
     pub modified_at: i64,                // bumped whenever the document is saved
@@ -67,8 +66,8 @@ pub struct ProjectCore {
 // plain JSON instead of MongoDB Extended JSON.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProjectDocument {
-    pub uuid: String,                    // == the project uuid it belongs to
-    pub project_id: String,
+    pub uuid: String,
+    pub project_id: String,              // == the project uuid it belongs to
     pub content: Value,                  // serialized editor state (frontend-owned schema)
     pub version: i64,                    // incremented per save (optimistic concurrency)
     pub modified_at: i64,                // epoch millis
@@ -96,4 +95,49 @@ pub struct ProjectCollaborator {
 
     pub created_at: i64,                 // epoch millis
     pub responded_at: Option<i64>,       // when accepted/declined (None while pending)
+}
+
+// project_user_state — one document per (user, project). Holds a caller's
+// *personal* view of a project that must never be shared with other members:
+// pinning, last-opened, personal ordering, etc. Pinning lives here (not on
+// project_core) so that a project shared among several people can be pinned by
+// one member without affecting anyone else's dashboard.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProjectUserState {
+    pub uuid: String,
+    pub user_id: String,
+    pub project_id: String,
+    pub pinned: bool,
+    pub last_opened_at: Option<i64>,     // future: "recently opened" sorting (None = never here)
+
+    pub created_at: i64,                 // epoch millis
+    pub modified_at: i64,                // bumped whenever this personal state changes
+}
+
+// One message within a comment thread. `author_name` is denormalised (copied from
+// the account's profile at write time) so listing a thread needs no extra lookups.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CommentMessage {
+    pub uuid: String,
+    pub author_id: String,               // account uuid of the message's author
+    pub author_name: String,
+    pub text: String,
+    pub created_at: i64,                 // epoch millis
+}
+
+// project_comment — one Figma-style comment thread pinned to a world coordinate on
+// the canvas. Kept out of the design document so annotations don't ride the design's
+// versioning / undo history and every member can add to them independently.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProjectComment {
+    pub uuid: String,
+    pub project_id: String,
+    pub x: f64,                          // world coordinates of the pin
+    pub y: f64,
+    pub resolved: bool,
+    pub created_by: String,              // account uuid that started the thread
+    pub messages: Vec<CommentMessage>,
+
+    pub created_at: i64,                 // epoch millis
+    pub modified_at: i64,                // bumped on every reply / resolve toggle
 }

@@ -82,6 +82,13 @@ export function seedDefaults() {
   if (!state.activeThemeId || !state.themes.some(t => t.id === state.activeThemeId)) {
     state.activeThemeId = state.themes[0].id;
   }
+  // Brightness is fixed per theme (the manual toggle was removed), so keep the
+  // canonical dark/light themes' brightness in step with their name — repairing
+  // any project where it drifted (e.g. an earlier accidental toggle).
+  state.themes.forEach(t => {
+    if (t.name === 'dark') t.brightness = 'dark';
+    else if (t.name === 'light') t.brightness = 'light';
+  });
   // Ensure every color has a value under every theme (migrates older projects
   // whose colors predate theming — their top-level fields seed each theme).
   state.colors.forEach(c => {
@@ -210,6 +217,8 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     routePath: '',
     isInitial: false,
   };
+  // Image is a leaf node — it can't contain anything, so it carries no children.
+  if (type === 'image') delete node.children;
   if (type === 'container') node.name = 'Container_' + state.nextContainerNum++;
   // Sections become folders in generated code, so name them like a snake_case dir.
   if (type === 'section') node.name = 'section_' + state.nextSectionNum++;
@@ -220,8 +229,8 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     node.routePath = routeFromName(node.name);
   }
   // Give new nodes a sensible default reference instead of an invisible one:
-  // containers adopt the first color variable, text adopts the first type style.
-  if (type === 'container' && state.colors.length) node.colorId = state.colors[0].id;
+  // frames/containers adopt the first color variable, text adopts the first type style.
+  if ((type === 'container' || type === 'frame') && state.colors.length) node.colorId = state.colors[0].id;
   if (type === 'text' && state.typography.length) node.typoId = state.typography[0].id;
   // Icons tint via `currentColor`; adopt the first color variable by default.
   if (type === 'icon' && state.colors.length) node.colorId = state.colors[0].id;

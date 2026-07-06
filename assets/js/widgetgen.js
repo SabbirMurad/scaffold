@@ -1,5 +1,6 @@
 import { state, getNode } from './state.js';
 import { flexKind, isStack } from './nodes.js';
+import { isImageRef, refId, imageDataUri } from './images.js';
 
 // ───────── Design → Flutter widget-tree generation ─────────
 //
@@ -226,11 +227,14 @@ function b64ToBytes(b64) {
   return bytes;
 }
 // Register an image's bytes for export under assets/images/<name>.<ext> and return
-// that asset path. Only base64 data-URIs (uploads, or picker-inlined photos) can be
-// bundled; a bare remote URL (the picker's CORS fallback) returns null → NetworkImage.
-// Identical images share one file (named by a content hash).
+// that asset path. Bytes come from a base64 data-URI: either an `img:` ref that was
+// pre-resolved by resolveRefsForExport, or a bare data-URI still inline on the node.
+// A bare remote URL, or an unresolved ref, returns null. Identical images share one
+// file (named by a content hash).
 function registerImage(ctx, node) {
-  const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(node.src || '');
+  let src = node.src || '';
+  if (isImageRef(src)) src = imageDataUri(refId(src)) || '';
+  const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(src);
   if (!m || !m[2]) return null;
   const ext = IMG_EXT[(m[1] || 'image/png').toLowerCase()] || 'png';
   const b64 = m[3];
@@ -243,11 +247,14 @@ function buildImage(ctx, node, opts) {
   const deco = {};
   const br = borderRadiusExpr(ctx, node);
   if (br) deco.borderRadius = br;
-  if (node.src) {
-    const assetPath = registerImage(ctx, node);
-    const provider = assetPath ? `AssetImage(${dartStr(assetPath)})` : `NetworkImage(${dartStr(node.src)})`;
-    deco.image = `DecorationImage(image: ${provider}, fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
+  const assetPath = node.src ? registerImage(ctx, node) : null;
+  if (assetPath) {
+    deco.image = `DecorationImage(image: AssetImage(${dartStr(assetPath)}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
+  } else if (node.src && !isImageRef(node.src)) {
+    // A bare remote URL (the picker's CORS fallback) → NetworkImage.
+    deco.image = `DecorationImage(image: NetworkImage(${dartStr(node.src)}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
   } else {
+    // No image, or an image whose bytes couldn't be resolved → plain fill.
     const col = solidColor(ctx, node.colorId, node.fill) || 'Color(0x1AFFFFFF)';
     deco.color = col;
   }
