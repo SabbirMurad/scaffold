@@ -5,7 +5,7 @@ import { saveHistory } from './history.js';
 import { render, updateNodeEl, applyTransform, positionRadiusHandles, applyDragTransform } from './render.js';
 import { renderProps } from './props.js';
 import { setTool } from './tools.js';
-import { duplicateSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace } from './operations.js';
+import { duplicateSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace, createComponent } from './operations.js';
 
 let dragging = null;
 let resizing = null;
@@ -380,6 +380,13 @@ export function attachNodeEvents(el, node) {
 // pressing/dragging the label behaves exactly like the frame body: click
 // selects (shift adds), drag moves, Alt+drag duplicates.
 export function beginNodeDrag(node, e) {
+  // Viewers (read-only) can select a node to inspect it, but never move or Alt-duplicate.
+  if (state.readonly) {
+    if (!e.shiftKey && !e.metaKey && !e.ctrlKey) state.selected.clear();
+    state.selected.add(node.id);
+    render();
+    return;
+  }
   if (e.altKey) {
     // Alt+drag → duplicate; the copy is made on the first move (so Alt+click does nothing)
     state.selected.clear();
@@ -416,6 +423,7 @@ function onWrapMouseDown(e) {
 
   if (e.button === 1 || state.tool === 'hand') {
     panning = true;
+    document.body.classList.add('panning'); // grabbing cursor over the whole canvas
     panStart = { x: e.clientX, y: e.clientY, px: state.panX, py: state.panY };
     canvasWrap.style.cursor = 'grabbing';
     e.preventDefault();
@@ -596,6 +604,7 @@ function onWrapMouseUp(e) {
 
   if (panning) {
     panning = false;
+    document.body.classList.remove('panning');
     canvasWrap.style.cursor = state.tool === 'hand' ? 'grab' : 'default';
     return;
   }
@@ -766,7 +775,8 @@ export const isEditingText = () => editingTextId !== null;
 // it grows live as the user types. `isNew` marks a freshly-created node so it is
 // removed if the user leaves it empty.
 function startTextEdit(node, el, isNew = false, ev = null) {
-  if (editingTextId) return;
+  if (editingTextId || state.readonly) return; // viewers can't edit text
+  editingTextId = node.id;
   editingTextId = node.id;
 
   // Remove any selection handles, then make the box editable and auto-growing.
@@ -894,6 +904,7 @@ export function initCanvasEvents() {
     if (action === 'delete') deleteSelected();
     if (action === 'front') bringToFront();
     if (action === 'back') sendToBack();
+    if (action === 'component') createComponent();
     closeMenus();
   });
 

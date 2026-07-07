@@ -11,9 +11,9 @@ import { initModels, renderModels } from './models.js';
 import { initApi, renderApi } from './api.js';
 import { initColors, renderColors, renderThemeSwitch, applyTheme } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
-import { logout, getAuth } from './session.js';
+import { logout, getAuth, initialsAvatar } from './session.js';
 import { getProject, saveProjectDoc, updateProject, requestAccess,
-  listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite } from './projects.js';
+  listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite, getMe } from './projects.js';
 import { initMock, renderMock } from './mock.js';
 import { exportModelsCode, collectExportables, dartPath } from './codegen.js';
 import { updateExportButton } from './validate.js';
@@ -23,6 +23,8 @@ import { initFontPicker } from './google-fonts.js';
 import { initImagePicker } from './image-picker.js';
 import { initFlow } from './flow.js';
 import { initComments, loadComments } from './comments.js';
+import { confirmModal } from './confirm.js';
+import { restoreViewport, saveViewport } from './viewport.js';
 
 // Initialize event systems
 initCanvasEvents();
@@ -45,8 +47,26 @@ initComments();
 document.addEventListener('image:resolved', () => render());
 document.addEventListener('image:committed', () => { commitCurrent(); render(); });
 
+// Flush the canvas viewport (pan/zoom) on unload so a change within the debounce
+// window right before a reload isn't lost.
+window.addEventListener('beforeunload', saveViewport);
+
+// Fill the editor's profile chip with the signed-in user's real name/email.
+getMe().then(res => {
+  if (!res.ok || !res.data) return;
+  const nameEl = document.getElementById('profile-name');
+  const emailEl = document.getElementById('profile-email');
+  if (nameEl) nameEl.textContent = res.data.full_name || '';
+  if (emailEl) emailEl.textContent = res.data.email_address || '';
+  if (!res.data.profile_picture) {
+    const av = document.getElementById('profile-avatar');
+    if (av) av.src = initialsAvatar(res.data.full_name);
+  }
+});
+
 // Add element menu
 document.getElementById('btn-add-layer').addEventListener('click', e => {
+  if (state.readonly) return;
   const rect = e.target.getBoundingClientRect();
   addMenu.style.left = rect.right + 4 + 'px';
   addMenu.style.top = rect.bottom + 4 + 'px';
@@ -90,6 +110,7 @@ function finalizeNew(node, parent) {
 
 // Create an element at the canvas center, nesting into a selected container/frame if possible
 function createElement(type) {
+  if (state.readonly) return;
   const defaults = { frame: [240, 160], container: [120, 80], row: [200, 200], column: [200, 200], wrap: [200, 200], stack: [200, 200], text: [120, 40] };
   const [w, h] = defaults[type] || [100, 100];
   const { parent, x, y } = resolvePlacement(type, w, h);
@@ -98,6 +119,7 @@ function createElement(type) {
 }
 
 function createImageNode(src, w, h) {
+  if (state.readonly) return;
   const { parent, x, y } = resolvePlacement('image', w, h);
   const node = makeNode('image', x, y, w, h, parent ? parent.id : null);
   node.src = src;
@@ -285,8 +307,10 @@ function startAutosave(serverContent) {
   });
 }
 
-document.getElementById('nav-sync')?.addEventListener('click', () => saveProject(true));
-document.getElementById('nav-logout')?.addEventListener('click', () => { logout(); });
+document.getElementById('nav-logout')?.addEventListener('click', async () => {
+  const ok = await confirmModal({ title: 'Log out?', message: 'You’ll need to sign in again to get back in.', confirmLabel: 'Log out', danger: true });
+  if (ok) logout();
+});
 
 // Share project — invite collaborators by email (backed by the collaborators
 // API). Roles are lowercase in the UI (viewer/editor) and capitalized on the
@@ -454,29 +478,46 @@ const colorBoard = document.getElementById('color-board');
 const colorPanel = document.getElementById('color-panel');
 const typoBoard = document.getElementById('typo-board');
 const typoPanel = document.getElementById('typo-panel');
+const MODES = ['design', 'color', 'typography', 'model', 'mock', 'api'];
+
+// Show a mode: toggle the active tab, reveal its board, and (re)render it.
+function applyMode(mode) {
+  if (!MODES.includes(mode)) mode = 'design';
+  modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  const isDesign = mode === 'design';
+  // Design-only chrome (toolbar, zoom, props panel, rulers) is hidden via this class
+  document.body.classList.toggle('design-mode', isDesign);
+  designView.style.display = isDesign ? '' : 'none';
+  modelBoard.style.display = mode === 'model' ? 'flex' : 'none';
+  mockBoard.style.display = mode === 'mock' ? 'flex' : 'none';
+  apiBoard.style.display = mode === 'api' ? 'flex' : 'none';
+  colorBoard.style.display = mode === 'color' ? 'flex' : 'none';
+  colorPanel.style.display = mode === 'color' ? 'flex' : 'none';
+  typoBoard.style.display = mode === 'typography' ? 'flex' : 'none';
+  typoPanel.style.display = mode === 'typography' ? 'flex' : 'none';
+  if (mode === 'model') renderModels();
+  if (mode === 'mock') renderMock();
+  if (mode === 'api') renderApi();
+  if (mode === 'color') renderColors();
+  if (mode === 'typography') renderTypography();
+  if (isDesign) render(); // refresh canvas in case color variables changed
+}
+
+// The active tab lives in the URL hash (e.g. /editor/<id>#model) so a reload keeps
+// you on the same tab. A tab click points the hash at it; the hashchange handler
+// applies it (re-clicking the current tab still re-runs its render).
 modeTabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    modeTabs.forEach(t => t.classList.toggle('active', t === tab));
     const mode = tab.dataset.mode;
-    const isDesign = mode === 'design';
-    // Design-only chrome (toolbar, zoom, props panel, rulers) is hidden via this class
-    document.body.classList.toggle('design-mode', isDesign);
-    designView.style.display = isDesign ? '' : 'none';
-    modelBoard.style.display = mode === 'model' ? 'flex' : 'none';
-    mockBoard.style.display = mode === 'mock' ? 'flex' : 'none';
-    apiBoard.style.display = mode === 'api' ? 'flex' : 'none';
-    colorBoard.style.display = mode === 'color' ? 'flex' : 'none';
-    colorPanel.style.display = mode === 'color' ? 'flex' : 'none';
-    typoBoard.style.display = mode === 'typography' ? 'flex' : 'none';
-    typoPanel.style.display = mode === 'typography' ? 'flex' : 'none';
-    if (mode === 'model') renderModels();
-    if (mode === 'mock') renderMock();
-    if (mode === 'api') renderApi();
-    if (mode === 'color') renderColors();
-    if (mode === 'typography') renderTypography();
-    if (isDesign) render(); // refresh canvas in case color variables changed
+    if (location.hash.slice(1) === mode) applyMode(mode);
+    else location.hash = mode;
   });
 });
+
+// Switch tab from the URL — on back/forward, and (via boot, after data has loaded)
+// on initial load.
+function routeMode() { applyMode(decodeURIComponent(location.hash.slice(1)) || 'design'); }
+window.addEventListener('hashchange', routeMode);
 
 // Frame preset menu — opens above the frame tool button (toolbar is bottom-anchored)
 const frameBtn = document.getElementById('tool-frame');
@@ -494,6 +535,7 @@ frameBtn.addEventListener('click', e => {
 });
 
 frameMenu.addEventListener('click', e => {
+  if (state.readonly) return;
   const item = e.target.closest('.frame-menu-item');
   if (!item) return;
   const w = parseInt(item.dataset.w, 10);
@@ -595,6 +637,10 @@ async function boot() {
     if (res.ok && res.data) {
       currentProjectId = projectId;
       state.projectId = projectId; // let image uploads (images.js) target this project
+      // Viewer role → read-only editor: no create / move / delete / edit. A body
+      // class hides the creation tools; `state.readonly` gates the interactions.
+      state.readonly = res.data.role === 'Viewer';
+      document.body.classList.toggle('role-viewer', state.readonly);
       currentVersion = res.data.document && res.data.document.version != null
         ? res.data.document.version : null;
       if (res.data.project && res.data.project.name) state.projectName = res.data.project.name;
@@ -609,6 +655,7 @@ async function boot() {
 
   seedDefaults(); // fills any gaps (themes, white/black, default type style) after a load
   saveHistory();
+  restoreViewport(); // reopen at this project's last pan/zoom (localStorage, per project)
   applyTransform();
   render();
   renderThemeSwitch();
@@ -622,5 +669,8 @@ async function boot() {
   } else {
     showToast('Scaffold ready \u2014 press V to select, R for container, T for text');
   }
+
+  // Restore the active tab from the URL now that models/colors/etc. are loaded.
+  routeMode();
 }
 boot();

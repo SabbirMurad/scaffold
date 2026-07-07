@@ -23,7 +23,7 @@
       </button>
     </div>
 
-    <div class="tool-group">
+    <div class="tool-group" id="tools-create">
       <button class="tool-btn" data-tool="section" data-tooltip="Section (S) — groups frames into a folder">
         <img src="/assets/icons/section.svg" alt="Section" width="14" height="14">
       </button>
@@ -92,15 +92,14 @@
       <div id="nav-icons">
         <button type="button" class="nav-icon-btn" id="nav-home" data-tooltip="Home"><img src="/assets/icons/home.svg" alt="Home"></button>
         <button type="button" class="nav-icon-btn" id="nav-share" data-tooltip="Share"><img src="/assets/icons/share.svg" alt="Share"></button>
-        <button type="button" class="nav-icon-btn" id="nav-sync" data-tooltip="Sync"><img src="/assets/icons/sync.svg" alt="Sync"></button>
         <button type="button" class="nav-icon-btn" id="btn-export-code" data-tooltip="Export"><img src="/assets/icons/export.svg" alt="Export"></button>
         <button type="button" class="nav-icon-btn" id="nav-logout" data-tooltip="Logout"><img src="/assets/icons/logout.svg" alt="Logout"></button>
       </div>
       <div id="profile">
         <img id="profile-avatar" src="/assets/icons/avatar.svg" alt="Profile">
         <div id="profile-info">
-          <span id="profile-name">Sabbir Hassan</span>
-          <span id="profile-email">sbbir0087@gmail.com</span>
+          <span id="profile-name"></span>
+          <span id="profile-email"></span>
         </div>
       </div>
     </div>
@@ -268,6 +267,7 @@
 <!-- Context Menu -->
 <div id="ctx-menu">
   <div class="ctx-item" data-action="duplicate"><span>Duplicate</span><span class="shortcut">&#8984;D</span></div>
+  <div class="ctx-item" data-action="component"><span>Create component</span></div>
   <div class="ctx-item" data-action="front"><span>Bring to Front</span></div>
   <div class="ctx-item" data-action="back"><span>Send to Back</span></div>
   <div class="ctx-sep"></div>

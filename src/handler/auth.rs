@@ -37,6 +37,9 @@ pub use change_password as ChangePassword;
 pub mod get;
 pub use get as Get;
 
+pub mod me;
+pub use me as Me;
+
 pub mod social_login;
 pub use social_login as SocialLogin;
 

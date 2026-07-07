@@ -11,7 +11,12 @@ import { finalizeImages } from './images.js';
 // Tool to restore after a temporary space-bar pan (null = not space-panning)
 let spacePanPrev = null;
 
+// Tools a viewer (read-only) may use — inspect, pan, prototype, comment. The
+// creation tools (frame/section/container/text/image/icon) are off-limits.
+const VIEWER_TOOLS = ['select', 'hand', 'connect', 'comment'];
+
 export function setTool(tool) {
+  if (state.readonly && !VIEWER_TOOLS.includes(tool)) return;
   const prev = state.tool;
   state.tool = tool;
   document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
@@ -19,6 +24,7 @@ export function setTool(tool) {
   );
   document.body.classList.toggle('connect-mode', tool === 'connect');
   document.body.classList.toggle('comment-mode', tool === 'comment');
+  document.body.classList.toggle('hand-mode', tool === 'hand');
   canvasWrap.style.cursor = tool === 'hand' ? 'grab' : (tool === 'select' ? 'default' : 'crosshair');
   document.dispatchEvent(new CustomEvent('tool:change', { detail: tool }));
   // Connect/Comment modes change how (or whether) the selection renders, so
@@ -67,7 +73,7 @@ export function initToolEvents() {
     if (e.key === 'Escape') { state.selected.clear(); setTool('select'); render(); return; }
     if (e.key === 'v' || e.key === 'V') setTool('select');
     if (e.key === 'h' || e.key === 'H') setTool('hand');
-    if (e.key === 'f' || e.key === 'F') { e.preventDefault(); document.getElementById('tool-frame').click(); }
+    if ((e.key === 'f' || e.key === 'F') && !state.readonly) { e.preventDefault(); document.getElementById('tool-frame').click(); }
     if (e.key === 'r' || e.key === 'R') setTool('container');
     if (e.key === 's' || e.key === 'S') setTool('section');
     if (e.key === 't' || e.key === 'T') setTool('text');
@@ -78,6 +84,7 @@ export function initToolEvents() {
 
     // Arrow nudge
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (state.readonly) return; // viewers can't move nodes
       const d = e.shiftKey ? 10 : 1;
       state.selected.forEach(id => {
         const n = getNode(id);

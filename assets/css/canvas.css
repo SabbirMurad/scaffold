@@ -9,6 +9,18 @@
 }
 /* The four-arrow move cursor only appears while a node is actually being dragged. */
 body.dragging-node, body.dragging-node .node { cursor: move; }
+/* Hand (pan) tool — the grab cursor takes over the whole canvas and everything on
+   it, whatever is under the pointer; grabbing while a pan drag is in progress. The
+   #canvas-wrap id keeps these ahead of every per-node cursor rule. */
+body.hand-mode #canvas-wrap, body.hand-mode #canvas-wrap * { cursor: grab; }
+body.panning #canvas-wrap, body.panning #canvas-wrap * { cursor: grabbing; }
+/* Component master (solid accent ring) and instances (dashed) — shown only when
+   not selected, so the normal selection outline still wins. Ghost internals of an
+   instance are non-interactive; the instance box is the selectable unit. */
+.node.is-component:not(.selected) { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.node.is-instance:not(.selected) { outline: 1px dashed var(--accent2); outline-offset: 1px; }
+.node.is-instance.instance-missing:not(.selected) { outline-color: var(--red); }
+.node.ghost { pointer-events: none; }
 .node.selected { outline: 2px solid var(--accent); outline-offset: 0; }
 /* Nodes with an onTap navigation action show a small corner badge — only in
    Connect mode. It is absolutely positioned, so it never participates in a
@@ -42,9 +54,9 @@ body.connect-mode .node.has-action::after {
 }
 .frame-label:hover { color: var(--text2); }
 .frame-label.selected { color: var(--accent); }
-/* Section labels read as headings — uppercase, bolder, a touch larger. */
+/* Section labels read as headings — bolder, a touch larger. Shown as typed. */
 .frame-label.section-label {
-  font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
   color: var(--text2);
 }
 .frame-label.section-label.selected { color: var(--accent); }
@@ -127,8 +139,19 @@ body.comment-mode #design-view { display: none; }
 #canvas { z-index: 1; }
 
 /* Canvas Rulers */
-#ruler-h-canvas, #ruler-v-canvas { position: absolute; z-index: 20; pointer-events: none; }
-#ruler-corner { position: absolute; top: 0; left: 0; width: 26px; height: 26px; background: var(--glass-bg); border-right: 1px solid var(--border2); border-bottom: 1px solid var(--border2); z-index: 21; }
+#ruler-h-canvas, #ruler-v-canvas {
+  position: absolute; z-index: 20; pointer-events: none;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+}
+#ruler-corner {
+  position: absolute; top: 0; left: 0; width: 26px; height: 26px; z-index: 21;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border-right: 1px solid var(--border2); border-bottom: 1px solid var(--border2);
+}
 
 /* Inline Text Edit */
 .text-editor {

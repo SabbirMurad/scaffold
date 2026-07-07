@@ -39,6 +39,16 @@ export function isScreenFrame(node) {
 export function isSingleChild(node) {
   return LAYOUT_HOST(node) && (!node.layout || node.layout === 'none');
 }
+
+// A node can become a component if it isn't a frame/section and its whole subtree
+// is frame/section-free — components live strictly below the screen level.
+export function canBeComponent(node) {
+  const check = (n) => {
+    if (!n || n.type === 'frame' || n.type === 'section') return false;
+    return (n.children || []).every(cid => check(getNode(cid)));
+  };
+  return check(node);
+}
 // Lays its children out itself (flex or stack) rather than holding just one.
 export function isMultiChild(node) { return isFlex(node) || isStack(node); }
 
@@ -102,6 +112,7 @@ export function findFrameAt(wx, wy, excludeId = null, childType = null) {
 }
 
 export function reparentNode(node, newParentId) {
+  if (state.readonly) return; // viewers can't move nodes between parents
   const oldParentId = node.parentId;
   if (oldParentId === newParentId) return;
 

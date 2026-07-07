@@ -173,6 +173,7 @@ function onUp(e) {
     return;
   }
 
+  if (state.readonly) return; // viewers can view the prototype flow, not edit links
   const fr = frameUnder(e.clientX, e.clientY);
   if (src && fr && fr.id !== from) {
     src.action = src.action || {};
@@ -227,6 +228,7 @@ export function initFlow() {
   document.addEventListener('mouseup', onUp);
 
   pop?.addEventListener('dd:change', e => {
+    if (state.readonly) return;
     const n = getNode(selectedSrc); if (!n || !n.action) return;
     const lbl = e.target.closest('.dd-trigger')?.querySelector('.dd-label');
     if (e.target.dataset.fp === 'mode') { n.action.mode = e.detail.value; if (lbl) lbl.textContent = MODE_LABEL[e.detail.value]; saveHistory(); }
@@ -234,6 +236,7 @@ export function initFlow() {
     renderProps(); // keep the panel's read-only interaction summary in sync
   });
   popDel?.addEventListener('click', () => {
+    if (state.readonly) return;
     const n = getNode(selectedSrc); if (!n) return;
     n.action = { type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' };
     saveHistory(); selectedSrc = null; pop.hidden = true; render();

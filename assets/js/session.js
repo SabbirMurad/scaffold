@@ -6,6 +6,22 @@ import { Fetcher } from './fetcher.js';
 
 const AUTH_KEY = 'ff_auth';
 
+// A data-URI SVG avatar of a name's initials on a deterministic coloured circle —
+// used when the user has no profile picture set (replaces the static "SH" icon).
+export function initialsAvatar(name) {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  const initials = parts.length
+    ? (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+    : '?';
+  let h = 0;
+  for (const ch of (name || '')) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">`
+    + `<rect width="72" height="72" rx="36" fill="hsl(${h},45%,45%)"/>`
+    + `<text x="36" y="36" dy="0.35em" text-anchor="middle" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="30" font-weight="600" fill="#fff">${initials}</text>`
+    + `</svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
 // The stored auth payload, or null when signed out / never signed in.
 export function getAuth() {
   try { return JSON.parse(localStorage.getItem(AUTH_KEY)) || null; }

@@ -2,21 +2,38 @@
 // Settings, Account, Billing) by toggling the matching <section>.
 
 import { ddTrigger, initDropdowns } from './dropdown.js';
-import { logout, getAuth } from './session.js';
-import { listProjects, createProject, updateProject, pinProject, deleteProject, myInvites, respondInvite } from './projects.js';
+import { logout, getAuth, initialsAvatar } from './session.js';
+import { listProjects, createProject, updateProject, pinProject, deleteProject, myInvites, respondInvite, getMe } from './projects.js';
 import { listFeedback, sendFeedback } from './feedback.js';
+import { confirmModal } from './confirm.js';
 
 const navItems = document.querySelectorAll('.home-nav-item');
 const pages = document.querySelectorAll('.home-page');
 
+// Sidebar sections are addressable by URL hash (e.g. /dashboard#account) so a
+// reload — or a shared link — lands on the same tab instead of resetting.
+const PAGES = ['projects', 'settings', 'account', 'billing', 'feedback', 'requests'];
+
 function showPage(name) {
+  if (!PAGES.includes(name)) name = 'projects';
   navItems.forEach(b => b.classList.toggle('active', b.dataset.page === name));
   pages.forEach(p => p.classList.toggle('active', p.dataset.page === name));
   if (name === 'requests') renderRequests(); // refresh in case an invite just arrived
   if (name === 'feedback') loadFeedback(); // refresh cap state + history from the server
 }
 
-navItems.forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.page)));
+// Clicking a nav item points the URL hash at that tab; the hashchange handler
+// performs the switch. Re-clicking the current tab still re-runs its side effects.
+navItems.forEach(btn => btn.addEventListener('click', () => {
+  const name = btn.dataset.page;
+  if (location.hash.slice(1) === name) showPage(name);
+  else location.hash = name;
+}));
+
+// Switch to the tab named in the URL — on back/forward, and (via the call at the
+// end of this module, after all tab state is initialized) on initial load.
+function routeFromHash() { showPage(decodeURIComponent(location.hash.slice(1)) || 'projects'); }
+window.addEventListener('hashchange', routeFromHash);
 
 // ───────── Projects ─────────
 // Loaded from the project API. Each card opens the editor bound to that project.
@@ -69,7 +86,13 @@ function makeCard(p) {
 
   card.querySelector('.project-del').addEventListener('click', async e => {
     e.stopPropagation();
-    if (!confirm(`Delete “${p.name || 'Untitled'}”?`)) return;
+    const ok = await confirmModal({
+      title: 'Delete project?',
+      message: `“<strong>${escHtml(p.name || 'Untitled')}</strong>” will be permanently deleted. This can’t be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     const res = await deleteProject(p.uuid);
     if (res.ok) { projects = projects.filter(x => x.uuid !== p.uuid); renderProjects(); toast('Project deleted'); }
     else toast(res.error || 'Couldn’t delete project');
@@ -489,4 +512,27 @@ document.getElementById('new-project-btn')?.addEventListener('click', async (e) 
 });
 
 // Logout → purge the session, clear tokens, back to the authentication page.
-document.getElementById('home-logout')?.addEventListener('click', () => { logout(); });
+document.getElementById('home-logout')?.addEventListener('click', async () => {
+  const ok = await confirmModal({ title: 'Log out?', message: 'You’ll need to sign in again to get back in.', confirmLabel: 'Log out', danger: true });
+  if (ok) logout();
+});
+
+// Restore the tab from the URL now that every section's state is initialized.
+routeFromHash();
+
+// Fill the profile chip (sidebar + Account tab) with the signed-in user's real data.
+async function loadProfile() {
+  const res = await getMe();
+  if (!res.ok || !res.data) return;
+  const { full_name, email_address, profile_picture } = res.data;
+  document.querySelectorAll('.home-profile-name').forEach(el => { el.textContent = full_name || ''; });
+  document.querySelectorAll('.home-profile-email').forEach(el => { el.textContent = email_address || ''; });
+  const nameInput = document.getElementById('acct-fullname');
+  if (nameInput) nameInput.value = full_name || '';
+  // No uploaded picture → show initials derived from the name.
+  if (!profile_picture) {
+    const src = initialsAvatar(full_name);
+    document.querySelectorAll('.home-avatar, #acct-avatar').forEach(img => { img.src = src; });
+  }
+}
+loadProfile();

@@ -45,6 +45,10 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             web::patch().to(Handler::Auth::ChangePassword::task)
         )
         .route(
+            "/me",
+            web::get().to(Handler::Auth::Me::task)   // signed-in user's profile (from token)
+        )
+        .route(
             "/user/{email_or_username}",
             web::get().to(Handler::Auth::Get::task)
         )

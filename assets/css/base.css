@@ -58,3 +58,41 @@ body:not(.design-mode) #ruler-v-canvas { display: none; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ───────── Shared confirmation modal (dashboard + editor; see confirm.js) ───────── */
+.cmodal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(8,9,11,0.55);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  animation: cmodal-fade 0.15s ease;
+}
+.cmodal-overlay[hidden] { display: none; }
+.cmodal {
+  width: 100%; max-width: 400px;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 22px 22px 18px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  animation: cmodal-pop 0.17s cubic-bezier(0.2,0.85,0.3,1);
+}
+.cmodal-title { margin: 0 0 8px; font-size: 17px; font-weight: 650; color: var(--text); }
+.cmodal-msg { margin: 0 0 20px; font-size: 13.5px; line-height: 1.55; color: var(--text2); }
+.cmodal-msg strong { color: var(--text); font-weight: 600; }
+.cmodal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.cmodal-btn {
+  padding: 9px 18px; border-radius: 9px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, filter 0.15s;
+}
+.cmodal-btn.ghost { background: var(--surface3); color: var(--text); border-color: var(--border); }
+.cmodal-btn.ghost:hover { background: rgba(255,255,255,0.16); }
+.cmodal-btn.danger { background: var(--red); color: #fff; }
+.cmodal-btn.danger:hover { filter: brightness(1.08); }
+.cmodal-btn.accent { background: var(--accent); color: #06231a; }
+.cmodal-btn.accent:hover { background: var(--accent2); }
+.cmodal-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+@keyframes cmodal-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cmodal-pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }

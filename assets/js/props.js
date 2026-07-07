@@ -503,7 +503,7 @@ export function renderProps() {
       <div class="prop-section-title">Appearance</div>
       <div class="prop-row affix-row">
         <label class="input-affix" title="Opacity"><span class="input-affix-label icon">${OPACITY_ICON}</span><input class="prop-input bare" id="p-opacity" type="number" value="${Math.round(node.opacity * 100)}" min="0" max="100"></label>
-        ${node.type !== 'text' && node.type !== 'icon' ? radiusField(node) : ''}
+        ${node.type !== 'text' && node.type !== 'icon' && node.type !== 'instance' ? radiusField(node) : ''}
       </div>
       ${node.type !== 'text' && node.radiusMode === 'corners' && node.shape !== 'circle' ? `
       <div class="box-grid" style="margin-top:6px">
@@ -839,6 +839,19 @@ export function renderProps() {
 
   document.querySelectorAll('[data-ah]').forEach(b => b.addEventListener('click', () => { node.alignment.h = b.dataset.ah; updateNodeEl(node); renderProps(); }));
   document.querySelectorAll('[data-av]').forEach(b => b.addEventListener('click', () => { node.alignment.v = b.dataset.av; updateNodeEl(node); renderProps(); }));
+
+  // Viewer (read-only): make every control inert — values remain visible, but
+  // nothing responds to clicks, typing, or the custom dropdowns.
+  if (state.readonly) {
+    propsFields.querySelectorAll('input, textarea, select, button').forEach(el => {
+      el.disabled = true;
+    });
+    propsFields.querySelectorAll('.dd-trigger, [contenteditable]').forEach(el => {
+      el.style.pointerEvents = 'none';
+      el.setAttribute('tabindex', '-1');
+      if (el.hasAttribute('contenteditable')) el.setAttribute('contenteditable', 'false');
+    });
+  }
 }
 
 // Border-style picker — the shared custom dropdown (selection handled by the

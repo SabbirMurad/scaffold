@@ -2,7 +2,8 @@ import { state } from './state.js';
 import { canvasWrap } from './utils.js';
 
 const RW = 26;                          // ruler thickness
-const RULER_BG = 'rgba(38,39,43,0.58)'; // matches the sidebar glass tint
+// The ruler canvases are left transparent; the frosted-glass tint + blur come from
+// CSS (background + backdrop-filter on #ruler-*-canvas), matching the panels.
 const RULER_LINE = 'rgba(255,255,255,0.13)'; // separator from the canvas
 const TICK = '#555';
 const LABEL = '#8a8d96';
@@ -19,8 +20,6 @@ export function drawRulers() {
   rh.style.position = 'absolute'; rh.style.left = RW + 'px'; rh.style.top = '0';
   const hctx = rh.getContext('2d');
   hctx.clearRect(0, 0, W, RW);
-  hctx.fillStyle = RULER_BG;
-  hctx.fillRect(0, 0, W, RW);
   // separator line along the bottom edge (between ruler and canvas)
   hctx.strokeStyle = RULER_LINE; hctx.lineWidth = 1;
   hctx.beginPath(); hctx.moveTo(0, RW - 0.5); hctx.lineTo(W, RW - 0.5); hctx.stroke();
@@ -42,8 +41,6 @@ export function drawRulers() {
   rv.style.position = 'absolute'; rv.style.left = '0'; rv.style.top = RW + 'px';
   const vctx = rv.getContext('2d');
   vctx.clearRect(0, 0, RW, H);
-  vctx.fillStyle = RULER_BG;
-  vctx.fillRect(0, 0, RW, H);
   // separator line along the right edge
   vctx.strokeStyle = RULER_LINE; vctx.lineWidth = 1;
   vctx.beginPath(); vctx.moveTo(RW - 0.5, 0); vctx.lineTo(RW - 0.5, H); vctx.stroke();

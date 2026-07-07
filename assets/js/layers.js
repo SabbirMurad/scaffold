@@ -35,9 +35,21 @@ export function renderLayers() {
   initLayerDnd();
 }
 
+// The row icon for a layer. Frame/container/image use the SVGs in /icons/layers/
+// (masked to the text colour); a section uses the open/closed folder icon; other
+// types keep a unicode glyph.
+function layerIconHtml(node) {
+  let svg = { frame: 'frame', container: 'container', image: 'image' }[node.type];
+  if (node.type === 'section') svg = collapsed.has(node.id) ? 'folder-close' : 'folder-open';
+  if (svg) {
+    const url = `/assets/icons/layers/${svg}.svg`;
+    return `<span class="layer-icon layer-icon-svg" style="-webkit-mask-image:url(${url});mask-image:url(${url})"></span>`;
+  }
+  const glyph = { row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', icon: '\u2726', text: 'T' }[node.type] || '\u25AD';
+  return `<span class="layer-icon">${glyph}</span>`;
+}
+
 function buildLayerItem(node, depth) {
-  const icons = { section: '\u{1F4C1}', frame: '\u{1F4F1}', container: '\u25AD', row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', image: '\u{1F4F7}', icon: '\u2726', text: 'T' };
-  const icon = node.type === 'container' && node.shape === 'circle' ? '\u2B24' : (icons[node.type] || '\u25AD');
   const item = document.createElement('div');
   item.className = 'layer-item' +
     (state.selected.has(node.id) ? ' selected' : '') +
@@ -56,7 +68,7 @@ function buildLayerItem(node, depth) {
     <span class="layer-grip">\u2807</span>
     <div class="layer-indent" style="padding-left:${depth * 14}px;display:flex;align-items:center;gap:6px;flex:1;overflow:hidden">
       ${caret}
-      <span class="layer-icon">${icon}</span>
+      ${layerIconHtml(node)}
       <span class="layer-name">${node.name}</span>
     </div>
     <span class="layer-ctrl layer-lock ${node.locked ? 'active' : ''}" title="${node.locked ? 'Unlock' : 'Lock'}">${node.locked ? LOCK_CLOSED : LOCK_OPEN}</span>

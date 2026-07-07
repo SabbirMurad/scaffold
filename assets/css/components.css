@@ -18,6 +18,12 @@
 }
 .tool-btn:hover { background: var(--surface2); }
 .tool-btn.active { background: var(--accent); color: #fff; }
+/* Theme switcher is a preview toggle, not a tool — so its "active" theme uses a
+   subtle current-segment highlight (dim the other) instead of the accent
+   selected-tool fill, so it never looks like a second tool is selected. */
+#theme-switch .tool-btn { opacity: 0.45; }
+#theme-switch .tool-btn:hover { opacity: 1; background: var(--surface2); }
+#theme-switch .tool-btn.active { background: var(--surface3); color: var(--text); opacity: 1; }
 .tool-btn img {
   width: 18px; height: 18px;
   pointer-events: none;
@@ -371,7 +377,7 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 
 #layers-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 .layer-item {
-  display: flex; align-items: center; gap: 6px; padding: 5px 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px; cursor: pointer;
   border-radius: 0; transition: background 0.1s; user-select: none; position: relative;
 }
 .layer-item:hover { background: var(--surface2); }
@@ -383,6 +389,14 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 .layer-caret.collapsed img { transform: rotate(-90deg); }
 .layer-caret-empty { cursor: default; }
 .layer-icon { font-size: 12px; opacity: 0.6; flex-shrink: 0; }
+/* SVG layer icons (frame/container/image/section) — masked so they take the row's
+   text colour instead of the icon file's hard-coded stroke. */
+.layer-icon-svg {
+  width: 15px; height: 15px; flex-shrink: 0; opacity: 0.72; background: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
 .layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .layer-item.group > .layer-name { font-weight: 500; }
 .layer-indent { display: flex; align-items: center; gap: 6px; flex: 1; overflow: hidden; }
@@ -970,6 +984,10 @@ body.sidebar-collapsed #api-board { padding-left: 20px; }
 }
 .mock-nest { padding-left: 16px; }
 .mock-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* A list entry is a whole object, so it flows as a block (like single mode) rather
+   than a flex row — its delete button sits in the top-right corner. */
+.mock-item { position: relative; margin-bottom: 2px; }
+.mock-item > .mock-itemdel { position: absolute; top: 0; right: 0; margin: 0; }
 .mock-key { color: var(--text3); }
 .mock-ctor { color: var(--accent); }
 .mock-punct { color: var(--text3); }
@@ -1137,3 +1155,19 @@ body.sidebar-collapsed #api-board { padding-left: 20px; }
 .api-name-input:focus { background: var(--surface2); border-color: var(--accent); }
 .api-name-input.invalid { border-color: var(--red); }
 
+
+/* ── Viewer (read-only) role ── */
+/* Hide the whole creation-tools group (so no empty gap is left between the Hand and
+   Connect groups) plus the add-element button and the mutating context menu. The
+   remaining tools (select, hand, connect/prototype, comment) and the theme/color
+   controls stay usable. Interactions are also gated in JS via state.readonly. */
+body.role-viewer #tools-create,
+body.role-viewer #btn-add-layer { display: none !important; }
+body.role-viewer #ctx-menu { display: none !important; }
+/* Properties are look-only: controls are inert but values stay readable/scrollable. */
+body.role-viewer #props-panel input,
+body.role-viewer #props-panel textarea,
+body.role-viewer #props-panel button,
+body.role-viewer #props-panel select,
+body.role-viewer #props-panel .dd-trigger,
+body.role-viewer #props-panel [contenteditable] { pointer-events: none; }

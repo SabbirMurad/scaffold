@@ -1,4 +1,4 @@
-import { state, getNode, getColorById, getTypoById } from './state.js';
+import { state, getNode, getColorById, getTypoById, getMasterNode, isMaster } from './state.js';
 import { colorCss } from './colors.js';
 import { SINGLE_CHILD_TYPES, MULTI_CHILD_TYPES, flexKind, isFlex, isSingleChild } from './nodes.js';
 import { canvas, zoomLabel, canvasWrap } from './utils.js';
@@ -8,12 +8,14 @@ import { renderProps } from './props.js';
 import { attachNodeEvents, beginNodeDrag } from './canvas.js';
 import { ensureFontLoaded } from './google-fonts.js';
 import { resolvedSrc } from './images.js';
+import { saveViewportSoon } from './viewport.js';
 
 export function applyTransform() {
   canvas.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom})`;
   canvas.style.setProperty('--zoom', state.zoom); // overlays (comment pins) counter-scale off this
   if (zoomLabel) zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
   drawRulers();
+  saveViewportSoon(); // persist pan/zoom (per project, localStorage only)
 }
 
 export function render() {
@@ -349,6 +351,8 @@ export function renderNode(node, parent) {
   el.className = 'node ' + (node.type === 'text' ? 'text-node' : node.type);
   // A node with a tap interaction gets a small corner badge (see .node.has-action).
   if (node.action && node.action.type && node.action.type !== 'none') el.classList.add('has-action');
+  if (isMaster(node)) el.classList.add('is-component');       // reusable component master
+  if (node.type === 'instance') el.classList.add('is-instance');
   el.id = 'node-' + node.id;
   el.dataset.id = node.id;
 
@@ -367,6 +371,8 @@ export function renderNode(node, parent) {
   } else if (node.type === 'section') {
     // Section chrome (faint fill + outline) is styled entirely in CSS (.node.section);
     // it deliberately carries no fill/stroke/radius so its frames show through.
+  } else if (node.type === 'instance') {
+    renderInstanceBody(el, node); // live-mirror the component master's subtree
   } else {
     applyFill(el, node);
     applyStroke(el, node);
@@ -382,9 +388,9 @@ export function renderNode(node, parent) {
     el.classList.add('selected');
     // Locked nodes — and every node in Connect mode — show only the selection
     // outline, no resize/radius handles. Comment mode shows no selection at all.
-    if (!node.locked && state.tool !== 'connect') {
+    if (!node.locked && state.tool !== 'connect' && !state.readonly) {
       // Auto-size text is content-driven, so it gets no resize handles (just the outline).
-      if (node.type !== 'frame' && !(node.type === 'text' && node.autoSize)) addHandles(el, node);
+      if (node.type !== 'frame' && node.type !== 'instance' && !(node.type === 'text' && node.autoSize)) addHandles(el, node);
       if ((node.type === 'container' || node.type === 'image') && node.shape !== 'circle' && node.radiusMode !== 'corners') addRadiusHandles(el, node);
     }
   }
@@ -404,6 +410,57 @@ export function renderNode(node, parent) {
   // corner (Figma style). It lives beside the node — not inside it — and
   // counter-scales off --zoom so it stays a constant on-screen size.
   if (node.type === 'frame' || node.type === 'section') addFrameLabel(node, parent);
+}
+
+// ── Component instances: a read-only live mirror of the master's subtree ──
+// Ghosts carry no id/events/handles and are pointer-events:none (the instance box
+// is the interactive unit), so one master can appear many times without clashing.
+function renderInstanceBody(el, node, depth = 0) {
+  const master = getMasterNode(node.componentId);
+  if (!master || depth > 16) { el.classList.add('instance-missing'); return; }
+  applyGhostStyle(el, master, depth); // style the instance box as the master root
+}
+
+function renderGhost(node, parentEl, depth) {
+  const el = document.createElement('div');
+  el.className = 'node ghost ' + (node.type === 'text' ? 'text-node' : node.type);
+  applyPosition(el, node);
+  applySize(el, node);
+  applyNodeTransform(el, node);
+  el.style.opacity = node.opacity != null ? node.opacity : 1;
+  el.style.display = node.visible ? '' : 'none';
+  applyWrapperAlignment(el, node);
+  applyGhostStyle(el, node, depth);
+  parentEl.appendChild(el);
+  syncTextSize(el, node);
+}
+
+// Apply a node's type-appropriate visuals to `el`, then ghost-render its children.
+// Position/size are set by the caller (the instance box, or renderGhost).
+function applyGhostStyle(el, node, depth) {
+  if (node.type === 'text') {
+    applyTextStyle(el, node);
+    el.textContent = node.text;
+  } else if (node.type === 'icon') {
+    applyIcon(el, node, true);
+  } else if (node.type === 'section') {
+    // no chrome
+  } else if (node.type === 'instance') {
+    renderInstanceBody(el, node, depth + 1); // nested instance
+    return;
+  } else {
+    applyFill(el, node);
+    applyStroke(el, node);
+    applyRadius(el, node);
+    if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);
+    if (node.type === 'container') { applyMargin(el, node); applyScroll(el, node); }
+    if (node.type === 'container' || node.type === 'image') applyShadow(el, node);
+    if (isFlex(node)) applyFlexLayout(el, node);
+  }
+  (node.children || []).forEach(cid => {
+    const c = getNode(cid);
+    if (c) renderGhost(c, el, depth);
+  });
 }
 
 // A constant-size name tag above a frame/section. Pressing it acts on the node

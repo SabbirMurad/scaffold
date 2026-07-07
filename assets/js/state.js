@@ -10,6 +10,11 @@ export const state = {
   nextFrameNum: 1,
   nextContainerNum: 1,
   nextSectionNum: 1,
+  // Components: reusable node subtrees (masters). Each is { id, name, rootId }; the
+  // master root node lives in `nodes`, flagged with a matching componentId. Instances
+  // are `type:'instance'` nodes that live-mirror a master (see render.js).
+  components: [],
+  nextComponentId: 1,
   // Color tab: reusable color variables (solid or gradient). Fully theme-aware —
   // themes live in `state.themes` and each color has one shared name but a
   // per-theme value stored in `color.values[themeId]`. The top-level
@@ -128,6 +133,18 @@ export function getColorById(id) {
 export function getTypoById(id) {
   return state.typography.find(t => t.id === id);
 }
+
+// ── Components ──
+export function getComponent(id) { return state.components.find(c => c.id === id); }
+// The live master root node for a component (edited normally; instances mirror it).
+export function getMasterNode(componentId) {
+  const c = getComponent(componentId);
+  return c ? getNode(c.rootId) : null;
+}
+export function isInstance(node) { return !!node && node.type === 'instance'; }
+// A master is a normal node flagged with a componentId (an instance also has one,
+// so exclude that type).
+export function isMaster(node) { return !!node && node.type !== 'instance' && node.componentId != null; }
 
 // Slugify a name into a leading-slash dashed-case route (e.g. "frame_2" → "/frame-2").
 function routeFromName(name) {

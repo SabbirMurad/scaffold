@@ -49,3 +49,6 @@ export const deleteComment  = (id, cid)           => authed('delete', { endpoint
 
 // Pending invites addressed to the current user (across all projects).
 export const myInvites = () => authed('get', { endpoint: '/v1/invites' });
+
+// The signed-in user's profile (name/email/avatar), resolved from the token.
+export const getMe = () => authed('get', { endpoint: '/v1/auth/me' });

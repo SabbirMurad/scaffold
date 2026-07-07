@@ -221,7 +221,7 @@ function renderEditor(set) {
   if (!m || set.data == null) return `<div class="mock-editor"><span class="mock-punct">// model was deleted — pick another</span></div>`;
   if (set.kind === 'list') {
     const items = (set.data || []).map((o, i) =>
-      `<div class="mock-line">${renderObject(m, o, [i])}<span class="mock-punct">,</span><button class="mock-itemdel" data-list-del="${i}" title="Remove item">&times;</button></div>`
+      `<div class="mock-item">${renderObject(m, o, [i])}<span class="mock-punct">,</span><button class="mock-itemdel" data-list-del="${i}" title="Remove item">&times;</button></div>`
     ).join('');
     return `<div class="mock-editor"><span class="mock-punct">[</span><div class="mock-nest">${items}<button class="mock-additem" data-list-add title="Add item">+ add item</button></div><span class="mock-punct">]</span></div>`;
   }
