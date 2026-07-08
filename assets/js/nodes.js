@@ -98,17 +98,28 @@ export function isDescendant(nodeId, ancestorId) {
   return false;
 }
 
-export function findFrameAt(wx, wy, excludeId = null, childType = null) {
-  const frames = [...state.nodes].reverse().filter(n =>
+// Nesting depth (0 for a root node) — how many ancestors a node has.
+function nestingDepth(node) {
+  let d = 0, cur = node;
+  while (cur && cur.parentId) { d++; cur = getNode(cur.parentId); }
+  return d;
+}
+
+// The container under (wx, wy) that can accept `excludeId`/`childType` as a child.
+// Default picks the top-most (innermost) hit; `preferOutermost` instead picks the
+// shallowest-nested acceptable container, so placing a new element over a stack of
+// nested containers lands in the outer one rather than whatever child sits on top.
+export function findFrameAt(wx, wy, excludeId = null, childType = null, preferOutermost = false) {
+  const hits = [...state.nodes].reverse().filter(n =>
     n.id !== excludeId && !isDescendant(n.id, excludeId) && canAcceptChild(n, excludeId, childType)
-  );
-  for (const frame of frames) {
+  ).filter(frame => {
     const wp = getWorldPos(frame);
-    if (wx >= wp.x && wx <= wp.x + frame.w && wy >= wp.y && wy <= wp.y + frame.h) {
-      return frame;
-    }
-  }
-  return null;
+    return wx >= wp.x && wx <= wp.x + frame.w && wy >= wp.y && wy <= wp.y + frame.h;
+  });
+  if (hits.length === 0) return null;
+  if (!preferOutermost) return hits[0];
+  // Shallowest nesting wins; the reversed (top-most-first) order breaks ties.
+  return hits.reduce((best, f) => nestingDepth(f) < nestingDepth(best) ? f : best, hits[0]);
 }
 
 export function reparentNode(node, newParentId) {

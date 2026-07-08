@@ -115,14 +115,18 @@ export function applyDragTransform(el, node, dx, dy) {
 // Paint an image node's picture as its background (call after setting the fill)
 const IMAGE_FIT = { cover: 'cover', contain: 'contain', fill: '100% 100%', fitWidth: '100% auto', fitHeight: 'auto 100%' };
 
-function stopColorCss(s) {
-  const a = s.alpha == null ? 1 : s.alpha;
-  if (a >= 1) return s.color;
-  let h = (s.color || '#000000').replace('#', '');
+// A solid fill as CSS, honoring its alpha channel. `transparent` (and missing
+// fills) pass through; a fully-opaque color stays as its plain hex.
+function solidFillCss(fill, alpha) {
+  if (!fill || fill === 'transparent') return fill || 'transparent';
+  const a = alpha == null ? 1 : alpha;
+  if (a >= 1) return fill;
+  let h = fill.replace('#', '');
   if (h.length === 3) h = h.split('').map(x => x + x).join('');
   const n = parseInt(h.slice(0, 6) || '0', 16) || 0;
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
+function stopColorCss(s) { return solidFillCss(s.color, s.alpha); }
 function gradientStops(stops) {
   return [...stops].sort((a, b) => a.pos - b.pos).map(s => `${stopColorCss(s)} ${s.pos}%`).join(', ');
 }
@@ -150,7 +154,7 @@ function applyFill(el, node) {
       el.style.backgroundImage = pic ? `${pic}, ${gradientCss(src)}` : gradientCss(src);
       el.style.backgroundSize = pic ? `${fit}, 100% 100%` : '100% 100%';
     } else {
-      el.style.backgroundColor = src.fill === 'transparent' ? 'transparent' : src.fill;
+      el.style.backgroundColor = solidFillCss(src.fill, src.alpha);
       el.style.backgroundImage = pic;
       el.style.backgroundSize = pic ? fit : '';
     }
@@ -168,7 +172,7 @@ function applyFill(el, node) {
     el.style.backgroundImage = gradientCss(src);
     el.style.backgroundSize = ''; el.style.backgroundRepeat = '';
   } else {
-    el.style.backgroundColor = src.fill;
+    el.style.backgroundColor = solidFillCss(src.fill, src.alpha);
     el.style.backgroundImage = '';
   }
 }
@@ -281,12 +285,20 @@ function applyMargin(el, node) {
   el.style.margin = `${m.t}px ${m.r}px ${m.b}px ${m.l}px`;
 }
 
-// Scroll axis (container only) — lets oversized content scroll on one axis.
-// Only one axis scrolls at a time; the cross axis is clipped.
+// Whether a container has scrolling enabled. Stored as a boolean; older docs may
+// still carry the legacy 'horizontal'/'vertical' strings, which also count as on.
+export function scrollEnabled(node) {
+  return !!node && !!node.scroll && node.scroll !== 'none';
+}
+
+// Scroll (container only) — lets oversized content scroll. The axis follows the
+// auto-layout: a Row scrolls horizontally, a Column vertically; any other layout
+// can't scroll (nothing to lay content out along a single overflowing axis).
 function applyScroll(el, node) {
-  const s = node.scroll || 'none';
-  if (s === 'horizontal') { el.style.overflowX = 'auto'; el.style.overflowY = 'hidden'; }
-  else if (s === 'vertical') { el.style.overflowY = 'auto'; el.style.overflowX = 'hidden'; }
+  const on = scrollEnabled(node);
+  const kind = flexKind(node);
+  if (on && kind === 'row') { el.style.overflowX = 'auto'; el.style.overflowY = 'hidden'; }
+  else if (on && kind === 'column') { el.style.overflowY = 'auto'; el.style.overflowX = 'hidden'; }
   else { el.style.overflowX = ''; el.style.overflowY = ''; }
 }
 
@@ -390,8 +402,21 @@ export function renderNode(node, parent) {
     // outline, no resize/radius handles. Comment mode shows no selection at all.
     if (!node.locked && state.tool !== 'connect' && !state.readonly) {
       // Auto-size text is content-driven, so it gets no resize handles (just the outline).
-      if (node.type !== 'frame' && node.type !== 'instance' && !(node.type === 'text' && node.autoSize)) addHandles(el, node);
-      if ((node.type === 'container' || node.type === 'image') && node.shape !== 'circle' && node.radiusMode !== 'corners') addRadiusHandles(el, node);
+      const wantResize = node.type !== 'frame' && node.type !== 'instance' && !(node.type === 'text' && node.autoSize);
+      const wantRadius = (node.type === 'container' || node.type === 'image') && node.shape !== 'circle' && node.radiusMode !== 'corners';
+      if (wantResize || wantRadius) {
+        // Handles live in a non-scrolling overlay pinned over the node, not among
+        // its children — otherwise a scroll container would drag them along with
+        // its content. The overlay is counter-translated to cancel the scroll.
+        const layer = document.createElement('div');
+        layer.className = 'sel-handles';
+        el.appendChild(layer);
+        if (wantResize) addHandles(layer, node);
+        if (wantRadius) { addRadiusHandles(layer, node); positionRadiusHandles(el, node); }
+        el.addEventListener('scroll', () => {
+          layer.style.transform = `translate(${el.scrollLeft}px, ${el.scrollTop}px)`;
+        });
+      }
     }
   }
 
@@ -481,7 +506,9 @@ function addFrameLabel(node, parent) {
   parent.appendChild(label);
 }
 
-function addHandles(el, node) {
+// Append the eight resize handles into `layer` (a non-scrolling overlay pinned
+// over the node — see the selection block in renderNode).
+function addHandles(layer, node) {
   // A non-resizable axis (fill/hug, or a text node's content-driven height) hides
   // that axis's side handles — and any corner that touches it, since a corner
   // can't resize a locked axis.
@@ -494,20 +521,20 @@ function addHandles(el, node) {
     const h = document.createElement('div');
     h.className = `handle handle-${pos}`;
     h.dataset.handle = pos;
-    el.appendChild(h);
+    layer.appendChild(h);
   });
 }
 
 // Figma-style corner-radius handles: a small circle near each corner. Dragging
 // any of them sets the (uniform) border radius. Container & image only.
-function addRadiusHandles(el, node) {
+// Appended into `layer`; positioned separately via positionRadiusHandles.
+function addRadiusHandles(layer, node) {
   ['nw', 'ne', 'sw', 'se'].forEach(corner => {
     const h = document.createElement('div');
     h.className = 'radius-handle';
     h.dataset.radius = corner;
-    el.appendChild(h);
+    layer.appendChild(h);
   });
-  positionRadiusHandles(el, node);
 }
 
 // Place each radius handle inset from its corner by the current radius (clamped

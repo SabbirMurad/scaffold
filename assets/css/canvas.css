@@ -95,10 +95,14 @@ body.comment-mode #design-view { display: none; }
 .node.text-node { background: transparent; cursor: text; white-space: pre-wrap; word-break: break-word; }
 .node.text-node.editing { outline: 1px solid var(--accent); outline-offset: 1px; min-width: 8px; cursor: text; }
 
+/* Non-scrolling overlay that holds the selection handles, pinned over the node so
+   a scroll container doesn't drag its handles along with its content. */
+.sel-handles { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+
 /* Resize Handles */
 .handle {
   position: absolute; width: 8px; height: 8px; background: white; border: 2px solid var(--accent);
-  border-radius: 2px; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  border-radius: 2px; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,0.4); pointer-events: auto;
 }
 .handle-nw { top: -4px; left: -4px; cursor: nw-resize; }
 .handle-ne { top: -4px; right: -4px; cursor: ne-resize; }
@@ -114,7 +118,7 @@ body.comment-mode #design-view { display: none; }
   position: absolute; width: 9px; height: 9px; border-radius: 50%;
   background: white; border: 1.5px solid var(--accent);
   transform: translate(-50%, -50%); z-index: 11; cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4); pointer-events: auto;
 }
 .radius-handle:hover { background: var(--accent); }
 

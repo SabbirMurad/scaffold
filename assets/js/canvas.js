@@ -686,7 +686,7 @@ function onWrapMouseUp(e) {
     const midY = (drawStart.y + world.y) / 2;
     // Frames and sections are top-level; everything else can nest into a frame.
     const parentFrame = !['frame', 'section'].includes(state.tool)
-      ? findFrameAt(isText ? drawStart.x : midX, isText ? drawStart.y : midY, null, state.tool) : null;
+      ? findFrameAt(isText ? drawStart.x : midX, isText ? drawStart.y : midY, null, state.tool, true) : null;
 
     let localX = anchorX, localY = anchorY;
     if (parentFrame) {
@@ -741,7 +741,48 @@ function onWrapMouseUp(e) {
   }
 }
 
+// Walk up from the wheeled element to the nearest scroll-enabled container node
+// that still has room to scroll in the wheel's direction, returning it plus the
+// axis/amount to scroll. A vertical scroller (Column layout) takes a plain wheel;
+// a horizontal scroller (Row layout) takes Shift+wheel — or a native horizontal
+// (trackpad) delta. Returns null at the scroller's edge, so the scroll "chains"
+// back out and the canvas pans instead.
+function scrollableUnder(target, shift, dx, dy) {
+  let el = target instanceof Element ? target : null;
+  while (el && el !== canvasWrap) {
+    if (el.classList && el.classList.contains('node')) {
+      const cs = getComputedStyle(el);
+      const canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+      const canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth;
+      if (canY && !shift) {
+        const amt = dy || dx;
+        const atTop = amt < 0 && el.scrollTop <= 0;
+        const atBottom = amt > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+        if (amt && !atTop && !atBottom) return { el, axis: 'y', amt };
+      }
+      if (canX) {
+        const amt = dx || (shift ? dy : 0); // Shift maps the vertical wheel to horizontal
+        const atLeft = amt < 0 && el.scrollLeft <= 0;
+        const atRight = amt > 0 && el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+        if (amt && !atLeft && !atRight) return { el, axis: 'x', amt };
+      }
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
 function onWheel(e) {
+  // A hovered, scrollable container scrolls instead of panning the canvas.
+  if (!(e.ctrlKey || e.metaKey)) {
+    const sc = scrollableUnder(e.target, e.shiftKey, e.deltaX, e.deltaY);
+    if (sc) {
+      e.preventDefault();
+      if (sc.axis === 'y') sc.el.scrollTop += sc.amt;
+      else sc.el.scrollLeft += sc.amt;
+      return;
+    }
+  }
   e.preventDefault();
   if (e.ctrlKey || e.metaKey) {
     const factor = e.deltaY < 0 ? 1.1 : 0.9;

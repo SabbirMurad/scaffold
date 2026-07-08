@@ -304,11 +304,13 @@ const LAYOUT_CHOICES = [
 
 function layoutSection(node) {
   const cur = node.layout || 'none';
-  const scrollOn = node.scroll && node.scroll !== 'none';
-  const btns = LAYOUT_CHOICES.map(c => {
-    const dis = c.value === 'stack' && scrollOn;
-    return `<button class="layout-btn ${cur === c.value ? 'active' : ''}" data-layout="${c.value}" title="${dis ? 'Turn off Scroll to use Stack' : c.title}"${dis ? ' disabled' : ''}><img src="/assets/icons/${c.icon}.svg" alt="${c.title}"></button>`;
-  }).join('');
+  // Scroll is a container-only on/off toggle; its axis follows the layout, so it's
+  // only offered for Row (→ horizontal) and Column (→ vertical).
+  const scrollable = node.type === 'container' && (cur === 'row' || cur === 'column');
+  const scrollOn = !!node.scroll && node.scroll !== 'none';
+  const btns = LAYOUT_CHOICES.map(c =>
+    `<button class="layout-btn ${cur === c.value ? 'active' : ''}" data-layout="${c.value}" title="${c.title}"><img src="/assets/icons/${c.icon}.svg" alt="${c.title}"></button>`
+  ).join('');
   return `
     <div class="prop-section">
       <div class="prop-section-title">Layout</div>
@@ -325,15 +327,20 @@ function layoutSection(node) {
         <span class="prop-label-wide">Gap V</span>
         <input class="prop-input" id="p-gapv" type="number" value="${node.gapV}" min="0">
       </div>` : ''}
+      ${scrollable ? `
+      <div class="prop-row" style="margin-top:8px">
+        <span class="prop-label-wide">Scroll</span>
+        <label class="switch" style="margin-left:auto"><input type="checkbox" id="p-scroll"${scrollOn ? ' checked' : ''}><span class="switch-track"></span></label>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">${cur === 'row' ? 'Scrolls horizontally (hold Shift + wheel).' : 'Scrolls vertically.'} Needs a fixed ${cur === 'row' ? 'width' : 'height'} and overflowing content.</div>` : ''}
     </div>`;
 }
 
-// Switch a container's layout. Stack and scroll are mutually exclusive, so
-// choosing Stack clears any scroll. A full render re-flows the children under
-// the new layout (flex vs. absolute) and refreshes the panel.
+// Switch a container's layout. A full render re-flows the children under the new
+// layout (flex vs. absolute) and refreshes the panel. Scroll only takes effect on
+// Row/Column layouts (see applyScroll), so no need to clear it here.
 function setLayout(node, layout) {
   node.layout = layout;
-  if (layout === 'stack') node.scroll = 'none';
   render();
   saveHistory();
 }
@@ -524,15 +531,6 @@ export function renderProps() {
         <button class="shape-btn ${node.shape !== 'circle' ? 'active' : ''}" data-shape="rect" title="Rectangle" aria-label="Rectangle">${SHAPE_RECT_ICON}</button>
         <button class="shape-btn ${node.shape === 'circle' ? 'active' : ''}" data-shape="circle" title="Circle" aria-label="Circle">${SHAPE_CIRCLE_ICON}</button>
       </div>
-    </div>` : ''}
-    ${node.type === 'container' ? `
-    <div class="prop-section">
-      <div class="prop-section-title">Scroll</div>
-      <div class="shape-toggle">
-        <button class="shape-btn ${node.scroll === 'horizontal' ? 'active' : ''}" data-scroll="horizontal" ${node.layout === 'stack' ? 'disabled' : ''}>Horizontal</button>
-        <button class="shape-btn ${node.scroll === 'vertical' ? 'active' : ''}" data-scroll="vertical" ${node.layout === 'stack' ? 'disabled' : ''}>Vertical</button>
-      </div>
-      ${node.layout === 'stack' ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">Scrolling is off while the layout is Stack.</div>` : ''}
     </div>` : ''}
     ${node.type === 'row' || node.type === 'column' ? `
     <div class="prop-section">
@@ -764,14 +762,13 @@ export function renderProps() {
   if (node.type === 'container') {
     bindBox('mar', node.margin, node);
 
-    document.querySelectorAll('[data-scroll]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        // Toggle: clicking the active axis turns scrolling off; otherwise switch
-        // to that axis (only one axis can scroll at a time).
-        node.scroll = node.scroll === btn.dataset.scroll ? 'none' : btn.dataset.scroll;
-        updateNodeEl(node);
-        renderProps();
-      });
+    // Scroll on/off toggle (only rendered for Row/Column layouts). The axis is
+    // derived from the layout at render time (see applyScroll).
+    const scrollBtn = document.getElementById('p-scroll');
+    if (scrollBtn) scrollBtn.addEventListener('change', () => {
+      node.scroll = scrollBtn.checked;
+      updateNodeEl(node);
+      renderProps();
     });
   }
 

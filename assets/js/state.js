@@ -213,7 +213,7 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     gapV: 8,
     padding: { t: 0, r: 0, b: 0, l: 0 },
     margin: { t: 0, r: 0, b: 0, l: 0 },
-    scroll: 'none', // container scroll axis: 'none' | 'horizontal' | 'vertical'
+    scroll: false, // container scroll on/off; axis follows the layout (Row→horizontal, Column→vertical)
     layout: 'none', // container auto-layout: 'none' | 'row' | 'column' | 'wrap' | 'stack'
     autoSize: type === 'text', // text nodes size to their content (Figma auto-width)
     wMode: 'fixed', // width sizing: 'fixed' (px) | 'fill' (match parent) | 'hug' (match child)
