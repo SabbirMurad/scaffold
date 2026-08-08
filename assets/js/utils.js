@@ -6,7 +6,6 @@ export const layersList = $('layers-list');
 export const propsFields = $('props-fields');
 export const noSelection = $('no-selection');
 export const ctxMenu    = $('ctx-menu');
-export const addMenu    = $('add-menu');
 export const frameMenu  = $('frame-menu');
 export const zoomLabel  = $('zoom-label');
 export const selBox     = $('selection-box');
@@ -30,6 +29,5 @@ export function showToast(msg) {
 
 export function closeMenus() {
   ctxMenu.style.display = 'none';
-  addMenu.style.display = 'none';
   frameMenu.style.display = 'none';
 }

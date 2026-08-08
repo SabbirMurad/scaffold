@@ -53,9 +53,6 @@
       </button>
     </div>
 
-    <!-- Theme preview switch (Dark / Light) — populated by renderThemeSwitch() -->
-    <div class="tool-group" id="theme-switch"></div>
-
   </div>
 
   <!-- Comment thread popover (Comment mode) -->
@@ -91,16 +88,6 @@
       </div>
       <div id="nav-icons">
         <button type="button" class="nav-icon-btn" id="nav-home" data-tooltip="Home"><img src="/assets/icons/home.svg" alt="Home"></button>
-        <button type="button" class="nav-icon-btn" id="nav-share" data-tooltip="Share"><img src="/assets/icons/share.svg" alt="Share"></button>
-        <button type="button" class="nav-icon-btn" id="btn-export-code" data-tooltip="Export"><img src="/assets/icons/export.svg" alt="Export"></button>
-        <button type="button" class="nav-icon-btn" id="nav-logout" data-tooltip="Logout"><img src="/assets/icons/logout.svg" alt="Logout"></button>
-      </div>
-      <div id="profile">
-        <img id="profile-avatar" src="/assets/icons/avatar.svg" alt="Profile">
-        <div id="profile-info">
-          <span id="profile-name"></span>
-          <span id="profile-email"></span>
-        </div>
       </div>
     </div>
     <div id="nav-card">
@@ -134,7 +121,6 @@
     <div id="design-view">
       <div class="panel-header">
         <span class="panel-title">Layers</span>
-        <button class="panel-action" id="btn-add-layer" title="Add element">+</button>
       </div>
       <div id="layers-list"></div>
     </div>
@@ -159,6 +145,35 @@
     <div id="typo-board"></div>
   </div>
 
+  <!-- RIGHT RAIL — profile card stacked above the properties panel -->
+  <div id="right-rail">
+  <!-- PROFILE CARD — its own card above the Properties panel -->
+  <div id="profile-card">
+    <div id="profile">
+      <img id="profile-avatar" src="/assets/icons/avatar.svg" alt="Profile">
+      <div id="profile-info">
+        <span id="profile-name"></span>
+        <span id="profile-email"></span>
+      </div>
+      <button type="button" class="nav-icon-btn" id="nav-logout" data-tooltip="Logout"><img src="/assets/icons/logout.svg" alt="Logout"></button>
+    </div>
+  </div>
+
+  <!-- ACTION BAR — theme switch (its own card, left) + actions card (right) -->
+  <div id="action-bar">
+  <!-- Theme preview switch (Dark / Light) — populated by renderThemeSwitch() -->
+  <div id="theme-switch"></div>
+  <!-- ACTIONS CARD — its own card, like the left-panel tabs card -->
+  <div id="actions-card">
+    <button type="button" class="nav-icon-btn" id="tool-ai" data-tooltip="Generate with Claude"><img src="/assets/icons/claude.svg" alt="Claude"></button>
+    <button type="button" class="nav-icon-btn" id="tool-play" data-tooltip="Play — preview the selected screen">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8v10.4a.8.8 0 0 0 1.22.68l8.3-5.2a.8.8 0 0 0 0-1.36l-8.3-5.2A.8.8 0 0 0 4 2.8z" fill="currentColor"/></svg>
+    </button>
+    <button type="button" class="nav-icon-btn" id="btn-export-code" data-tooltip="Export"><img src="/assets/icons/export.svg" alt="Export"></button>
+    <button type="button" class="nav-icon-btn" id="profile-share" data-tooltip="Share"><img src="/assets/icons/share.svg" alt="Share"></button>
+  </div>
+  </div><!-- /action-bar -->
+
   <!-- PROPERTIES PANEL -->
   <div id="props-panel">
     <div class="panel-header">
@@ -167,6 +182,36 @@
     <div id="props-content">
       <div class="empty-state" id="no-selection">Select an element<br>to edit its properties</div>
       <div id="props-fields" style="display:none"></div>
+    </div>
+  </div>
+  </div><!-- /right-rail -->
+
+  <!-- CLAUDE PANEL — slides in from the right; the right rail shifts left to make room -->
+  <div id="claude-panel">
+    <div class="claude-head">
+      <span class="claude-title">Claude</span>
+      <button type="button" class="claude-disconnect" id="claude-disconnect" hidden>Disconnect</button>
+      <button type="button" class="modal-close" id="claude-close" aria-label="Close">&times;</button>
+    </div>
+
+    <!-- Connect view — shown until the user provides their own Anthropic API key -->
+    <div id="claude-connect" class="claude-connect" hidden>
+      <p class="claude-connect-text">Connect your own Anthropic API key to design with Claude. Your key is stored only in this browser and sent directly to Anthropic — it never touches our servers.</p>
+      <input id="claude-key" class="claude-key-input" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <div id="claude-connect-error" class="prop-error" hidden></div>
+      <button type="button" class="modal-btn" id="claude-connect-btn">Connect Claude</button>
+      <a class="claude-key-help" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get an API key ↗</a>
+    </div>
+
+    <!-- Chat view — shown once connected -->
+    <div id="claude-chat" class="claude-chat" hidden>
+      <div id="claude-messages" class="claude-messages"></div>
+      <div class="claude-composer">
+        <textarea id="ai-prompt" rows="1" placeholder="Describe a screen…"></textarea>
+        <button type="button" id="ai-send" class="claude-send" aria-label="Send">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -274,12 +319,6 @@
   <div class="ctx-item ctx-danger" data-action="delete"><span>Delete</span><span class="shortcut">&#9003;</span></div>
 </div>
 
-<!-- Add Menu -->
-<div id="add-menu">
-  <div class="ctx-item" data-addtype="container">&#x25AD; Container</div>
-  <div class="ctx-item" data-addtype="text">T Text</div>
-</div>
-
 <!-- Frame Preset Menu -->
 <div id="frame-menu">
   <div class="frame-menu-cat">Phone</div>
@@ -300,6 +339,26 @@
 <input type="file" id="image-input" accept="image/*" style="display:none">
 
 <button id="sidebar-open" title="Open sidebar"><img src="/assets/icons/panel-left-open.svg" alt="Open sidebar"></button>
+
+<!-- Play (prototype preview) overlay — driven by play.js -->
+<div id="play-overlay" hidden>
+  <div class="play-bar">
+    <button type="button" class="play-ctrl" id="play-back" title="Back (←)" aria-label="Back">&#8592;</button>
+    <button type="button" class="play-ctrl" id="play-restart" title="Restart" aria-label="Restart">&#8635;</button>
+    <span class="play-title" id="play-title"></span>
+    <button type="button" class="play-ctrl play-close" id="play-close" title="Close (Esc)" aria-label="Close">&times;</button>
+  </div>
+  <div class="play-stage" id="play-stage">
+    <div class="play-device" id="play-device">
+      <span class="play-side-btn action"></span>
+      <span class="play-side-btn vol-up"></span>
+      <span class="play-side-btn vol-down"></span>
+      <span class="play-side-btn power"></span>
+      <div class="play-screen" id="play-screen"></div>
+    </div>
+  </div>
+</div>
+
 
 <div id="toast"></div>
 

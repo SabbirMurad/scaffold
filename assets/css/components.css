@@ -99,7 +99,116 @@ body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64
 .nav-icon-btn.has-error img { filter: invert(36%) sepia(73%) saturate(2400%) hue-rotate(338deg) brightness(95%); }
 
 /* Profile (avatar + name/email) — sits above the project title row */
-#profile { display: flex; align-items: center; gap: 10px; padding: 11px 12px 12px; border-top: 1px solid var(--border); }
+/* Signed-in user card — its own glass card on the right rail, above the
+   Properties panel (mirrors the left-rail tab cards). */
+/* Right rail — profile card stacked above the properties panel. Fixed to the
+   viewport; the cards flow inside it so the panel always clears the profile card
+   no matter how tall it gets. pointer-events pass through the empty gap. */
+#right-rail {
+  position: fixed; top: 36px; right: 18px; bottom: 28px; width: var(--panel-w);
+  display: flex; flex-direction: column; gap: 10px; z-index: 70; pointer-events: none;
+  transition: right 0.25s ease;
+}
+/* When the Claude panel is open, shift the whole right rail left to clear it. */
+body.claude-open #right-rail { right: calc(18px + 340px + 12px); }
+
+/* Claude panel — docked at the far right, slid off-screen until opened. */
+#claude-panel {
+  position: fixed; top: 36px; right: 18px; bottom: 28px; width: 340px; z-index: 70;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border); border-radius: 14px;
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  transform: translateX(calc(100% + 26px));   /* fully off the right edge */
+  transition: transform 0.25s ease;
+}
+body.claude-open #claude-panel { transform: translateX(0); }
+.claude-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.claude-title { font: 600 13px var(--sans); letter-spacing: 0.04em; color: var(--text); margin-right: auto; }
+.claude-disconnect { background: none; border: none; color: var(--text2); font-size: 11px; cursor: pointer; padding: 2px 4px; }
+.claude-disconnect:hover { color: var(--text); }
+
+/* Connect view — collect the user's own API key */
+.claude-connect { padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.claude-connect-text { font-size: 12.5px; line-height: 1.5; color: var(--text2); }
+.claude-key-input {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px;
+  color: var(--text); font-family: var(--mono); font-size: 12px; padding: 9px 11px; outline: none;
+}
+.claude-key-input:focus { border-color: var(--accent); }
+.claude-key-help { font-size: 12px; color: var(--accent); text-decoration: none; }
+.claude-key-help:hover { text-decoration: underline; }
+
+/* Chat view — fills the panel below the header */
+.claude-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* Conversation area (fills the space above the composer) */
+.claude-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.claude-msg {
+  max-width: 85%; padding: 8px 11px; border-radius: 12px;
+  font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+}
+.claude-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.claude-msg.assistant { align-self: flex-start; background: var(--surface2); color: var(--text); border-bottom-left-radius: 4px; }
+.claude-msg.error { align-self: flex-start; background: rgba(245,91,91,0.15); color: var(--red); border-bottom-left-radius: 4px; }
+.claude-msg.thinking { color: var(--text2); font-style: italic; }
+
+/* Composer pinned to the bottom */
+.claude-composer { flex-shrink: 0; display: flex; align-items: flex-end; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+.claude-composer textarea {
+  flex: 1; resize: none; min-height: 20px; max-height: 120px;
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px;
+  color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.4;
+  padding: 8px 10px; outline: none;
+}
+.claude-composer textarea:focus { border-color: var(--accent); }
+.claude-send {
+  flex-shrink: 0; width: 34px; height: 34px; border: none; border-radius: 9px; cursor: pointer;
+  background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.claude-send:hover { background: var(--accent2); }
+.claude-send:disabled { opacity: 0.5; cursor: default; }
+.claude-send svg { width: 16px; height: 16px; }
+#profile-card, #actions-card, #theme-switch {
+  flex-shrink: 0; pointer-events: auto;
+  background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border); border-radius: 14px;
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+
+/* Row holding the theme switch (its own card, left) and the actions card (right).
+   The actions card grows to fill the rail width so the pair spans the same width
+   as the profile and properties cards. */
+#action-bar { display: flex; align-items: stretch; gap: 8px; flex-shrink: 0; }
+
+/* Theme switch as its own compact card, matching the actions card. */
+#theme-switch { display: flex; align-items: center; gap: 4px; padding: 6px; }
+#theme-switch .tool-btn { width: 34px; height: 34px; }
+#theme-switch .tool-btn svg { width: 18px; height: 18px; }
+#profile { display: flex; align-items: center; gap: 10px; padding: 12px; }
+/* Logout sits at the far right of the profile card (override the nav row's flex:1). */
+#profile #nav-logout { flex: 0 0 auto; width: 34px; margin-left: auto; }
+
+/* Actions card (its own card on the right rail, like the left tabs card):
+   Claude, Play, Export, Share. */
+#actions-card { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 6px 14px; }
+/* Point these tooltips UP — the properties card sits directly below, so the
+   default downward nav-icon tooltip gets covered by it. */
+#actions-card .nav-icon-btn[data-tooltip]:hover::after { top: auto; bottom: calc(100% + 6px); }
+#actions-card .nav-icon-btn { flex: 0 0 auto; width: 34px; }
+/* Match the icon glyph size to the left-panel tab icons (18px). */
+#actions-card .nav-icon-btn img, #actions-card .nav-icon-btn svg { width: 18px; height: 18px; pointer-events: none; }
+#actions-card .nav-icon-btn:hover svg { color: var(--text); }           /* lighten on hover, like the share icon */
+/* Claude mark is a white-stroked SVG, so dim it to grey (the base .nav-icon-btn
+   img filter assumes a black icon); brighten to full white on hover. */
+#tool-ai img { filter: brightness(0.62); }
+#tool-ai:hover img { filter: brightness(1); }
+/* Tint the black logout SVG red (same recipe as the export error state). */
+#profile #nav-logout img,
+#profile #nav-logout:hover img { filter: invert(36%) sepia(73%) saturate(2400%) hue-rotate(338deg) brightness(95%); }
+#profile #nav-logout:hover { background: rgba(245,91,91,0.12); }
 #profile-avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; object-fit: cover; background: var(--surface3); }
 #profile-info { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 #profile-name { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -414,17 +523,15 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 .layer-item.drag-above  { box-shadow: inset 0 2px 0 0 var(--accent); }
 .layer-item.drag-below  { box-shadow: inset 0 -2px 0 0 var(--accent); }
 .layer-item.drag-into   { background: var(--accent-glow) !important; outline: 1px solid var(--accent); outline-offset: -1px; border-radius: 3px; }
-.layer-grip { opacity: 0; color: var(--text3); font-size: 10px; cursor: grab; padding: 0 2px; flex-shrink: 0; user-select: none; }
-.layer-item:hover .layer-grip { opacity: 1; }
 
 /* Properties Panel — floating glass card */
 #props-panel {
-  position: fixed; top: 36px; right: 18px; bottom: 28px; width: var(--panel-w);
+  flex: 1; min-height: 0; pointer-events: auto;
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   border: 1px solid var(--glass-border); border-radius: 14px;
   box-shadow: var(--glass-shadow), var(--glass-highlight);
-  display: flex; flex-direction: column; overflow: hidden; z-index: 70;
+  display: flex; flex-direction: column; overflow: hidden;
 }
 #props-content { flex: 1; overflow-y: auto; padding: 8px 0; }
 .prop-section { padding: 13px 12px; position: relative; }
@@ -617,7 +724,7 @@ input[type=number] {
 .empty-state { padding: 24px 12px; text-align: center; color: var(--text3); font-size: 13px; line-height: 1.6; }
 
 /* Context Menu & Add Menu */
-#ctx-menu, #add-menu {
+#ctx-menu {
   position: fixed; background: var(--glass-bg-strong);
   backdrop-filter: blur(var(--glass-blur)) saturate(150%); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   border: 1px solid var(--glass-border); border-radius: 10px;
@@ -911,6 +1018,14 @@ body.sidebar-collapsed #typo-board { padding-left: 20px; }
 
 /* Color picker swatches in the properties panel (frame/container) */
 .color-pick-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Collapsed fill grid — clamped to two rows (2 × 36px + 8px gap = 80px), plus 5px
+   of inner padding so a selected swatch's outline isn't clipped at the top/bottom
+   edge. The matching negative margin keeps the swatches aligned (no visual shift). */
+.color-pick-grid.collapsed { max-height: 90px; overflow: hidden; padding: 5px; margin: -5px; }
+/* "Show all" / "Show less" toggle under a swatch grid — right-aligned, muted grey. */
+.color-show-all { display: block; width: 100%; text-align: right; margin-top: 8px; padding: 0;
+  background: none; border: none; color: var(--text2); font-size: 11px; font-weight: 500; cursor: pointer; }
+.color-show-all:hover { color: var(--text); text-decoration: underline; }
 .color-pick {
   width: 36px; height: 36px; border-radius: 8px; border: none;
   cursor: pointer; padding: 0; position: relative; transition: transform 0.1s;
@@ -1161,8 +1276,7 @@ body.sidebar-collapsed #api-board { padding-left: 20px; }
    Connect groups) plus the add-element button and the mutating context menu. The
    remaining tools (select, hand, connect/prototype, comment) and the theme/color
    controls stay usable. Interactions are also gated in JS via state.readonly. */
-body.role-viewer #tools-create,
-body.role-viewer #btn-add-layer { display: none !important; }
+body.role-viewer #tools-create { display: none !important; }
 body.role-viewer #ctx-menu { display: none !important; }
 /* Properties are look-only: controls are inert but values stay readable/scrollable. */
 body.role-viewer #props-panel input,

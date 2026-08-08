@@ -119,6 +119,18 @@ function isFreeNode(n) {
   return isStack(p);
 }
 
+// A node's true on-screen centre in world coords. Flex/stack layout children are
+// positioned by the layout, not their stored x/y, so getWorldPos() reports a stale
+// point; the live DOM rect (which includes any drag transform) is authoritative for
+// the drop hit-test. Falls back to x/y accumulation if the element isn't mounted.
+function nodeCenterWorld(node) {
+  const el = document.getElementById('node-' + node.id);
+  if (!el) { const wp = getWorldPos(node); return { x: wp.x + node.w / 2, y: wp.y + node.h / 2 }; }
+  const wr = canvasWrap.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return canvasToWorld((r.left + r.right) / 2 - wr.left, (r.top + r.bottom) / 2 - wr.top);
+}
+
 // Capture other nodes' world rects once at drag start (they don't move while dragging one).
 // Rects come from the DOM so they're accurate regardless of flex/absolute layout.
 function captureSnapTargets(dragged) {
@@ -615,12 +627,14 @@ function onWrapMouseUp(e) {
 
   if (dragging) {
     if (dragEvent) flushDragMove(); // apply the final pending move so the drop lands exactly
-    if (!dragging.multi) {
+    // Only a real drag reparents; a plain selection click must leave the node where
+    // it is. Without this, releasing a click on a flex-row child re-runs the drop
+    // test against its stale x/y and wrongly ejects it from the row.
+    const moved = Math.hypot(e.clientX - dragging.startX, e.clientY - dragging.startY) > 4;
+    if (!dragging.multi && moved) {
       const n = dragging.node;
-      const wp = getWorldPos(n);
-      const centerX = wp.x + n.w / 2;
-      const centerY = wp.y + n.h / 2;
-      const targetFrame = findFrameAt(centerX, centerY, n.id);
+      const c = nodeCenterWorld(n); // real rendered centre, correct for flex children
+      const targetFrame = findFrameAt(c.x, c.y, n.id);
       const targetId = targetFrame ? targetFrame.id : null;
       if (targetId !== n.parentId) {
         reparentNode(n, targetId);
@@ -952,8 +966,6 @@ export function initCanvasEvents() {
   // Close menus on outside click
   document.addEventListener('click', e => {
     if (!ctxMenu.contains(e.target)) ctxMenu.style.display = 'none';
-    const addMenu = document.getElementById('add-menu');
-    if (!addMenu.contains(e.target) && e.target.id !== 'btn-add-layer') addMenu.style.display = 'none';
     const frameMenu = document.getElementById('frame-menu');
     if (!frameMenu.contains(e.target) && !e.target.closest('#tool-frame')) frameMenu.style.display = 'none';
   });

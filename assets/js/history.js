@@ -40,7 +40,7 @@ const FIELD_OWNERS = {
   src: ['image'], fit: ['image'],
   svg: ['icon'], iconId: ['icon'],
   text: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
-  routePath: ['frame'], isInitial: ['frame'],
+  routePath: ['frame'], isInitial: ['frame'], screenH: ['frame'],
   layout: LAYOUT_TYPES, scroll: LAYOUT_TYPES, gap: LAYOUT_TYPES, gapH: LAYOUT_TYPES, gapV: LAYOUT_TYPES,
 };
 
@@ -99,6 +99,9 @@ export function saveHistory() {
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex = state.history.length - 1;
+  // A committed change — signal the collaboration layer to broadcast it. (Skipped
+  // while we're applying a peer's update, so a remote change never echoes back.)
+  if (!state.collabApplying) document.dispatchEvent(new Event('doc:commit'));
 }
 
 // Replace the current undo snapshot with the live state, without adding a new
@@ -126,6 +129,8 @@ function loadSnap(snap) {
   KEYS.forEach(k => { if (k in s) state[k] = s[k]; });
   state.selected.clear();
   rerenderActive();
+  // Undo/redo mutate the document too — broadcast the result to collaborators.
+  if (!state.collabApplying) document.dispatchEvent(new Event('doc:commit'));
 }
 
 // Repaint the design canvas plus whichever non-design tab is currently shown.

@@ -52,3 +52,7 @@ export const myInvites = () => authed('get', { endpoint: '/v1/invites' });
 
 // The signed-in user's profile (name/email/avatar), resolved from the token.
 export const getMe = () => authed('get', { endpoint: '/v1/auth/me' });
+
+// ── AI ──
+// Text-to-design: describe a screen, get back a compact design DSL to render.
+export const generateDesign = (prompt, device) => authed('post', { endpoint: '/v1/ai/generate', body: { prompt, device } });

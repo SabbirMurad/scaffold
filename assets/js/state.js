@@ -244,6 +244,10 @@ export function makeNode(type, x, y, w, h, parentId = null) {
   if (type === 'frame') {
     node.name = 'frame_' + state.nextFrameNum++;
     node.routePath = routeFromName(node.name);
+    // The device screen height. The frame can be dragged taller (bottom handle) to
+    // hold scrollable content, but this marks where the visible screen ends (a
+    // dotted fold line). Set once at creation from the drawn height.
+    node.screenH = h;
   }
   // Give new nodes a sensible default reference instead of an invisible one:
   // frames/containers adopt the first color variable, text adopts the first type style.

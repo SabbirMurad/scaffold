@@ -1,4 +1,5 @@
 // use actix::Actor;
+use actix::Actor;
 use actix_files as StaticResource;
 use actix_session::config::{CookieContentSecurity, PersistentSession, TtlExtensionPolicy};
 use actix_session::{SessionMiddleware, storage::RedisActorSessionStore};
@@ -39,8 +40,10 @@ use markup as Markup;
 // Hi how are you
 #[actix_web::main]
 async fn main() -> io::Result<()> {
-    // Creates a new websocket lobby
-    // let lobby = Lobby::default().start();
+    // The single, shared collaboration Lobby actor. Its Addr is cheap to clone and
+    // points at this one instance, so every worker thread talks to the same room
+    // registry (never build it inside the App factory — that yields one per worker).
+    let lobby = Handler::Collab::Lobby::Lobby::default().start();
 
     /*
     Loads environment variables from `.env` file to `std::env`
@@ -105,7 +108,7 @@ async fn main() -> io::Result<()> {
         */
 
         App::new()
-            // .app_data(web::Data::new(lobby.clone()))
+            .app_data(web::Data::new(lobby.clone()))
             .wrap_fn(|sreq, srv| {
                 let app_http = env::var("APP_HTTP").expect("APP_HTTP must be set on .env file");
 
@@ -296,6 +299,8 @@ async fn main() -> io::Result<()> {
             })
             .configure(Routes::Auth::router)
             .configure(Routes::Project::router)
+            .configure(Routes::Collab::router)
+            .configure(Routes::Ai::router)
             .configure(Routes::Feedback::router)
             .configure(Routes::Image::router)
             .configure(Routes::Pages::router)

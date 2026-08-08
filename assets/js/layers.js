@@ -65,7 +65,6 @@ function buildLayerItem(node, depth) {
     : `<span class="layer-caret layer-caret-empty"></span>`;
 
   item.innerHTML = `
-    <span class="layer-grip">\u2807</span>
     <div class="layer-indent" style="padding-left:${depth * 14}px;display:flex;align-items:center;gap:6px;flex:1;overflow:hidden">
       ${caret}
       ${layerIconHtml(node)}

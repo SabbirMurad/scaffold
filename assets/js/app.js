@@ -1,5 +1,5 @@
 import { state, getNode, makeNode, seedDefaults } from './state.js';
-import { canvasWrap, addMenu, frameMenu, closeMenus, showToast, esc } from './utils.js';
+import { canvasWrap, frameMenu, closeMenus, showToast, esc } from './utils.js';
 import { canvasToWorld, canAcceptChild, isSingleChild } from './nodes.js';
 import { saveHistory, serializeDocument, loadDocument, commitCurrent } from './history.js';
 import { finalizeImages, imagesPending, resolveRefsForExport } from './images.js';
@@ -22,6 +22,9 @@ import { initIconPicker } from './icons-picker.js';
 import { initFontPicker } from './google-fonts.js';
 import { initImagePicker } from './image-picker.js';
 import { initFlow } from './flow.js';
+import { initPlay } from './play.js';
+import { initAi } from './ai.js';
+import { initCollab } from './collab.js';
 import { initComments, loadComments } from './comments.js';
 import { confirmModal } from './confirm.js';
 import { restoreViewport, saveViewport } from './viewport.js';
@@ -39,13 +42,33 @@ initIconPicker();
 initFontPicker();
 initImagePicker();
 initFlow();
+initPlay();
+initAi();
 initComments();
 
 // Image resolution is async (bytes are fetched with the bearer token): re-render
 // when a ref's blob URL becomes available, and fold an inline→ref swap into the
 // current undo step (then re-render) once uploads finish.
 document.addEventListener('image:resolved', () => render());
-document.addEventListener('image:committed', () => { commitCurrent(); render(); });
+document.addEventListener('image:committed', () => {
+  commitCurrent();
+  render();
+  // The inline→ref swap changed the nodes — broadcast it to collaborators.
+  document.dispatchEvent(new Event('doc:commit'));
+});
+
+// A collaborator's change was just applied to the canvas — refresh whichever
+// side tab is open so its board reflects the incoming models/colors/etc.
+document.addEventListener('collab:applied', () => {
+  const mode = document.querySelector('.mode-tab.active')?.dataset.mode;
+  if (mode === 'model') renderModels();
+  else if (mode === 'api') renderApi();
+  else if (mode === 'color') renderColors();
+  else if (mode === 'typography') renderTypography();
+  else if (mode === 'mock') renderMock();
+  renderThemeSwitch();
+  updateExportButton();
+});
 
 // Flush the canvas viewport (pan/zoom) on unload so a change within the debounce
 // window right before a reload isn't lost.
@@ -62,16 +85,6 @@ getMe().then(res => {
     const av = document.getElementById('profile-avatar');
     if (av) av.src = initialsAvatar(res.data.full_name);
   }
-});
-
-// Add element menu
-document.getElementById('btn-add-layer').addEventListener('click', e => {
-  if (state.readonly) return;
-  const rect = e.target.getBoundingClientRect();
-  addMenu.style.left = rect.right + 4 + 'px';
-  addMenu.style.top = rect.bottom + 4 + 'px';
-  addMenu.style.display = 'block';
-  e.stopPropagation();
 });
 
 // Resolve where a new w×h node of `type` should be placed: parent (if a selected
@@ -126,13 +139,6 @@ function createImageNode(src, w, h) {
   finalizeNew(node, parent);
   finalizeImages(); // upload the inline bytes to the backend, swap src → ref
 }
-
-addMenu.addEventListener('click', e => {
-  const item = e.target.closest('.ctx-item');
-  if (!item) return;
-  createElement(item.dataset.addtype);
-  closeMenus();
-});
 
 // Image upload — the Image tool opens the stock-image picker (image-picker.js),
 // whose "Upload from device" button triggers this hidden file input. On change we
@@ -247,65 +253,11 @@ document.getElementById('nav-home')?.addEventListener('click', () => { window.lo
 // session (nothing is persisted until it's opened from a real project).
 let currentProjectId = null;
 let currentVersion = null;
-// Per-slice JSON of what the server currently holds (nodes, colors, models, …), so
-// a save can send only the slices that actually changed instead of the whole doc.
-let lastSavedSlices = {};
-let autosaveTimer = null;
 
-// Snapshot each top-level slice of a document as a JSON string, for change detection.
-function docSlices(doc) {
-  const slices = {};
-  for (const k in doc) slices[k] = JSON.stringify(doc[k]);
-  return slices;
-}
-
-// Save the design document. `manual` surfaces success/failure via a toast;
-// autosave stays silent unless something needs the user's attention.
-async function saveProject(manual = false) {
-  if (!currentProjectId) {
-    if (manual) showToast('Open a project from the dashboard to save');
-    return;
-  }
-  // Don't autosave mid-upload: an image node may still hold a bulky inline data
-  // URI that's about to become a compact ref. Manual saves proceed regardless.
-  if (!manual && imagesPending()) return;
-
-  const doc = serializeDocument();
-  const slices = docSlices(doc);
-  // Send only the slices whose JSON differs from what the server last accepted.
-  const patch = {};
-  let dirty = false;
-  for (const k in slices) {
-    if (slices[k] !== lastSavedSlices[k]) { patch[k] = doc[k]; dirty = true; }
-  }
-  if (!dirty) { if (manual) showToast('Project saved'); return; } // nothing changed
-
-  const res = await saveProjectDoc(currentProjectId, patch, currentVersion);
-  if (res.ok) {
-    for (const k in patch) lastSavedSlices[k] = slices[k]; // the slices we just persisted
-    currentVersion = (res.data && res.data.version) != null ? res.data.version : currentVersion;
-    if (manual) showToast('Project saved');
-  } else if (res.status === 409) {
-    showToast('This project changed elsewhere — reload before saving');
-  } else if (res.status === 401) {
-    showToast('Your session expired — sign in again to save');
-  } else if (manual) {
-    showToast(res.error || 'Couldn’t save the project');
-  }
-}
-
-function startAutosave(serverContent) {
-  // Baseline against what the SERVER holds — not the post-seedDefaults state — so
-  // seeded/migrated slices the server doesn't have yet are treated as dirty and get
-  // persisted on the first save (a partial save won't resend them otherwise).
-  lastSavedSlices = docSlices(serverContent || {});
-  clearInterval(autosaveTimer);
-  autosaveTimer = setInterval(() => saveProject(false), 5000);
-  // Flush on tab-hide so a quick close doesn't lose the last few seconds.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saveProject(false);
-  });
-}
+// Persistence + live sync now run over a WebSocket (see collab.js): each committed
+// change is streamed to the server, which stores it and relays it to everyone else
+// viewing the project. The former 5-second HTTP autosave is gone; collab.js keeps
+// an HTTP save only as a fallback for when the socket is down.
 
 document.getElementById('nav-logout')?.addEventListener('click', async () => {
   const ok = await confirmModal({ title: 'Log out?', message: 'You’ll need to sign in again to get back in.', confirmLabel: 'Log out', danger: true });
@@ -420,7 +372,7 @@ sharePeopleList?.addEventListener('click', async e => {
 });
 
 const closeShare = () => { if (shareModal) { shareModal.hidden = true; document.getElementById('share-form')?.reset(); } };
-document.getElementById('nav-share')?.addEventListener('click', () => { shareModal.hidden = false; renderInviteRole(); renderSharePeople(); shareEmail?.focus(); });
+document.getElementById('profile-share')?.addEventListener('click', () => { shareModal.hidden = false; renderInviteRole(); renderSharePeople(); shareEmail?.focus(); });
 document.getElementById('share-close')?.addEventListener('click', closeShare);
 document.getElementById('share-cancel')?.addEventListener('click', closeShare);
 shareModal?.addEventListener('click', e => { if (e.target === shareModal) closeShare(); });
@@ -663,7 +615,7 @@ async function boot() {
   if (projectNameInput) projectNameInput.value = state.projectName;
 
   if (currentProjectId) {
-    startAutosave(serverContent);
+    initCollab(currentProjectId, serverContent); // live sync + persistence over WS
     loadComments(); // pull existing comment threads for this project
     showToast('Project loaded');
   } else {

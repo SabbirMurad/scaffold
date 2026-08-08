@@ -8,6 +8,12 @@ import { saveHistory } from './history.js';
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 
+// Whether the Fill / Stroke swatch grids are expanded (all rows) vs collapsed (2
+// rows). Kept at module scope so the choice survives the renderProps() that a
+// swatch pick triggers.
+let fillExpanded = false;
+let strokeExpanded = false;
+
 // Shape toggle glyphs: a rounded square and a circle (sized by .shape-btn svg).
 const SHAPE_RECT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/></svg>`;
 const SHAPE_CIRCLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="7.7"/></svg>`;
@@ -447,6 +453,30 @@ function sizeHField(node) {
   return SIZE_MODE_TYPES.includes(node.type) ? sizeField(node, 'h') : plainSizeField(node, 'h');
 }
 
+// A swatch grid past two rows gets a "Show all" / "Show less" toggle that clamps
+// it to two rows. Measured after render (scrollHeight reports the full height even
+// while the grid is clamped), so the toggle only appears when needed. `get`/`set`
+// read and write the caller's expanded flag so the choice survives re-render.
+function setupShowAll(gridId, toggleId, get, set) {
+  const grid = document.getElementById(gridId);
+  const toggle = document.getElementById(toggleId);
+  if (!grid || !toggle) return;
+  // Two padded rows measure ~90px (80px of swatches + 10px padding); a third row
+  // jumps past 120px. Anything at or under two rows needs no toggle.
+  if (grid.scrollHeight <= 100) {
+    toggle.hidden = true;
+    grid.classList.remove('collapsed');
+    return;
+  }
+  toggle.hidden = false;
+  const sync = () => {
+    grid.classList.toggle('collapsed', !get());
+    toggle.textContent = get() ? 'Show less' : 'Show all';
+  };
+  sync();
+  toggle.addEventListener('click', () => { set(!get()); sync(); });
+}
+
 export function renderProps() {
   if (state.selected.size === 0) {
     noSelection.style.display = '';
@@ -578,20 +608,22 @@ export function renderProps() {
       ${state.colors.length === 0 ? `
       <div class="api-hint" style="margin-bottom:8px">No colors created yet.</div>
       <button class="goto-colors-btn" id="p-goto-colors">+ Create a color</button>` : `
-      <div class="color-pick-grid">
+      <div class="color-pick-grid${fillExpanded ? '' : ' collapsed'}" id="p-fill-grid">
         <button class="color-pick none ${!node.colorId ? 'selected' : ''}" data-pickcolor="" title="None"></button>
         ${state.colors.map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-pickcolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
-      </div>`}
+      </div>
+      <button type="button" class="color-show-all" id="p-fill-showall" hidden></button>`}
     </div>` : ''}
     ${node.type === 'container' || node.type === 'image' ? `
     <div class="prop-section">
       <div class="prop-section-title">Stroke</div>
       <div class="prop-section-title" style="font-size:11px;text-transform:none;letter-spacing:0;color:var(--text2);margin-bottom:6px">Color</div>
-      <div class="color-pick-grid" style="margin-bottom:10px">
+      <div class="color-pick-grid${strokeExpanded ? '' : ' collapsed'}" id="p-stroke-grid">
         <button class="color-pick none ${!node.strokeColorId ? 'selected' : ''}" data-strokecolor="" title="None"></button>
         ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${node.strokeColorId === c.id ? 'selected' : ''}" data-strokecolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>
-      <div class="prop-row">
+      <button type="button" class="color-show-all" id="p-stroke-showall" hidden></button>
+      <div class="prop-row" style="margin-top:10px">
         <span class="prop-label" style="width:auto">Size</span>
         <input class="prop-input" id="p-strokew" type="number" value="${node.strokeW}" min="0" style="width:50px;flex:0 0 auto">
         <span class="prop-label-wide" style="width:auto">Style</span>
@@ -804,6 +836,8 @@ export function renderProps() {
     document.querySelectorAll('[data-pickcolor]').forEach(btn => {
       btn.addEventListener('click', () => { node.colorId = btn.dataset.pickcolor || null; updateNodeEl(node); renderProps(); });
     });
+    setupShowAll('p-fill-grid', 'p-fill-showall', () => fillExpanded, v => { fillExpanded = v; });
+    setupShowAll('p-stroke-grid', 'p-stroke-showall', () => strokeExpanded, v => { strokeExpanded = v; });
     const gotoColors = document.getElementById('p-goto-colors');
     if (gotoColors) gotoColors.addEventListener('click', () => document.querySelector('.mode-tab[data-mode="color"]')?.click());
 

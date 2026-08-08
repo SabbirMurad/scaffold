@@ -15,4 +15,4 @@ If you don't know about the project run the code below to read the full document
 
 ```bash
 mkdocs serve
-``` 
+```

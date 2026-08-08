@@ -300,6 +300,8 @@ function applyScroll(el, node) {
   if (on && kind === 'row') { el.style.overflowX = 'auto'; el.style.overflowY = 'hidden'; }
   else if (on && kind === 'column') { el.style.overflowY = 'auto'; el.style.overflowX = 'hidden'; }
   else { el.style.overflowX = ''; el.style.overflowY = ''; }
+  // Keep the content scrollable but hide the native scrollbar (see .scrolls in canvas.css)
+  el.classList.toggle('scrolls', on && (kind === 'row' || kind === 'column'));
 }
 
 // Border radius: a circle shape is fully round; otherwise either one uniform
@@ -401,8 +403,11 @@ export function renderNode(node, parent) {
     // Locked nodes — and every node in Connect mode — show only the selection
     // outline, no resize/radius handles. Comment mode shows no selection at all.
     if (!node.locked && state.tool !== 'connect' && !state.readonly) {
-      // Auto-size text is content-driven, so it gets no resize handles (just the outline).
-      const wantResize = node.type !== 'frame' && node.type !== 'instance' && !(node.type === 'text' && node.autoSize);
+      // Frames (screens) resize from the bottom only — you extend the screen
+      // downward for scrollable content, never sideways. Auto-size text is
+      // content-driven, so it gets no resize handles (just the outline).
+      const frameResize = node.type === 'frame';
+      const wantResize = frameResize || (node.type !== 'instance' && !(node.type === 'text' && node.autoSize));
       const wantRadius = (node.type === 'container' || node.type === 'image') && node.shape !== 'circle' && node.radiusMode !== 'corners';
       if (wantResize || wantRadius) {
         // Handles live in a non-scrolling overlay pinned over the node, not among
@@ -411,7 +416,7 @@ export function renderNode(node, parent) {
         const layer = document.createElement('div');
         layer.className = 'sel-handles';
         el.appendChild(layer);
-        if (wantResize) addHandles(layer, node);
+        if (wantResize) addHandles(layer, node, frameResize ? ['s'] : null);
         if (wantRadius) { addRadiusHandles(layer, node); positionRadiusHandles(el, node); }
         el.addEventListener('scroll', () => {
           layer.style.transform = `translate(${el.scrollLeft}px, ${el.scrollTop}px)`;
@@ -426,6 +431,8 @@ export function renderNode(node, parent) {
       if (child) renderNode(child, el);
     });
   }
+
+  if (node.type === 'frame') applyScreenFold(el, node);
 
   parent.appendChild(el);
   syncTextSize(el, node);
@@ -506,15 +513,36 @@ function addFrameLabel(node, parent) {
   parent.appendChild(label);
 }
 
+// Frame screen fold: once a frame is dragged taller than its screen height, a
+// dotted line marks where the visible device screen ends (everything below is
+// scrollable content). Purely a visual guide — non-interactive, not laid out, and
+// never emitted to generated code. Kept in sync on both full render and live resize.
+function applyScreenFold(el, node) {
+  if (node.screenH == null) node.screenH = node.h; // legacy frames: adopt current height
+  let fold = el.querySelector(':scope > .screen-fold');
+  if (node.h > node.screenH + 0.5) {
+    if (!fold) {
+      fold = document.createElement('div');
+      fold.className = 'screen-fold';
+      el.appendChild(fold);
+    }
+    fold.style.top = node.screenH + 'px';
+  } else if (fold) {
+    fold.remove();
+  }
+}
+
 // Append the eight resize handles into `layer` (a non-scrolling overlay pinned
 // over the node — see the selection block in renderNode).
-function addHandles(layer, node) {
+function addHandles(layer, node, only) {
   // A non-resizable axis (fill/hug, or a text node's content-driven height) hides
   // that axis's side handles — and any corner that touches it, since a corner
   // can't resize a locked axis.
-  const wFluid = node.wMode && node.wMode !== 'fixed';
-  const hFluid = (node.hMode && node.hMode !== 'fixed') || node.type === 'text';
-  ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].forEach(pos => {
+  // An explicit `only` list means the caller has already chosen the exact handles
+  // (e.g. a frame's bottom-only handle), so skip the fluid-axis filtering below.
+  const wFluid = !only && node.wMode && node.wMode !== 'fixed';
+  const hFluid = !only && ((node.hMode && node.hMode !== 'fixed') || node.type === 'text');
+  (only || ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se']).forEach(pos => {
     if ((pos === 'w' || pos === 'e') && wFluid) return;       // width locked
     if ((pos === 'n' || pos === 's') && hFluid) return;       // height locked
     if (pos.length === 2 && (wFluid || hFluid)) return;       // corner touches a locked axis
@@ -557,6 +585,7 @@ export function updateNodeEl(node) {
     const label = document.getElementById('frame-label-' + node.id);
     if (label) { label.style.left = node.x + 'px'; label.style.top = node.y + 'px'; }
   }
+  if (node.type === 'frame') applyScreenFold(el, node); // live-update the fold on resize
   applyPosition(el, node);
   applySize(el, node);
   applyNodeTransform(el, node);

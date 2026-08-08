@@ -32,6 +32,18 @@ body.connect-mode .node.has-action::after {
 }
 .node.frame { background: white; overflow: hidden; }
 
+/* Screen fold: a dotted line inside a frame marking where the device screen ends.
+   Visual only — pointer-events off so it never blocks selecting content beneath. */
+.screen-fold {
+  position: absolute; left: 0; right: 0; height: 0; z-index: 6;
+  border-top: 1.5px dashed rgba(94,124,255,0.75); pointer-events: none;
+}
+
+/* Scroll-enabled containers stay scrollable (wheel / Shift+wheel) but hide the
+   native scrollbar so the design preview isn't cluttered by browser chrome. */
+.node.scrolls { scrollbar-width: none; -ms-overflow-style: none; }
+.node.scrolls::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
 /* Section: a faint, non-clipping region that groups frames. Deliberately plain —
    just a soft fill + dashed outline so the frames inside read as the content. */
 .node.section {
@@ -72,8 +84,14 @@ body.connect-mode .node:not(.frame) { cursor: crosshair; }
 body.connect-mode .node.flow-target { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Prototype and Comment modes are focused views — hide the Properties + Layers panels. */
 body.connect-mode #props-panel,
+body.connect-mode #profile-card,
+body.connect-mode #action-bar,
+body.connect-mode #claude-panel,
 body.connect-mode #design-view,
 body.comment-mode #props-panel,
+body.comment-mode #profile-card,
+body.comment-mode #action-bar,
+body.comment-mode #claude-panel,
 body.comment-mode #design-view { display: none; }
 
 /* Comment mode — pins are pinned to world coords but counter-scaled (via --zoom
@@ -104,14 +122,17 @@ body.comment-mode #design-view { display: none; }
   position: absolute; width: 8px; height: 8px; background: white; border: 2px solid var(--accent);
   border-radius: 2px; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,0.4); pointer-events: auto;
 }
-.handle-nw { top: -4px; left: -4px; cursor: nw-resize; }
-.handle-ne { top: -4px; right: -4px; cursor: ne-resize; }
-.handle-sw { bottom: -4px; left: -4px; cursor: sw-resize; }
-.handle-se { bottom: -4px; right: -4px; cursor: se-resize; }
-.handle-n  { top: -4px; left: 50%; transform: translateX(-50%); cursor: n-resize; }
-.handle-s  { bottom: -4px; left: 50%; transform: translateX(-50%); cursor: s-resize; }
-.handle-w  { top: 50%; left: -4px; transform: translateY(-50%); cursor: w-resize; }
-.handle-e  { top: 50%; right: -4px; transform: translateY(-50%); cursor: e-resize; }
+/* Handles sit flush just inside each edge/corner (not straddling), so they stay
+   fully visible even on nodes that clip their content — frames (overflow:hidden)
+   and scroll containers — whose selection overlay lives inside that clip. */
+.handle-nw { top: 0; left: 0; cursor: nw-resize; }
+.handle-ne { top: 0; right: 0; cursor: ne-resize; }
+.handle-sw { bottom: 0; left: 0; cursor: sw-resize; }
+.handle-se { bottom: 0; right: 0; cursor: se-resize; }
+.handle-n  { top: 0; left: 50%; transform: translateX(-50%); cursor: n-resize; }
+.handle-s  { bottom: 0; left: 50%; transform: translateX(-50%); cursor: s-resize; }
+.handle-w  { top: 50%; left: 0; transform: translateY(-50%); cursor: w-resize; }
+.handle-e  { top: 50%; right: 0; transform: translateY(-50%); cursor: e-resize; }
 
 /* Corner-radius handles — small circles inset from each corner */
 .radius-handle {
@@ -163,3 +184,78 @@ body.comment-mode #design-view { display: none; }
   resize: none; overflow: hidden; font-family: inherit; cursor: text;
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* ── Play (prototype preview) overlay ── */
+
+#play-overlay {
+  position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column;
+  background: rgba(28,30,34,0.72);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+#play-overlay[hidden] { display: none; }
+
+.play-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+}
+.play-title {
+  flex: 1; text-align: center; color: var(--text2);
+  font: 500 13px var(--sans); letter-spacing: 0.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px;
+}
+.play-ctrl {
+  width: 32px; height: 32px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border2); border-radius: 8px; background: var(--surface2);
+  color: var(--text2); font-size: 16px; line-height: 1; cursor: pointer;
+}
+.play-ctrl:hover { background: var(--surface3); color: var(--text); }
+.play-ctrl:disabled { opacity: 0.35; cursor: default; background: var(--surface2); color: var(--text2); }
+
+.play-stage {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+/* Phone shell — a real-iPhone look: a black bezel (the padding) wrapped in a
+   brushed-titanium rim built from stacked box-shadow rings, so the device reads
+   clearly against the dark backdrop. Scaled to fit by play.js. */
+.play-device {
+  position: relative; padding: 12px; background: #050506; border-radius: 56px;
+  transform-origin: center;
+  box-shadow:
+    0 0 0 2px #3c3f45,                    /* inner titanium edge */
+    0 0 0 5px #24262b,                    /* rail body */
+    0 0 0 6px rgba(255,255,255,0.10),     /* top highlight on the rail */
+    0 0 0 8px #0c0d0f,                    /* outer shoulder */
+    0 26px 80px rgba(0,0,0,0.75);         /* drop shadow onto the backdrop */
+}
+/* Dynamic Island — a black pill floating over the top of the screen. */
+.play-device::before {
+  content: ''; position: absolute; z-index: 5;
+  top: 23px; left: 50%; transform: translateX(-50%);
+  width: 33%; height: 26px; border-radius: 16px;
+  background: #000; box-shadow: inset 0 0 1px 1px rgba(255,255,255,0.04);
+}
+/* Machined side buttons on the titanium rail (left: action + volume, right: power). */
+.play-side-btn {
+  position: absolute; z-index: 1; border-radius: 2px;
+  background: linear-gradient(180deg, #4a4d53, #26282c);
+}
+.play-side-btn.action   { left: -8px; top: 17%; width: 4px; height: 5%; }
+.play-side-btn.vol-up   { left: -8px; top: 27%; width: 4px; height: 8%; }
+.play-side-btn.vol-down { left: -8px; top: 37%; width: 4px; height: 8%; }
+.play-side-btn.power    { right: -8px; top: 30%; width: 4px; height: 11%; }
+/* The device screen: clips to the device height, scrolls content below the fold,
+   and hides its scrollbar so the preview reads like a real phone. */
+.play-screen {
+  position: relative; overflow-x: hidden; overflow-y: auto; border-radius: 44px;
+  background: #fff; user-select: none;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.play-screen::-webkit-scrollbar { width: 0; height: 0; display: none; }
+/* Any tappable layer (has a navigate action) shows a pointer in Play. */
+.play-screen .node.has-action { cursor: pointer; }
+
+@keyframes play-anim-fwd  { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes play-anim-back { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes play-anim-fade { from { opacity: 0; } to { opacity: 1; } }
+.play-anim-fwd  { animation: play-anim-fwd 0.26s ease; }
+.play-anim-back { animation: play-anim-back 0.26s ease; }
+.play-anim-fade { animation: play-anim-fade 0.22s ease; }
