@@ -68,6 +68,17 @@ function applyWrapperAlignment(el, node) {
   el.style.alignItems = ALIGN_V[a.v] || 'flex-start';
 }
 
+// A child set to "fill" along its row's (or column's) main axis shares the free
+// space with its siblings — Flutter's Expanded, which is what codegen emits —
+// instead of taking the parent's whole size and pushing its siblings out.
+// Returns the axis ('w' / 'h') it fills, or null.
+function fillsMainAxis(node) {
+  const fk = flexKind(node.parentId ? getNode(node.parentId) : null);
+  if (fk === 'row' && node.wMode === 'fill' && !(node.type === 'text' && node.autoSize)) return 'w';
+  if (fk === 'column' && node.hMode === 'fill' && node.type !== 'text') return 'h';
+  return null;
+}
+
 // Place a node based on its parent:
 //  - flex parent (row/column/wrap)   → flex item, auto-laid-out
 //  - single-child wrapper (frame/container) → flex item, aligned by the wrapper
@@ -75,10 +86,13 @@ function applyWrapperAlignment(el, node) {
 function applyPosition(el, node) {
   const parentNode = node.parentId ? getNode(node.parentId) : null;
   if (isFlex(parentNode)) {
+    const main = fillsMainAxis(node);
     el.style.position = 'relative';
     el.style.left = '';
     el.style.top = '';
-    el.style.flex = '0 0 auto';
+    el.style.flex = main ? '1 1 0' : '0 0 auto';
+    el.style.minWidth = main === 'w' ? '0' : '';
+    el.style.minHeight = main === 'h' ? '0' : '';
   } else if (isSingleChild(parentNode)) {
     el.style.position = 'relative';
     el.style.flex = '0 0 auto';
@@ -235,6 +249,10 @@ function applySize(el, node) {
     el.style.width = axisSize(node.wMode, node.w);
     el.style.height = axisSize(node.hMode, node.h);
   }
+  // Main-axis fill is sized by flex (see fillsMainAxis), not by 100%.
+  const main = fillsMainAxis(node);
+  if (main === 'w') el.style.width = 'auto';
+  if (main === 'h') el.style.height = 'auto';
 }
 
 // After the whole tree is in the DOM, copy the rendered box of any fill/hug node
@@ -335,27 +353,30 @@ function applyPadding(el, node) {
   el.style.padding = `${p.t}px ${p.r}px ${p.b}px ${p.l}px`;
 }
 
-// A text node takes all its typography (family/size/weight/line-height/spacing
-// and colour) from a referenced Typography style variable. With no style
-// selected it falls back to a plain default so the text stays legible.
+// A text node takes its typography (family/size/weight/line-height/spacing and
+// colour) from a referenced Typography style variable, with optional per-text
+// overrides: size, weight, and a colour variable (colorId). With no style it
+// uses its own size/weight and a colour variable or hex.
 export function applyTextStyle(el, node) {
   const t = node.typoId ? getTypoById(node.typoId) : null;
+  const own = node.colorId ? getColorById(node.colorId) : null;
+  const ownColor = own && own.fillType === 'solid' ? colorCss(own) : null;
   if (t) {
     ensureFontLoaded(t.fontFamily);
     el.style.fontFamily = /\s/.test(t.fontFamily) ? `'${t.fontFamily}'` : t.fontFamily;
-    el.style.fontSize = t.fontSize + 'px';
-    el.style.fontWeight = t.fontWeight;
+    el.style.fontSize = (node.fontSizeOverride ?? t.fontSize) + 'px';
+    el.style.fontWeight = node.fontWeightOverride || t.fontWeight;
     el.style.lineHeight = t.lineHeight;
     el.style.letterSpacing = t.letterSpacing + 'px';
     const c = t.colorId ? getColorById(t.colorId) : null;
-    el.style.color = c && c.fillType === 'solid' ? colorCss(c) : '#1a1a1a';
+    el.style.color = ownColor || (c && c.fillType === 'solid' ? colorCss(c) : '#1a1a1a');
   } else {
     el.style.fontFamily = '';
     el.style.fontSize = (node.fontSize || 16) + 'px';
     el.style.fontWeight = node.fontWeight || '400';
     el.style.lineHeight = '1.4';
     el.style.letterSpacing = '';
-    el.style.color = node.color || '#1a1a1a';
+    el.style.color = ownColor || node.color || '#1a1a1a';
   }
   el.style.textAlign = (node.alignment && node.alignment.h) || 'left';
 }

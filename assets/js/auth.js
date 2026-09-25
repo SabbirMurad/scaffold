@@ -74,7 +74,7 @@ function completeAuth(payload) {
     }));
   } catch { /* storage unavailable — session cookie still applies */ }
   const next = new URLSearchParams(window.location.search).get('next');
-  window.location.href = (next && /^\/(?!\/)/.test(next)) ? next : '/dashboard';
+  window.location.href = (next && /^\/(?!\/)/.test(next)) ? next : '/dashboard.html';
 }
 
 // ───────── Sign in / Sign up mode toggle ─────────

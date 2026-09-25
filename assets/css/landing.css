@@ -46,7 +46,6 @@ body.landing { display: block; }
   padding: 8px 12px; font-size: 13.5px; color: var(--text2); border-radius: 8px; transition: color 0.1s;
 }
 .lp-nav-links > a:not(.lp-btn):hover { color: var(--text); }
-.lp-nav-signin { font-weight: 500; }
 
 /* ---------- Hero ---------- */
 .lp-hero {
@@ -174,19 +173,22 @@ body.landing { display: block; }
 .lp-step h3 { font-size: 18px; font-weight: 600; color: var(--text); margin: 12px 0 8px; }
 .lp-step p { font-size: 14px; line-height: 1.55; color: var(--text2); }
 
-/* ---------- CTA band ---------- */
-.lp-cta { padding: clamp(20px, 5vw, 40px) clamp(20px, 6vw, 64px) clamp(40px, 7vw, 80px); }
-.lp-cta-inner {
-  max-width: 920px; margin: 0 auto; text-align: center;
-  padding: clamp(40px, 6vw, 64px) 28px; border-radius: 22px;
-  border: 1px solid var(--glass-border);
-  background:
-    radial-gradient(600px 200px at 50% 0%, var(--accent-glow), transparent 70%),
-    var(--glass-bg-strong);
-  box-shadow: var(--glass-shadow), var(--glass-highlight);
+/* ---------- Download ---------- */
+.lp-dl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.lp-dl {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 26px 24px; border-radius: 16px; border: 1px solid var(--glass-border);
+  background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-highlight);
 }
-.lp-cta-inner h2 { font-size: clamp(24px, 3.4vw, 34px); font-weight: 600; letter-spacing: -0.015em; color: var(--text); }
-.lp-cta-inner p { margin: 12px 0 26px; font-size: 15.5px; color: var(--text2); }
+.lp-dl.is-recommended {
+  border-color: var(--accent);
+  background: radial-gradient(400px 160px at 50% 0%, var(--accent-glow), transparent 70%), var(--glass-bg-strong);
+}
+.lp-dl h3 { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 7px; }
+.lp-dl p { font-size: 13.5px; line-height: 1.55; color: var(--text2); margin-bottom: 20px; flex: 1; }
+.lp-dl-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- Footer ---------- */
 .lp-footer {
@@ -205,6 +207,7 @@ body.landing { display: block; }
   .lp-preview { order: 2; }
   .lp-grid { grid-template-columns: repeat(2, 1fr); }
   .lp-steps { grid-template-columns: 1fr; }
+  .lp-dl-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
   .lp-nav-links a:not(.lp-btn) { display: none; }

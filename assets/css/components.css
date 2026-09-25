@@ -75,8 +75,6 @@ body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64
 /* …and paint the nav card (with its tab tooltips) above the panel below it. */
 #nav-card { position: relative; z-index: 5; }
 
-/* Nav icon row (Home / Sync / Export / Logout) under the title row */
-#nav-icons { display: flex; align-items: center; justify-content: space-around; gap: 4px; padding: 8px 8px; }
 .nav-icon-btn {
   flex: 1; height: 34px; border-radius: 8px; border: none; background: transparent;
   color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -126,22 +124,17 @@ body.claude-open #right-rail { right: calc(18px + 340px + 12px); }
 body.claude-open #claude-panel { transform: translateX(0); }
 .claude-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .claude-title { font: 600 13px var(--sans); letter-spacing: 0.04em; color: var(--text); margin-right: auto; }
-.claude-disconnect { background: none; border: none; color: var(--text2); font-size: 11px; cursor: pointer; padding: 2px 4px; }
-.claude-disconnect:hover { color: var(--text); }
 
 /* Connect view — collect the user's own API key */
 .claude-connect { padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .claude-connect-text { font-size: 12.5px; line-height: 1.5; color: var(--text2); }
-.claude-key-input {
-  background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px;
-  color: var(--text); font-family: var(--mono); font-size: 12px; padding: 9px 11px; outline: none;
-}
-.claude-key-input:focus { border-color: var(--accent); }
 .claude-key-help { font-size: 12px; color: var(--accent); text-decoration: none; }
 .claude-key-help:hover { text-decoration: underline; }
 
 /* Chat view — fills the panel below the header */
 .claude-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Their display:flex overrides the UA [hidden] rule; the panel toggles them with `hidden`. */
+.claude-connect[hidden], .claude-chat[hidden] { display: none; }
 
 /* Conversation area (fills the space above the composer) */
 .claude-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -153,6 +146,19 @@ body.claude-open #claude-panel { transform: translateX(0); }
 .claude-msg.assistant { align-self: flex-start; background: var(--surface2); color: var(--text); border-bottom-left-radius: 4px; }
 .claude-msg.error { align-self: flex-start; background: rgba(245,91,91,0.15); color: var(--red); border-bottom-left-radius: 4px; }
 .claude-msg.thinking { color: var(--text2); font-style: italic; }
+/* A tool call in progress / answered — a quiet status line, not a bubble. */
+.claude-msg.activity { align-self: stretch; background: none; padding: 0 2px; font-size: 11.5px; color: var(--text3); }
+.claude-msg.activity.failed { color: var(--red); }
+/* A permission prompt: what Claude Code wants to do, and Allow / Deny. */
+.claude-msg.permission { align-self: stretch; background: var(--surface2); border: 1px solid var(--border2); display: flex; flex-direction: column; gap: 8px; }
+.claude-perm-title { font-weight: 600; color: var(--text); }
+.claude-perm-detail { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--surface); font: 11.5px var(--mono); color: var(--text2); white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow: auto; }
+.claude-perm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.claude-perm-actions button { border: 1px solid var(--border2); border-radius: 7px; padding: 5px 14px; font: 600 12px var(--sans); cursor: pointer; background: var(--surface); color: var(--text); }
+.claude-perm-actions .claude-perm-allow { background: var(--accent); border-color: var(--accent); color: #fff; }
+.claude-perm-result { font-size: 11.5px; color: var(--text3); }
+.claude-perm-result.allow { color: var(--accent); }
+.claude-perm-result.deny { color: var(--red); }
 
 /* Composer pinned to the bottom */
 .claude-composer { flex-shrink: 0; display: flex; align-items: flex-end; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
@@ -170,6 +176,10 @@ body.claude-open #claude-panel { transform: translateX(0); }
 .claude-send:hover { background: var(--accent2); }
 .claude-send:disabled { opacity: 0.5; cursor: default; }
 .claude-send svg { width: 16px; height: 16px; }
+/* While Claude works the send button stops the turn: a square in place of the arrow. */
+.claude-send.stop svg { display: none; }
+.claude-send.stop::before { content: ''; width: 11px; height: 11px; border-radius: 2px; background: currentColor; }
+
 #profile-card, #actions-card, #theme-switch {
   flex-shrink: 0; pointer-events: auto;
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
@@ -215,7 +225,7 @@ body.claude-open #claude-panel { transform: translateX(0); }
 #profile-email { font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Project header (name + collapse toggle) */
-#project-header { display: flex; align-items: center; gap: 4px; padding: 12px 8px 12px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+#project-header { display: flex; align-items: center; gap: 4px; padding: 12px 8px 12px 10px; flex-shrink: 0; }
 #project-name {
   flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 6px;
   color: var(--text); font-family: var(--sans); font-size: 14px; font-weight: 600; padding: 4px 7px;
@@ -243,10 +253,10 @@ body.sidebar-collapsed #layers-panel { display: none; }
 body.sidebar-collapsed #sidebar-open { display: block; }
 
 /* Panel open/close icons (dark-stroke SVGs tinted for the dark theme). */
-#sidebar-toggle img, #sidebar-open img {
+#nav-home img, #sidebar-toggle img, #sidebar-open img {
   display: block; width: 18px; height: 18px; filter: invert(58%); transition: filter 0.1s;
 }
-#sidebar-toggle:hover img, #sidebar-open:hover img { filter: invert(90%); }
+#nav-home:hover img, #sidebar-toggle:hover img, #sidebar-open:hover img { filter: invert(90%); }
 
 /* Mode tabs (Design / Model / API) — stacked vertically */
 /* Mode tabs — a row of icon buttons; the name shows on hover as a tooltip. */

@@ -22,3 +22,8 @@ Cargo copy.toml
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+/desktop/dist/
+
+# Desktop installers (built with `cargo tauri build`, copied here for release)
+/downloads/*
+!/downloads/.gitkeep

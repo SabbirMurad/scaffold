@@ -173,6 +173,10 @@ propsFields.addEventListener('dd:change', e => {
     case 'sstyle': node.strokeStyle = v; updateNodeEl(node); renderProps(); break;
     case 'wmode': setSizeMode(node, 'w', v); break;
     case 'hmode': setSizeMode(node, 'h', v); break;
+    case 'tweight':
+      if (node.typoId) node.fontWeightOverride = v || null; else node.fontWeight = v;
+      updateNodeEl(node); renderProps(); saveHistory(); break;
+    case 'tcolor': node.colorId = v || null; updateNodeEl(node); renderProps(); saveHistory(); break;
   }
 });
 
@@ -188,7 +192,7 @@ function routeOf(frame) {
 }
 // A route must be lowercase dashed-case with no spaces (e.g. /user-profile),
 // optionally with nested "/" segments. Returns an error string, or null if ok.
-function routeError(r) {
+export function routeError(r) {
   const v = (r || '').trim();
   if (!v || v === '/') return null;
   if (/\s/.test(v)) return 'No spaces — use dashes, e.g. /user-profile';
@@ -201,7 +205,7 @@ function routeError(r) {
 // A frame name becomes a Dart file + class in generated code, so it must be a
 // clean snake_case identifier: lowercase, no spaces, not starting with a number
 // (e.g. home_page). Returns an error string, or null if ok.
-function frameNameError(name) {
+export function frameNameError(name) {
   const v = (name || '').trim();
   if (!v) return 'Name can’t be empty';
   if (/\s/.test(v)) return 'No spaces — use snake_case, e.g. home_page';
@@ -654,6 +658,7 @@ export function renderProps() {
         <button class="typo-pick ${!node.typoId ? 'selected' : ''}" data-picktypo="">None</button>
         ${state.typography.map(t => `<button class="typo-pick ${node.typoId === t.id ? 'selected' : ''}" data-picktypo="${t.id}" title="${esc(t.name)}">${esc(t.name)}</button>`).join('')}
       </div>`}
+      ${textOverrides(node)}
     </div>` : ''}
     ${node.type !== 'frame' && node.type !== 'section' ? interactionsSection(node) : ''}
   `;
@@ -852,6 +857,16 @@ export function renderProps() {
     document.querySelectorAll('[data-picktypo]').forEach(btn => {
       btn.addEventListener('click', () => { node.typoId = btn.dataset.picktypo || null; updateNodeEl(node); renderProps(); });
     });
+    const sizeEl = document.getElementById('p-tsize');
+    if (sizeEl) {
+      sizeEl.addEventListener('input', () => {
+        const v = parseFloat(sizeEl.value);
+        if (node.typoId) node.fontSizeOverride = sizeEl.value === '' || !(v > 0) ? null : v;
+        else if (v > 0) node.fontSize = v;
+        updateNodeEl(node);
+      });
+      sizeEl.addEventListener('change', () => saveHistory());
+    }
     const gotoTypo = document.getElementById('p-goto-typo');
     if (gotoTypo) gotoTypo.addEventListener('click', () => document.querySelector('.mode-tab[data-mode="typography"]')?.click());
 
@@ -887,6 +902,34 @@ export function renderProps() {
 
 // Border-style picker — the shared custom dropdown (selection handled by the
 // delegated dd:change listener above via data-pp="sstyle").
+// Size / weight / colour for a text. With a style they override it (blank = the
+// style's value); without one they are the text's own. Colour is a variable.
+const TEXT_WEIGHTS = ['300', '400', '500', '600', '700', '800'];
+function textOverrides(node) {
+  const t = node.typoId ? state.typography.find(s => s.id === node.typoId) : null;
+  const size = t ? (node.fontSizeOverride ?? '') : (node.fontSize || 16);
+  const weight = t ? (node.fontWeightOverride || '') : (node.fontWeight || '400');
+  const weightOpts = [
+    ...(t ? [{ value: '', label: `Style (${t.fontWeight})` }] : []),
+    ...TEXT_WEIGHTS.map(w => ({ value: w, label: w })),
+  ];
+  const colorOpts = [
+    { value: '', label: t ? 'Style color' : 'Default' },
+    ...state.colors.map(c => ({ value: c.id, label: c.name })),
+  ];
+  return `
+      <div class="prop-row" style="margin-top:10px">
+        <span class="prop-label-wide" style="width:auto">Size</span>
+        <input class="prop-input" id="p-tsize" type="number" min="1" value="${size}" placeholder="${t ? t.fontSize : ''}" style="width:56px;flex:0 0 auto">
+        <span class="prop-label-wide" style="width:auto">Weight</span>
+        ${ddTrigger({ value: weight, options: weightOpts, data: { pp: 'tweight' }, triggerClass: 'dd-block' })}
+      </div>
+      <div class="prop-row">
+        <span class="prop-label-wide" style="width:auto">Color</span>
+        ${ddTrigger({ value: node.colorId || '', options: colorOpts, data: { pp: 'tcolor' }, triggerClass: 'dd-block' })}
+      </div>`;
+}
+
 function styleDropdown(node) {
   return ddTrigger({
     value: node.strokeStyle || 'solid',

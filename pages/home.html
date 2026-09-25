@@ -19,8 +19,8 @@
   <nav class="lp-nav-links">
     <a href="#features">Features</a>
     <a href="#how">How it works</a>
-    <a class="lp-nav-signin" href="/authentication">Sign in</a>
-    <a class="lp-btn lp-btn-primary lp-btn-sm" href="/authentication">Get started</a>
+    <a href="#download">Download</a>
+    <a class="lp-btn lp-btn-primary lp-btn-sm" href="#download">Get the app</a>
   </nav>
 </header>
 
@@ -30,14 +30,14 @@
     <span class="lp-eyebrow">Figma for developers</span>
     <h1>Design your interface.<br><span class="lp-grad">Forge the Flutter code.</span></h1>
     <p class="lp-lede">
-      Scaffold is a browser-based design tool that turns your layouts, design
+      Scaffold is a desktop design tool that turns your layouts, design
       tokens, and data models into clean, production-ready Flutter &amp; Dart code.
     </p>
     <div class="lp-hero-cta">
-      <a class="lp-btn lp-btn-primary" href="/authentication">Get started — it's free <span class="lp-arrow">&rarr;</span></a>
+      <a class="lp-btn lp-btn-primary" href="#download">Download — it's free <span class="lp-arrow">&rarr;</span></a>
       <a class="lp-btn lp-btn-ghost" href="#how">See how it works</a>
     </div>
-    <div class="lp-hero-note">No install. Runs entirely in your browser.</div>
+    <div class="lp-hero-note">Free desktop app for Windows, macOS and Linux.</div>
   </div>
 
   <!-- Faux editor preview -->
@@ -177,12 +177,40 @@
   </div>
 </section>
 
-<!-- CTA -->
-<section class="lp-cta">
-  <div class="lp-cta-inner">
-    <h2>Ready to forge your first project?</h2>
-    <p>Create an account and start designing in seconds.</p>
-    <a class="lp-btn lp-btn-primary lp-btn-lg" href="/authentication">Get started <span class="lp-arrow">&rarr;</span></a>
+<!-- Download -->
+<section class="lp-section lp-download" id="download">
+  <div class="lp-section-head">
+    <h2>Download Scaffold</h2>
+    <p>Install the desktop app, create your account inside it, and start designing. Your projects sync to the cloud.</p>
+  </div>
+  <div class="lp-dl-grid">
+    <article class="lp-dl" data-os="windows">
+      <div class="lp-feature-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 5.5l7.5-1v7H3zM13 4.2L21 3v8.5h-8zM3 13h7.5v7L3 19zM13 13h8v8l-8-1.2z"/></svg>
+      </div>
+      <h3>Windows</h3>
+      <p>Windows 10 and 11, 64-bit.</p>
+      <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold-Setup-x64.exe" download>Download .exe</a>
+    </article>
+    <article class="lp-dl" data-os="mac">
+      <div class="lp-feature-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8C7 7.4 5.6 8.3 4.8 9.7c-1.7 2.9-.4 7.2 1.2 9.6.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.7 0 0-2.5-1-2.5-4z"/><path d="M14.2 5.2c.6-.8 1.1-1.8 1-2.9-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.8 1 .1 2.1-.5 2.7-1.3z"/></svg>
+      </div>
+      <h3>macOS</h3>
+      <p>macOS 11 or later, Apple silicon and Intel.</p>
+      <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold.dmg" download>Download .dmg</a>
+    </article>
+    <article class="lp-dl" data-os="linux">
+      <div class="lp-feature-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 2.5L7 14M12 14h4M8 21h8"/></svg>
+      </div>
+      <h3>Linux</h3>
+      <p>AppImage for most distributions, or a .deb for Debian and Ubuntu.</p>
+      <div class="lp-dl-actions">
+        <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold.AppImage" download>AppImage</a>
+        <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold.deb" download>.deb</a>
+      </div>
+    </article>
   </div>
 </section>
 
@@ -192,9 +220,20 @@
     <img src="/assets/icons/logo.svg" alt="" width="22" height="22">
     <span>Scaffold</span>
   </div>
-  <span class="lp-footer-copy">&copy; 2026 Scaffold. Design, modeled and shipped in the browser.</span>
-  <a class="lp-footer-link" href="/authentication">Get started</a>
+  <span class="lp-footer-copy">&copy; 2026 Scaffold. Designed, modeled and shipped from your desktop.</span>
+  <a class="lp-footer-link" href="#download">Download</a>
 </footer>
 
+<script>
+  // Highlight the download that matches the visitor's OS.
+  (function () {
+    var ua = navigator.userAgent;
+    var os = /Windows/.test(ua) ? 'windows' : /Mac/.test(ua) ? 'mac' : /Linux|X11/.test(ua) ? 'linux' : null;
+    var card = os && document.querySelector('.lp-dl[data-os="' + os + '"]');
+    if (!card) return;
+    card.classList.add('is-recommended');
+    card.querySelectorAll('.lp-btn').forEach(function (b) { b.classList.replace('lp-btn-ghost', 'lp-btn-primary'); });
+  })();
+</script>
 </body>
 </html>

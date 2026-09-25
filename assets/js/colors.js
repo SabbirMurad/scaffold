@@ -123,7 +123,7 @@ function colorNameError(name) {
 }
 
 // Full validation for a color: name format, then uniqueness across colors.
-function colorError(c) {
+export function colorError(c) {
   const fmt = colorNameError(c.name);
   if (fmt) return fmt;
   if (state.colors.some(o => o !== c && o.name.trim() === c.name.trim())) return 'Another color has this name';

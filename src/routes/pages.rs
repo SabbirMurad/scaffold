@@ -11,19 +11,19 @@ pub fn router(cfg: &mut web::ServiceConfig) {
         )
         .route(
             "/dashboard",
-            web::get().to(Markup::dashboard)
+            web::get().to(Markup::desktop_only)
         )
         .route(
             "/editor",
-            web::get().to(Markup::editor_redirect)
+            web::get().to(Markup::desktop_only)
         )
         .route(
             "/editor/{id}",
-            web::get().to(Markup::editor)
+            web::get().to(Markup::desktop_only)
         )
         .route(
             "/authentication",
-            web::get().to(Markup::auth)
+            web::get().to(Markup::desktop_only)
         )
         .route(
             "/sitemap.xml",

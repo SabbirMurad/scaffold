@@ -40,6 +40,7 @@ const FIELD_OWNERS = {
   src: ['image'], fit: ['image'],
   svg: ['icon'], iconId: ['icon'],
   text: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
+  fontSizeOverride: ['text'], fontWeightOverride: ['text'],
   routePath: ['frame'], isInitial: ['frame'], screenH: ['frame'],
   layout: LAYOUT_TYPES, scroll: LAYOUT_TYPES, gap: LAYOUT_TYPES, gapH: LAYOUT_TYPES, gapV: LAYOUT_TYPES,
 };
@@ -57,6 +58,14 @@ const FIELD_EXCLUDE = {
   rotation: NO_STYLE, flipH: NO_STYLE, flipV: NO_STYLE, shadows: NO_STYLE, shape: NO_STYLE,
   padding: ['image'],
 };
+
+// Whether a node of `type` carries field `key` (the same rules pruneNode applies).
+export function fieldApplies(type, key) {
+  const owners = FIELD_OWNERS[key];
+  if (owners && !owners.includes(type)) return false;
+  const excluded = FIELD_EXCLUDE[key];
+  return !(excluded && excluded.includes(type));
+}
 
 // A shallow copy of a node minus fields that don't belong to its type.
 function pruneNode(node) {
@@ -90,6 +99,16 @@ export function loadDocument(doc) {
   state.history = [];
   state.historyIndex = -1;
   state.selected.clear();
+}
+
+// The document as it is right now, and a way back to it without touching the
+// undo history — so a multi-step change that fails halfway can be rolled back.
+export function captureState() { return snapshot(); }
+export function restoreState(snap) {
+  const s = JSON.parse(snap);
+  KEYS.forEach(k => { if (k in s) state[k] = s[k]; });
+  state.selected = new Set([...state.selected].filter(id => state.nodes.some(n => n.id === id)));
+  rerenderActive();
 }
 
 export function saveHistory() {
@@ -134,7 +153,7 @@ function loadSnap(snap) {
 }
 
 // Repaint the design canvas plus whichever non-design tab is currently shown.
-function rerenderActive() {
+export function rerenderActive() {
   render();
   renderThemeSwitch(); // active theme may have changed in the restored snapshot
   const mode = document.querySelector('.mode-tab.active')?.dataset.mode;

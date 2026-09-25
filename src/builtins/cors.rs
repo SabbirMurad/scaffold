@@ -27,6 +27,10 @@ pub fn get_policy() -> Cors {
             // .allowed_origin("https://example.com")
             .allowed_origin("https://sabbirhassan.com:444")
             .allowed_origin("https://www.sabbirhassan.com:444")
+            // The desktop (Tauri) app's webview origins: macOS/Linux, then Windows.
+            .allowed_origin("tauri://localhost")
+            .allowed_origin("http://tauri.localhost")
+            .allowed_origin("https://tauri.localhost")
             .allow_any_header()
             .allow_any_method()
             .supports_credentials()

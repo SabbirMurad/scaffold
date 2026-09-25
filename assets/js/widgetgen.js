@@ -189,10 +189,19 @@ function sizeProps(ctx, node, opts) {
 function textStyleExpr(ctx, node) {
   if (node.typoId) {
     const t = state.typography.find(s => s.id === node.typoId);
-    if (t) { ctx.typo = true; return `VTextStyle.${t.name}`; }
+    if (t) {
+      ctx.typo = true;
+      // Per-text overrides layer over the style: VTextStyle.x.copyWith(...).
+      const over = {};
+      if (node.fontSizeOverride != null) over.fontSize = ssp(ctx, node.fontSizeOverride);
+      if (node.fontWeightOverride) over.fontWeight = `FontWeight.w${node.fontWeightOverride}`;
+      const col = solidColor(ctx, node.colorId, null);
+      if (col) over.color = col;
+      return Object.keys(over).length ? W(`VTextStyle.${t.name}.copyWith`, over) : `VTextStyle.${t.name}`;
+    }
   }
   const props = { fontSize: ssp(ctx, node.fontSize || 14), fontWeight: `FontWeight.w${node.fontWeight || '400'}` };
-  const col = node.color && node.color !== 'transparent' ? colorLiteral(node.color) : null;
+  const col = solidColor(ctx, node.colorId, node.color);
   if (col) props.color = col;
   return W('TextStyle', props);
 }

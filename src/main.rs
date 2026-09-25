@@ -271,6 +271,11 @@ async fn main() -> io::Result<()> {
                 })
             })
             .service(
+                /* Desktop installers linked from the landing page's download section. */
+                StaticResource::Files::new("/downloads/", "downloads/")
+                    .use_last_modified(true),
+            )
+            .service(
                 StaticResource::Files::new("/components/", "components/")
                     .prefer_utf8(true)
                     .use_last_modified(true),

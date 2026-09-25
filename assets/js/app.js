@@ -246,7 +246,7 @@ exportModal?.addEventListener('click', (e) => { if (e.target === exportModal) cl
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && exportModal && !exportModal.hidden) closeExport(); });
 
 // Nav icons.
-document.getElementById('nav-home')?.addEventListener('click', () => { window.location.href = '/dashboard'; });
+document.getElementById('nav-home')?.addEventListener('click', () => { window.location.href = '/dashboard.html'; });
 
 // ───────── Project persistence ─────────
 // The project this editor is bound to (from ?id=…). null → an unsaved scratch
@@ -455,7 +455,7 @@ function applyMode(mode) {
   if (isDesign) render(); // refresh canvas in case color variables changed
 }
 
-// The active tab lives in the URL hash (e.g. /editor/<id>#model) so a reload keeps
+// The active tab lives in the URL hash (e.g. /editor.html?id=<id>#model) so a reload keeps
 // you on the same tab. A tab click points the hash at it; the hashchange handler
 // applies it (re-clicking the current tab still re-runs its render).
 modeTabs.forEach(tab => {
@@ -526,13 +526,13 @@ function showAccessScreen(kind, projectId) {
       <div class="access-actions">${actions}</div>
     </div>`;
 
-  const dashBtn = '<a class="access-btn ghost" href="/dashboard">Back to dashboard</a>';
+  const dashBtn = '<a class="access-btn ghost" href="/dashboard.html">Back to dashboard</a>';
 
   if (kind === 'signin') {
-    const target = encodeURIComponent(`/editor/${projectId}`);
+    const target = encodeURIComponent(`/editor.html?id=${encodeURIComponent(projectId)}`);
     el.innerHTML = view('\ud83d\udd12', 'Sign in to view this project',
       'This project is private. Sign in to request access to it.',
-      `<a class="access-btn" href="/authentication?next=${target}">Sign in</a>`);
+      `<a class="access-btn" href="/auth.html?next=${target}">Sign in</a>`);
   } else if (kind === 'notfound') {
     el.innerHTML = view('\ud83d\udd0d', 'Project not found',
       'This project doesn\u2019t exist, or it was deleted.', dashBtn);
@@ -575,15 +575,14 @@ function showAccessScreen(kind, projectId) {
 // by someone without access shows the access screen instead of the editor; no id
 // starts a fresh scratch canvas.
 async function boot() {
-  // The project id is a path segment: /editor/<id>.
-  const match = window.location.pathname.match(/^\/editor\/([^/]+)/);
-  const projectId = match ? decodeURIComponent(match[1]) : null;
+  // The project id is a query parameter: /editor.html?id=<id>.
+  const projectId = new URLSearchParams(window.location.search).get('id') || null;
   let serverContent = {}; // what the server holds at load, for the save baseline
 
   if (projectId) {
     if (!getAuth()) { showAccessScreen('signin', projectId); return; }
     const res = await getProject(projectId);
-    if (res.status === 401) { window.location.href = '/authentication'; return; }
+    if (res.status === 401) { window.location.href = '/auth.html'; return; }
     if (res.status === 403) { showAccessScreen('denied', projectId); return; }
     if (res.status === 404) { showAccessScreen('notfound', projectId); return; }
     if (res.ok && res.data) {

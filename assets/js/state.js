@@ -147,7 +147,7 @@ export function isInstance(node) { return !!node && node.type === 'instance'; }
 export function isMaster(node) { return !!node && node.type !== 'instance' && node.componentId != null; }
 
 // Slugify a name into a leading-slash dashed-case route (e.g. "frame_2" → "/frame-2").
-function routeFromName(name) {
+export function routeFromName(name) {
   const s = (name || 'screen').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return '/' + (s || 'screen');
 }
@@ -222,6 +222,10 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     fontSize: d.fontSize || 14,
     fontWeight: d.fontWeight || '400',
     color: d.color || '#000000',
+    // Text with a style: per-text overrides of the style's size / weight (null =
+    // the style's own). Colour overrides go through colorId (a colour variable).
+    fontSizeOverride: null,
+    fontWeightOverride: null,
     alignment: { h: 'left', v: 'top' },
     // Interaction (Phase 1 of navigation): what a tap on this node does. Any node
     // can carry one; frames use `routePath`/`isInitial` as navigation targets.

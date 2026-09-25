@@ -71,7 +71,7 @@ function makeCard(p) {
       <div class="project-edited">Edited ${timeAgo(p.modified_at)}</div>
     </div>`;
 
-  const open = () => { window.location.href = `/editor/${encodeURIComponent(p.uuid)}`; };
+  const open = () => { window.location.href = `/editor.html?id=${encodeURIComponent(p.uuid)}`; };
   card.addEventListener('click', e => { if (!e.target.closest('.project-pin, .project-del')) open(); });
   card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
 
@@ -120,11 +120,11 @@ function renderProjects() {
 }
 
 async function loadProjects() {
-  if (!getAuth()) { window.location.href = '/authentication'; return; }
+  if (!getAuth()) { window.location.href = '/auth.html'; return; }
   const grid = document.getElementById('projects-grid');
   if (grid) grid.innerHTML = `<div class="home-placeholder">Loading projects…</div>`;
   const res = await listProjects();
-  if (res.status === 401) { window.location.href = '/authentication'; return; }
+  if (res.status === 401) { window.location.href = '/auth.html'; return; }
   if (res.ok) {
     projects = Array.isArray(res.data) ? res.data : [];
     renderProjects();
@@ -251,7 +251,7 @@ async function renderRequests() {
 
   const res = await myInvites();
   if (!res.ok) {
-    if (res.status === 401) { window.location.href = '/authentication'; return; }
+    if (res.status === 401) { window.location.href = '/auth.html'; return; }
     list.innerHTML = `<div class="home-placeholder">Couldn’t load invitations. ${escHtml(res.error || '')}</div>`;
     return;
   }
@@ -503,9 +503,9 @@ document.getElementById('new-project-btn')?.addEventListener('click', async (e) 
   const res = await createProject({ name: 'Untitled Project' });
   btn.disabled = false;
   if (res.ok && res.data && res.data.uuid) {
-    window.location.href = `/editor/${encodeURIComponent(res.data.uuid)}`;
+    window.location.href = `/editor.html?id=${encodeURIComponent(res.data.uuid)}`;
   } else if (res.status === 401) {
-    window.location.href = '/authentication';
+    window.location.href = '/auth.html';
   } else {
     toast(res.error || 'Couldn’t create project');
   }

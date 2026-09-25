@@ -51,7 +51,7 @@ function fieldNameError(name) {
 }
 
 // Full validation for a field: name format, then uniqueness within its model.
-function propError(model, prop) {
+export function propError(model, prop) {
   const fmt = fieldNameError(prop.name);
   if (fmt) return fmt;
   if (model.properties.some(o => o !== prop && o.name.trim() === prop.name.trim())) {
@@ -111,7 +111,7 @@ function enumValNameError(name) {
   if (!/^[a-z]/.test(name)) return 'Must be camelCase (start with a lowercase letter)';
   return null;
 }
-function enumValError(en, v) {
+export function enumValError(en, v) {
   const fmt = enumValNameError(v.name);
   if (fmt) return fmt;
   if (en.values.some(o => o !== v && o.name.trim() === v.name.trim())) return 'Duplicate value';

@@ -97,7 +97,7 @@ function genObject(model, depth) {
 }
 
 // (Re)generate a mock set's data from its model + kind/count.
-function generate(set) {
+export function generate(set) {
   const m = getModel(set.modelId);
   if (!m) { set.data = null; return; }
   if (set.kind === 'list') {
@@ -109,7 +109,7 @@ function generate(set) {
 }
 
 // A sensible default variable name, e.g. User → "user" (single) / "users" (list).
-function defaultName(model, kind) {
+export function defaultName(model, kind) {
   const base = model.name.charAt(0).toLowerCase() + model.name.slice(1);
   return kind === 'list' ? base + 'List' : base;
 }

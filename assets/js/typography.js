@@ -29,7 +29,7 @@ function nameError(name) {
 }
 
 // Full validation: name format, then uniqueness across styles.
-function typoError(t) {
+export function typoError(t) {
   const fmt = nameError(t.name);
   if (fmt) return fmt;
   if (state.typography.some(o => o !== t && o.name.trim() === t.name.trim())) return 'Another style has this name';

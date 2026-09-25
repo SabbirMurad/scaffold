@@ -36,14 +36,14 @@ function nameError(name) {
   return null;
 }
 
-function provNameError(p) {
+export function provNameError(p) {
   const fmt = nameError(p.name);
   if (fmt) return fmt;
   if (state.providers.some(o => o !== p && o.name.trim() === p.name.trim())) return 'Another provider has this name';
   return null;
 }
 
-function apiNameError(provider, api) {
+export function apiNameError(provider, api) {
   const fmt = nameError(api.name);
   if (fmt) return fmt;
   if (provider.apis.some(o => o !== api && o.name.trim() === api.name.trim())) return 'Duplicate endpoint name';

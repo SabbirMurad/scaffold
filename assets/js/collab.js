@@ -48,8 +48,11 @@ export function initCollab(id, serverContent) {
 
 function socketUrl() {
   const token = (getAuth() && getAuth().access_token) || '';
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.host}/api/v1/ws/project/${encodeURIComponent(projectId)}?token=${encodeURIComponent(token)}`;
+  // The desktop app points window.projectDomain at the API server; fall back to
+  // this page's own host when it's served by that server directly.
+  const base = new URL(window.projectDomain || location.origin);
+  const proto = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${base.host}/api/v1/ws/project/${encodeURIComponent(projectId)}?token=${encodeURIComponent(token)}`;
 }
 
 function connect() {
