@@ -58,6 +58,7 @@ How to work:
 - Layout is automatic: screens and containers lay children out as a column, row or wrap with gap and padding, and children fill the parent's width. Only stacks, sections and the bare canvas use x/y.
 - Prefer the project's color variables (\"var:<name>\") and text styles over raw values when it has them, so the design stays consistent and themeable; create variables and styles when a design needs a system.
 - Names follow the editor's rules, because they become code: screens and sections snake_case, color variables and text styles camelCase, models and enums PascalCase, model fields snake_case.
+- Mock data drives the design: bind text, images and colors to fields, show elements only while a condition holds (a whole section for admins only, an empty state when a list is empty), repeat a container's children once per list item (design the item once), and route taps differently by data. Use it whenever the design shows data from a model that has mock data.
 - Write realistic copy, never lorem ipsum.
 - Check your work: create_screen, add_elements, update_element and move_element report layout and contrast issues on the screen they changed, and check_design reports them for any screen. Fix every issue before you finish — the person sees exactly what these report.
 - When a request is vague, make a clear, reasonable design and say briefly what you made rather than asking first.

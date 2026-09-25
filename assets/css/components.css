@@ -1324,3 +1324,10 @@ body.role-viewer #props-panel button,
 body.role-viewer #props-panel select,
 body.role-viewer #props-panel .dd-trigger,
 body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
+
+/* Properties → Data / conditional routes */
+.prop-row.data-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.prop-row.data-row .prop-label-wide { width: 58px; flex-shrink: 0; }
+.prop-row.data-row .dd-trigger, .prop-row.data-row .prop-input { flex: 1; min-width: 0; }
+.prop-section-sub { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--text3); margin: 12px 0 2px; text-transform: uppercase; }
+.route-card { border: 1px solid var(--border); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }

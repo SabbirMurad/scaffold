@@ -21,6 +21,13 @@ body.panning #canvas-wrap, body.panning #canvas-wrap * { cursor: grabbing; }
 .node.is-instance:not(.selected) { outline: 1px dashed var(--accent2); outline-offset: 1px; }
 .node.is-instance.instance-missing:not(.selected) { outline-color: var(--red); }
 .node.ghost { pointer-events: none; }
+/* Mock data: an element whose condition doesn't hold stays visible (dimmed, dashed)
+   so it can still be edited — Play and exported code leave it out. A repeat with no
+   items to draw shows its template the same way. */
+.node.cond-hidden,
+.node.repeat-empty > .node { opacity: 0.35 !important; outline: 1px dashed rgba(255,255,255,0.35); outline-offset: -1px; }
+/* In Play, repeated copies are tappable like the real thing. */
+#play-screen .node.ghost.repeat-copy { pointer-events: auto; }
 .node.selected { outline: 2px solid var(--accent); outline-offset: 0; }
 /* Nodes with an onTap navigation action show a small corner badge — only in
    Connect mode. It is absolutely positioned, so it never participates in a
@@ -78,6 +85,8 @@ body.comment-mode .frame-label { pointer-events: none; }
 #flow-layer { position: absolute; overflow: visible; pointer-events: none; z-index: 50; }
 .flow-line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
 .flow-line.selected { stroke-width: 3; }
+/* A conditional route (taken only when its data condition holds). */
+.flow-line.conditional { stroke-dasharray: 7 5; }
 .flow-temp { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .flow-dot { fill: var(--accent); pointer-events: auto; cursor: pointer; }
 body.connect-mode .node:not(.frame) { cursor: crosshair; }

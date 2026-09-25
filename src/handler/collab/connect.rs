@@ -16,6 +16,11 @@ use crate::Handler::Project;
 use crate::Model::Project::ProjectRole;
 
 use super::lobby::Lobby;
+
+// Largest message a socket accepts. A change carries whole document slices, and a
+// real design's `nodes` slice passes the library's 64 KB default — which dropped
+// the connection on every save of a larger project.
+const MAX_FRAME: usize = 16 * 1024 * 1024;
 use super::session::WsConn;
 
 pub async fn task(
@@ -61,7 +66,7 @@ pub async fn task(
         srv.get_ref().clone(),
     );
 
-    ws::start(conn, &req, stream)
+    ws::WsResponseBuilder::new(conn, &req, stream).frame_size(MAX_FRAME).start()
 }
 
 // A public view link joins the project's room receive-only: it sees every change
@@ -84,5 +89,5 @@ pub async fn public_task(
         false,
         srv.get_ref().clone(),
     );
-    ws::start(conn, &req, stream)
+    ws::WsResponseBuilder::new(conn, &req, stream).frame_size(MAX_FRAME).start()
 }

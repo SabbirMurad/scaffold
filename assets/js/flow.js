@@ -95,19 +95,25 @@ export function drawFlow() {
   el.style.display = '';
   el.querySelectorAll('.flow-line, .flow-dot, .flow-temp').forEach(n => n.remove());
   state.nodes.forEach(n => {
-    if (!n.action || n.action.type !== 'navigate' || !n.action.targetFrameId) return;
-    const tgt = getNode(n.action.targetFrameId);
-    if (!tgt) return;
-    const sr = nodeRect(n.id), tr = nodeRect(tgt.id);
-    if (!sr || !tr) return;
-    const a = edgePoint(sr, centerOf(tr).x, centerOf(tr).y);
-    const b = edgePoint(tr, centerOf(sr).x, centerOf(sr).y);
-    el.appendChild(line('flow-line' + (selectedSrc === n.id ? ' selected' : ''), pathD(a.x, a.y, b.x, b.y), n.id));
-    const dot = document.createElementNS(SVG, 'circle');
-    dot.setAttribute('class', 'flow-dot'); dot.setAttribute('r', 4);
-    dot.setAttribute('cx', a.x + OFF); dot.setAttribute('cy', a.y + OFF);
-    dot.dataset.src = n.id;
-    el.appendChild(dot);
+    if (!n.action || n.action.type !== 'navigate') return;
+    // The default target (solid), then each conditional route's target (dashed).
+    const links = [];
+    if (n.action.targetFrameId) links.push({ target: n.action.targetFrameId, conditional: false });
+    (n.action.routes || []).forEach(r => { if (r && r.target) links.push({ target: r.target, conditional: true }); });
+    links.forEach(({ target, conditional }) => {
+      const tgt = getNode(target);
+      if (!tgt) return;
+      const sr = nodeRect(n.id), tr = nodeRect(tgt.id);
+      if (!sr || !tr) return;
+      const a = edgePoint(sr, centerOf(tr).x, centerOf(tr).y);
+      const b = edgePoint(tr, centerOf(sr).x, centerOf(sr).y);
+      el.appendChild(line('flow-line' + (conditional ? ' conditional' : '') + (selectedSrc === n.id ? ' selected' : ''), pathD(a.x, a.y, b.x, b.y), n.id));
+      const dot = document.createElementNS(SVG, 'circle');
+      dot.setAttribute('class', 'flow-dot'); dot.setAttribute('r', 4);
+      dot.setAttribute('cx', a.x + OFF); dot.setAttribute('cy', a.y + OFF);
+      dot.dataset.src = n.id;
+      el.appendChild(dot);
+    });
   });
   if (dragFrom != null && tempPath) el.appendChild(tempPath);
   positionPopover();

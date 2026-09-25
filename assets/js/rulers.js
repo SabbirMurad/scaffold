@@ -58,6 +58,15 @@ export function drawRulers() {
   }
 }
 
+// The rulers are sized to the canvas area when drawn, so redraw them whenever that
+// area changes size (window resized, maximized or made full screen) — not only on
+// pan/zoom. Coalesced to one draw per frame.
+let resizeFrame = 0;
+new ResizeObserver(() => {
+  cancelAnimationFrame(resizeFrame);
+  resizeFrame = requestAnimationFrame(drawRulers);
+}).observe(canvasWrap);
+
 function getStep() {
   if (state.zoom > 4) return 10;
   if (state.zoom > 2) return 20;

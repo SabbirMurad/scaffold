@@ -14,6 +14,7 @@ import { getAuth } from './session.js';
 
 let projectId = null;
 let publicToken = null;     // a public view link: receive changes, never send
+let inFlight = [];          // slices sent on the current socket, resent if it drops
 let ws = null;
 let baseline = {};          // sliceKey → JSON string we consider already in sync
 let commitTimer = null;
@@ -69,7 +70,14 @@ function connect() {
   }
   ws.addEventListener('open', flushNow);       // push anything pending since load
   ws.addEventListener('message', onMessage);
-  ws.addEventListener('close', () => { if (!closed) scheduleReconnect(); });
+  ws.addEventListener('close', () => {
+    // A send isn't confirmed, so a socket that drops may have lost it: mark what
+    // went out on it as unsynced so the next flush (on reconnect) resends it.
+    // Resending is safe — the server keeps the latest value of each slice.
+    inFlight.forEach(key => { delete baseline[key]; });
+    inFlight = [];
+    if (!closed) scheduleReconnect();
+  });
   ws.addEventListener('error', () => { try { ws.close(); } catch (e) { /* noop */ } });
 }
 
@@ -102,6 +110,7 @@ function flushNow() {
   if (!patch) return;
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'doc_update', payload: { slices: patch } }));
+    inFlight = [...new Set([...inFlight, ...Object.keys(patch)])];
   } else {
     fallbackSave(patch); // socket down → persist over HTTP so nothing is lost
   }

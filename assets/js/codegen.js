@@ -3,6 +3,11 @@ import { isScreenFrame } from './nodes.js';
 import { typeToString, modelError, enumError } from './models.js';
 import { generateScreenBody } from './widgetgen.js';
 import { makeZip } from './zip.js';
+import { toDart as mockDart } from './mock.js';
+
+// Screen frame id → its AppRoutes constant, for taps in generated views. Filled
+// while an export runs (screenItems decides the names).
+let routeNames = new Map();
 
 // Flutter/Dart model code generation. Walks each model's typed fields and emits
 // a Dart class with a constructor, copyWith, fromJson / toJson and fromJsonList.
@@ -328,7 +333,7 @@ function screenItems(screens) {
 function generateViewFile(it) {
   const cls = it.cls;
   const pkg = pkgName();
-  const { code, ctx } = generateScreenBody(it.fr);
+  const { code, ctx } = generateScreenBody(it.fr, { routeName: (id) => (routeNames.get(id) || null) });
 
   const L = [];
   L.push(`import 'package:flutter/material.dart';`);
@@ -336,6 +341,10 @@ function generateViewFile(it) {
   if (ctx.screenutil) L.push(`import 'package:flutter_screenutil/flutter_screenutil.dart';`);
   if (ctx.colors) L.push(`import 'package:${pkg}/constants/colors.dart';`);
   if (ctx.typo) L.push(`import 'package:${pkg}/constants/typography.dart';`);
+  [...ctx.mocks].sort().forEach(m => L.push(`import 'package:${pkg}/mock/${snake(m)}.dart';`));
+  [...ctx.enums].sort().forEach(e => L.push(`import 'package:${pkg}/model/${snake(e)}.dart';`));
+  if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
+  it.mocks = ctx.mocks;
   L.push('');
   L.push(`class ${cls} extends StatefulWidget {`);
   if (it.params.length) {
@@ -367,9 +376,18 @@ function generateViewFile(it) {
   L.push(`  }`);
   L.push(`}`);
   L.push('');
+  if (ctx.hexColor) {
+    // Colors bound to data arrive as hex text (e.g. '#1ECC7A').
+    L.push(`Color _hexColor(String? hex) {`);
+    L.push(`  final h = (hex ?? '').replaceFirst('#', '');`);
+    L.push(`  final v = int.tryParse(h.length == 6 ? 'FF$h' : h, radix: 16);`);
+    L.push(`  return v == null ? Colors.transparent : Color(v);`);
+    L.push(`}`);
+    L.push('');
+  }
   // Return the .dart content plus any asset files the screen references, so the
   // exporter can bundle icon SVGs (assets/icons/) and image bytes (assets/images/).
-  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images };
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks };
 }
 
 // Build lib/route.dart: one GoRoute per screen, unique constant + class names,
@@ -651,15 +669,46 @@ export function exportModelsCode(selection = null) {
   providers.forEach(p => files.push({ name: `lib/provider/${snake(p.name)}.dart`, content: generateProviderFile(p) }));
   if (screens.length) {
     const items = screenItems(screens);
+    routeNames = new Map(items.map(it => [it.fr.id, it.cname]));
+    const usedMocks = new Set();
     const iconAssets = new Map();  // assets/icons/<name>.svg  → svg markup   (deduped across screens)
     const imageAssets = new Map(); // assets/images/<name>.<ext> → image bytes (deduped across screens)
     items.forEach(it => {
-      const { content, icons, images } = generateViewFile(it);
+      const { content, icons, images, mocks } = generateViewFile(it);
+      mocks.forEach(m => usedMocks.add(m));
       files.push({ name: `lib/view/${it.file}.dart`, content });
       icons.forEach((svg, path) => iconAssets.set(path, svg));
       images.forEach((bytes, path) => imageAssets.set(path, bytes));
     });
     files.push({ name: 'lib/route.dart', content: generateRouteFile(items) });
+    // The mock data the screens read (lib/mock/<set>.dart), plus the model and enum
+    // files it needs even if they weren't picked for export.
+    usedMocks.forEach(name => {
+      const set = state.mockSets.find(s => s.name === name);
+      const model = set && state.models.find(m => m.id === set.modelId);
+      if (!model) return;
+      const refs = new Set([model.name]);
+      const walk = (mName) => {
+        const m = state.models.find(x => x.name === mName);
+        (m ? m.properties : []).forEach(p => {
+          const before = refs.size;
+          collectRefs(p.type, refs);
+          if (refs.size > before) [...refs].forEach(r => { if (isModel(r) && r !== mName) walk(r); });
+        });
+      };
+      walk(model.name);
+      const pkg = pkgName();
+      const imports = [...refs].sort().map(r => `import 'package:${pkg}/model/${snake(r)}.dart';`);
+      files.push({ name: `lib/mock/${snake(name)}.dart`, content: `${imports.join('\n')}\n\n// Mock data from the Mock Data tab.\n${mockDart(set)}\n` });
+      refs.forEach(r => {
+        const path = `lib/model/${snake(r)}.dart`;
+        if (files.some(f => f.name === path)) return;
+        const m = state.models.find(x => x.name === r);
+        const e = state.enums.find(x => x.name === r);
+        if (m) files.push({ name: path, content: generateModelFile(m) });
+        else if (e) files.push({ name: path, content: generateEnumFile(e) });
+      });
+    });
     iconAssets.forEach((svg, path) => files.push({ name: path, content: svg }));
     imageAssets.forEach((bytes, path) => files.push({ name: path, content: bytes }));
   }

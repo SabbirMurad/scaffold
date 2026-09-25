@@ -1,6 +1,7 @@
 import { state, getNode } from './state.js';
 import { flexKind, isStack } from './nodes.js';
 import { isImageRef, refId, imageDataUri } from './images.js';
+import { rootScope, pathType, aliasOf, isUnary } from './data.js';
 
 // ───────── Design → Flutter widget-tree generation ─────────
 //
@@ -33,6 +34,15 @@ const W = (name, props = {}, opts = {}) =>
 function printW(w, indent = 0) {
   if (w == null) return 'const SizedBox()';
   if (typeof w === 'string') return w;
+  // A raw block (e.g. an onTap body): its lines, continued at this indent.
+  if (w.raw) return w.raw.map((l, i) => (i ? '  '.repeat(indent) + l : l)).join('\n');
+  // A collection-for in a children list: one widget (or several) per item.
+  if (w.forEach) {
+    const { as, src, children } = w.forEach;
+    if (children.length === 1) return `for (final ${as} in ${src}) ${printW(children[0], indent)}`;
+    const ip = '  '.repeat(indent + 1);
+    return `for (final ${as} in ${src}) ...[\n${children.map(c => ip + printW(c, indent + 1) + ',').join('\n')}\n${'  '.repeat(indent)}]`;
+  }
   const hasBody = w.pos.length || Object.keys(w.props).length || w.child != null || w.children != null;
   if (!hasBody) return `${w.name}()`;
   const pad = '  '.repeat(indent);
@@ -135,7 +145,9 @@ function shadowListExpr(ctx, node) {
 function decorationExpr(ctx, node) {
   const props = {};
   const isGrad = node.fillType === 'linear' || node.fillType === 'radial';
-  if (isGrad) props.gradient = gradientExpr(ctx, node);
+  const boundFill = node.bind && node.bind.fill ? boundHexColor(ctx, node.bind.fill) : null;
+  if (boundFill) props.color = boundFill;
+  else if (isGrad) props.gradient = gradientExpr(ctx, node);
   else { const col = solidColor(ctx, node.colorId, node.fill); if (col) props.color = col; }
   if (node.strokeW > 0) {
     const sc = solidColor(ctx, node.strokeColorId, node.stroke) || 'Colors.black';
@@ -187,6 +199,7 @@ function sizeProps(ctx, node, opts) {
 
 // ── leaf builders ──
 function textStyleExpr(ctx, node) {
+  const bound = node.bind && node.bind.color ? boundHexColor(ctx, node.bind.color) : null;
   if (node.typoId) {
     const t = state.typography.find(s => s.id === node.typoId);
     if (t) {
@@ -195,13 +208,13 @@ function textStyleExpr(ctx, node) {
       const over = {};
       if (node.fontSizeOverride != null) over.fontSize = ssp(ctx, node.fontSizeOverride);
       if (node.fontWeightOverride) over.fontWeight = `FontWeight.w${node.fontWeightOverride}`;
-      const col = solidColor(ctx, node.colorId, null);
+      const col = bound || solidColor(ctx, node.colorId, null);
       if (col) over.color = col;
       return Object.keys(over).length ? W(`VTextStyle.${t.name}.copyWith`, over) : `VTextStyle.${t.name}`;
     }
   }
   const props = { fontSize: ssp(ctx, node.fontSize || 14), fontWeight: `FontWeight.w${node.fontWeight || '400'}` };
-  const col = solidColor(ctx, node.colorId, node.color);
+  const col = bound || solidColor(ctx, node.colorId, node.color);
   if (col) props.color = col;
   return W('TextStyle', props);
 }
@@ -215,7 +228,8 @@ function buildText(ctx, node) {
   const props = { style: textStyleExpr(ctx, node) };
   const ta = textAlignExpr(node);
   if (ta) props.textAlign = ta;
-  let w = W('Text', props, { pos: [dartStr(node.text || '')] });
+  const boundText = node.bind && node.bind.text ? boundTextExpr(ctx, node.bind.text) : null;
+  let w = W('Text', props, { pos: [boundText || dartStr(node.text || '')] });
   // Fixed-width text wraps inside a SizedBox so it matches the design's wrap width.
   if (!node.autoSize && node.wMode !== 'hug') w = W('SizedBox', { width: sw(ctx, node.w) }, { child: w });
   return w;
@@ -256,8 +270,12 @@ function buildImage(ctx, node, opts) {
   const deco = {};
   const br = borderRadiusExpr(ctx, node);
   if (br) deco.borderRadius = br;
-  const assetPath = node.src ? registerImage(ctx, node) : null;
-  if (assetPath) {
+  const boundSrc = node.bind && node.bind.src ? dataPath(ctx, node.bind.src) : null;
+  const assetPath = !boundSrc && node.src ? registerImage(ctx, node) : null;
+  if (boundSrc) {
+    // The picture comes from the data: a URL field.
+    deco.image = `DecorationImage(image: NetworkImage(${boundSrc.nullable ? `${boundSrc.expr} ?? ''` : boundSrc.expr}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
+  } else if (assetPath) {
     deco.image = `DecorationImage(image: AssetImage(${dartStr(assetPath)}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
   } else if (node.src && !isImageRef(node.src)) {
     // A bare remote URL (the picker's CORS fallback) → NetworkImage.
@@ -308,7 +326,7 @@ function buildFlex(ctx, node, kids, fk) {
     props.mainAxisSize = 'MainAxisSize.min';
   }
   if (node.gap) props.spacing = fk === 'row' ? sw(ctx, node.gap) : sh(ctx, node.gap);
-  const children = kids.map(k => buildFlexChild(ctx, k, fk));
+  const children = repeated(ctx, node, kids, k => buildFlexChild(ctx, k, fk));
   return W(fk === 'row' ? 'Row' : 'Column', props, { children });
 }
 function buildFlexChild(ctx, k, fk) {
@@ -322,7 +340,7 @@ function buildWrap(ctx, node, kids) {
   const props = {};
   if (node.gapH) props.spacing = sw(ctx, node.gapH);
   if (node.gapV) props.runSpacing = sh(ctx, node.gapV);
-  return W('Wrap', props, { children: kids.map(k => buildNode(ctx, k, {})) });
+  return W('Wrap', props, { children: repeated(ctx, node, kids, k => buildNode(ctx, k, {})) });
 }
 function buildStack(ctx, node, kids) {
   const children = kids.map(k =>
@@ -363,7 +381,8 @@ function applyEffects(ctx, node, w) {
   return out;
 }
 
-// Dispatch a node to its builder + shared effects.
+// Dispatch a node to its builder + shared effects: its tap action, then its data
+// condition (a Visibility works in any slot, unlike a collection-if).
 function buildNode(ctx, node, opts = {}) {
   if (!node) return null;
   let w;
@@ -371,16 +390,148 @@ function buildNode(ctx, node, opts = {}) {
   else if (node.type === 'image') w = buildImage(ctx, node, opts);
   else if (node.type === 'icon') w = buildIcon(ctx, node, opts);
   else w = buildBox(ctx, node, opts);
-  return applyEffects(ctx, node, w);
+  w = applyEffects(ctx, node, w);
+  const onTap = tapExpr(ctx, node);
+  if (onTap) w = W('GestureDetector', { onTap }, { child: w });
+  if (node.showIf && node.showIf.path) {
+    const cond = condExpr(ctx, node.showIf);
+    if (cond) w = W('Visibility', { visible: cond }, { child: w });
+  }
+  return w;
+}
+
+// ───────── Mock data ─────────
+// Paths read the mock data the screen imports (lib/mock/<set>.dart) and the
+// variables of enclosing repeats; types come from the Model tab, so reads are
+// null-safe exactly where a field is optional.
+
+// A path as a Dart expression: { expr, type, nullable }, or null if it no longer
+// resolves (a renamed field) — callers then fall back to the static design.
+function dataPath(ctx, path) {
+  const parts = String(path || '').split('.').filter(Boolean);
+  const root = ctx.scope[parts[0]];
+  if (!root) return null;
+  if (root.set) ctx.mocks.add(root.set);
+  let expr = parts[0], type = root.type, nullable = false;
+  for (const field of parts.slice(1)) {
+    const m = state.models.find(x => x.name === type.base);
+    const f = m && m.properties.find(p => p.name === field);
+    if (!f) return null;
+    expr += (nullable ? '?.' : '.') + field;
+    type = f.type;
+    if (f.required === false) nullable = true;
+  }
+  return { expr, type, nullable };
+}
+const isEnumType = (t) => !!state.enums.find(e => e.name === t.base);
+
+function boundTextExpr(ctx, path) {
+  const p = dataPath(ctx, path);
+  if (!p) return null;
+  const { expr, type, nullable } = p;
+  const q = nullable ? '?.' : '.';
+  if (type.base === 'String') return nullable ? `${expr} ?? ''` : expr;
+  if (isEnumType(type)) return nullable ? `${expr}?.name ?? ''` : `${expr}.name`;
+  if (type.base === 'List' || type.base === 'Set') {
+    const joined = isEnumType(type.args[0]) ? `${expr}${q}map((e) => e.name).join(', ')` : `${expr}${q}join(', ')`;
+    return nullable ? `${joined} ?? ''` : joined;
+  }
+  return nullable ? `'\${${expr} ?? ''}'` : `'\${${expr}}'`;
+}
+
+function boundHexColor(ctx, path) {
+  const p = dataPath(ctx, path);
+  if (!p) return null;
+  ctx.hexColor = true;
+  return `_hexColor(${p.expr})`;
+}
+
+// A condition as a Dart bool expression.
+function condExpr(ctx, cond) {
+  const p = dataPath(ctx, cond.path);
+  if (!p) return null;
+  const { expr, type, nullable } = p;
+  const t = type.base;
+  const isList = t === 'List' || t === 'Set';
+  const isNum = t === 'int' || t === 'double';
+  const lit = () => {
+    const v = cond.value;
+    if (isEnumType(type)) { ctx.enums.add(t); return `${t}.${v}`; }
+    if (isNum) return String(Number(v));
+    if (t === 'bool') return String(v === true || v === 'true');
+    return dartStr(v);
+  };
+  const empty = t === 'String' || isList
+    ? (nullable ? `(${expr}?.isEmpty ?? true)` : `${expr}.isEmpty`)
+    : `${expr} == null`;
+  const truthy = t === 'bool' ? `${expr} == true`
+    : isNum ? `(${expr} ?? 0) != 0`
+    : t === 'String' || isList ? `!${empty}`
+    : `${expr} != null`;
+  const numeric = isList ? (nullable ? `(${expr}?.length ?? 0)` : `${expr}.length`) : (nullable ? `(${expr} ?? 0)` : expr);
+  switch (cond.op) {
+    case 'truthy': return truthy;
+    case 'falsy': return `!(${truthy})`;
+    case 'empty': return empty;
+    case 'notEmpty': return `!${empty.startsWith('(') ? empty : `(${empty})`}`;
+    case '==': return `${expr} == ${lit()}`;
+    case '!=': return `${expr} != ${lit()}`;
+    case '>': case '<': case '>=': case '<=': return `${numeric} ${cond.op} ${Number(cond.value)}`;
+    default: return isUnary(cond.op) ? truthy : null;
+  }
+}
+
+// A repeat's children: `for (final item in list) <template>` inside the list.
+function repeated(ctx, node, kids, build) {
+  if (!node.repeat || !node.repeat.source) return kids.map(build);
+  const src = dataPath(ctx, node.repeat.source);
+  if (!src || !(src.type.base === 'List' || src.type.base === 'Set')) return kids.map(build);
+  const as = aliasOf(node);
+  const outer = ctx.scope;
+  ctx.scope = { ...outer, [as]: { type: src.type.args[0] } };
+  const children = kids.map(build);
+  ctx.scope = outer;
+  return [{ forEach: { as, src: src.nullable ? `${src.expr} ?? []` : src.expr, children } }];
+}
+
+// A tap: navigate (through conditional routes first) or go back.
+function tapExpr(ctx, node) {
+  const a = node.action;
+  if (!a || !ctx.routeName) return null;
+  if (a.type === 'back') { ctx.routes = true; return '() => AppRoutes.pop()'; }
+  if (a.type !== 'navigate') return null;
+  const go = (id) => {
+    const name = id && ctx.routeName(id);
+    if (!name) return null;
+    ctx.routes = true;
+    return `AppRoutes.${a.mode === 'push' || !a.mode ? 'push' : 'go'}(AppRoutes.${name});`;
+  };
+  const branches = (a.routes || [])
+    .map(r => ({ cond: r && r.when && r.when.path ? condExpr(ctx, r.when) : null, call: r && go(r.target) }))
+    .filter(b => b.cond && b.call);
+  const fallback = go(a.targetFrameId);
+  if (!branches.length) return fallback ? `() => ${fallback.slice(0, -1)}` : null;
+  const lines = ['() {'];
+  branches.forEach((b, i) => {
+    lines.push(`  ${i ? '} else ' : ''}if (${b.cond}) {`);
+    lines.push(`    ${b.call}`);
+  });
+  if (fallback) { lines.push('  } else {'); lines.push(`    ${fallback}`); }
+  lines.push('  }');
+  lines.push('}');
+  return { raw: lines };
 }
 
 // Public: build a screen frame's Scaffold body. Returns the Dart expression for
 // `build()` plus a `ctx` of which imports it needs.
-export function generateScreenBody(frame) {
+export function generateScreenBody(frame, { routeName = null } = {}) {
   // ctx also collects the asset files the screen uses so the exporter can drop them
   // into the zip: icon SVGs (path → svg markup) under assets/icons/, and image bytes
   // (path → Uint8Array) under assets/images/.
-  const ctx = { screenutil: false, colors: false, typo: false, svg: false, icons: new Map(), images: new Map() };
+  const ctx = { screenutil: false, colors: false, typo: false, svg: false, icons: new Map(), images: new Map(),
+    // Mock data in scope: each set by its variable name (→ lib/mock/<set>.dart).
+    scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) => [name, { type: v.type, set: name }])),
+    mocks: new Set(), enums: new Set(), hexColor: false, routes: false, routeName };
   const bg = solidColor(ctx, frame.colorId, frame.fill);
   const inner = buildBox(ctx, frame, { isRoot: true });
   const props = {};

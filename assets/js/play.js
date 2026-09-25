@@ -7,6 +7,7 @@
 
 import { state, getNode } from './state.js';
 import { showToast } from './utils.js';
+import { routeTarget, scopeOfElement } from './data.js';
 
 let overlay, stage, device, screen, titleEl, backBtn, restartBtn;
 let stack = [];       // frame ids to return to (Back pops this)
@@ -38,7 +39,8 @@ function buildClone(frameId) {
   if (!srcEl) return null;
   const clone = srcEl.cloneNode(true);
   // Selection handles and the design-only "screen end" fold never play.
-  clone.querySelectorAll('.sel-handles, .screen-fold').forEach(n => n.remove());
+  // …nor do elements whose data condition doesn't hold (dimmed on the canvas).
+  clone.querySelectorAll('.sel-handles, .screen-fold, .cond-hidden').forEach(n => n.remove());
   // `data-id` is kept (it maps a tap back to its node); everything editor-specific
   // — the element id and chrome classes — is dropped.
   const scrub = el => {
@@ -63,10 +65,15 @@ function buildClone(frameId) {
   return clone;
 }
 
-// The navigate action on a node, if it points at a real target frame.
+// A node's tap action, if it does anything: back, or navigate to a real screen
+// (directly or through a conditional route).
 function nodeAction(n) {
-  if (!n || !n.action || n.action.type !== 'navigate' || !n.action.targetFrameId) return null;
-  return getNode(n.action.targetFrameId) ? n.action : null;
+  const a = n && n.action;
+  if (!a) return null;
+  if (a.type === 'back') return a;
+  if (a.type !== 'navigate') return null;
+  const targets = [a.targetFrameId, ...(a.routes || []).map(r => r && r.target)];
+  return targets.some(id => id && getNode(id)) ? a : null;
 }
 
 // Show `frameId`. `anim` picks the entrance; `isBack` reverses the slide.
@@ -98,13 +105,17 @@ function fit(w, h) {
   device.style.transform = `scale(${scale})`;
 }
 
-// Follow a node's navigate action, honoring its stack mode.
-function navigate(action) {
+// Follow a node's action, honoring its stack mode. A conditional route picks its
+// target from the data the tapped element was drawn with (its repeat item).
+function navigate(action, el) {
+  if (action.type === 'back') { goBack(); return; }
+  const target = routeTarget(action, scopeOfElement(el));
+  if (!target) { showToast('No route matches this data'); return; }
   const mode = action.mode || 'push';
   if (mode === 'push') stack.push(currentId);
   else if (mode === 'clear') stack = [];
   // 'replace' leaves the stack as-is.
-  show(action.targetFrameId, action.transition, false);
+  show(target, action.transition, false);
 }
 
 function goBack() {
@@ -147,7 +158,7 @@ function onScreenClick(e) {
   let el = e.target.closest('[data-id]');
   while (el) {
     const action = nodeAction(getNode(el.dataset.id));
-    if (action) { navigate(action); return; }
+    if (action) { navigate(action, el); return; }
     el = el.parentElement ? el.parentElement.closest('[data-id]') : null;
   }
 }

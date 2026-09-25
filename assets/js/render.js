@@ -9,6 +9,7 @@ import { attachNodeEvents, beginNodeDrag } from './canvas.js';
 import { ensureFontLoaded } from './google-fonts.js';
 import { resolvedSrc } from './images.js';
 import { saveViewportSoon } from './viewport.js';
+import { rootScope, repeatScopes, scopeFor, viewOf, boundColor, evalCond, registerScope, resetScopes } from './data.js';
 
 export function applyTransform() {
   canvas.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom})`;
@@ -24,7 +25,9 @@ export function render() {
   // (behind) — any root frame not inside a section still sits on top of them.
   const roots = state.nodes.filter(n => !n.parentId)
     .sort((a, b) => (a.type === 'section' ? 0 : 1) - (b.type === 'section' ? 0 : 1));
-  roots.forEach(n => renderNode(n, canvas));
+  resetScopes();
+  const scope = rootScope();
+  roots.forEach(n => renderNode(n, canvas, scope));
   syncMeasuredSizes(); // fold fill/hug rendered sizes back into the model
   renderLayers();
   renderProps();
@@ -381,8 +384,9 @@ export function applyTextStyle(el, node) {
   el.style.textAlign = (node.alignment && node.alignment.h) || 'left';
 }
 
-export function renderNode(node, parent) {
+export function renderNode(node, parent, scope = rootScope(), inRepeat = false) {
   const el = document.createElement('div');
+  const view = viewOf(node, scope); // the node with its data bindings applied
   el.className = 'node ' + (node.type === 'text' ? 'text-node' : node.type);
   // A node with a tap interaction gets a small corner badge (see .node.has-action).
   if (node.action && node.action.type && node.action.type !== 'none') el.classList.add('has-action');
@@ -390,6 +394,9 @@ export function renderNode(node, parent) {
   if (node.type === 'instance') el.classList.add('is-instance');
   el.id = 'node-' + node.id;
   el.dataset.id = node.id;
+  if (inRepeat) el.dataset.scope = registerScope(scope); // Play resolves conditional routes per item
+  // A condition that doesn't hold: dimmed on the canvas (still editable), gone in Play.
+  if (node.showIf && !evalCond(node.showIf, scope)) el.classList.add('cond-hidden');
 
   applyPosition(el, node);
   applySize(el, node);
@@ -400,16 +407,17 @@ export function renderNode(node, parent) {
 
   if (node.type === 'text') {
     applyTextStyle(el, node);
-    el.textContent = node.text;
+    el.textContent = view.text;
+    const bc = boundColor(node, scope); if (bc) el.style.color = bc;
   } else if (node.type === 'icon') {
     applyIcon(el, node, true);
   } else if (node.type === 'section') {
     // Section chrome (faint fill + outline) is styled entirely in CSS (.node.section);
     // it deliberately carries no fill/stroke/radius so its frames show through.
   } else if (node.type === 'instance') {
-    renderInstanceBody(el, node); // live-mirror the component master's subtree
+    renderInstanceBody(el, node, 0, scope); // live-mirror the component master's subtree
   } else {
-    applyFill(el, node);
+    applyFill(el, view);
     applyStroke(el, node);
     applyRadius(el, node);
     if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);
@@ -447,10 +455,19 @@ export function renderNode(node, parent) {
   }
 
   if (node.children && node.children.length) {
-    node.children.forEach(childId => {
-      const child = getNode(childId);
-      if (child) renderNode(child, el);
-    });
+    const kids = node.children.map(getNode).filter(Boolean);
+    const copies = node.repeat ? repeatScopes(node, scope) : null;
+    if (copies && copies.length) {
+      // A repeat: the first item draws the real (editable) template, every other
+      // item a read-only copy of it with that item's data.
+      copies.forEach((itemScope, i) => kids.forEach(child => {
+        if (i === 0) renderNode(child, el, itemScope, true);
+        else renderGhost(child, el, 0, itemScope, true);
+      }));
+    } else {
+      if (node.repeat) el.classList.add('repeat-empty'); // nothing to repeat over (yet)
+      kids.forEach(child => renderNode(child, el, scope, inRepeat));
+    }
   }
 
   if (node.type === 'frame') applyScreenFold(el, node);
@@ -468,41 +485,48 @@ export function renderNode(node, parent) {
 // ── Component instances: a read-only live mirror of the master's subtree ──
 // Ghosts carry no id/events/handles and are pointer-events:none (the instance box
 // is the interactive unit), so one master can appear many times without clashing.
-function renderInstanceBody(el, node, depth = 0) {
+function renderInstanceBody(el, node, depth = 0, scope = rootScope()) {
   const master = getMasterNode(node.componentId);
   if (!master || depth > 16) { el.classList.add('instance-missing'); return; }
-  applyGhostStyle(el, master, depth); // style the instance box as the master root
+  applyGhostStyle(el, master, depth, scope); // style the instance box as the master root
 }
 
-function renderGhost(node, parentEl, depth) {
+// `copy`: a repeated item's copy of a template node — Play needs its node id (for
+// taps) and its item's data (for conditional routes); the canvas never targets it.
+function renderGhost(node, parentEl, depth, scope = rootScope(), copy = false) {
+  // A condition that doesn't hold removes a copy outright (only the template stays editable).
+  if (node.showIf && !evalCond(node.showIf, scope)) return;
   const el = document.createElement('div');
   el.className = 'node ghost ' + (node.type === 'text' ? 'text-node' : node.type);
+  if (copy) { el.classList.add('repeat-copy'); el.dataset.id = node.id; el.dataset.scope = registerScope(scope); }
   applyPosition(el, node);
   applySize(el, node);
   applyNodeTransform(el, node);
   el.style.opacity = node.opacity != null ? node.opacity : 1;
   el.style.display = node.visible ? '' : 'none';
   applyWrapperAlignment(el, node);
-  applyGhostStyle(el, node, depth);
+  applyGhostStyle(el, node, depth, scope, copy);
   parentEl.appendChild(el);
   syncTextSize(el, node);
 }
 
 // Apply a node's type-appropriate visuals to `el`, then ghost-render its children.
 // Position/size are set by the caller (the instance box, or renderGhost).
-function applyGhostStyle(el, node, depth) {
+function applyGhostStyle(el, node, depth, scope = rootScope(), copy = false) {
+  const view = viewOf(node, scope);
   if (node.type === 'text') {
     applyTextStyle(el, node);
-    el.textContent = node.text;
+    el.textContent = view.text;
+    const bc = boundColor(node, scope); if (bc) el.style.color = bc;
   } else if (node.type === 'icon') {
     applyIcon(el, node, true);
   } else if (node.type === 'section') {
     // no chrome
   } else if (node.type === 'instance') {
-    renderInstanceBody(el, node, depth + 1); // nested instance
+    renderInstanceBody(el, node, depth + 1, scope); // nested instance
     return;
   } else {
-    applyFill(el, node);
+    applyFill(el, view);
     applyStroke(el, node);
     applyRadius(el, node);
     if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);
@@ -510,10 +534,10 @@ function applyGhostStyle(el, node, depth) {
     if (node.type === 'container' || node.type === 'image') applyShadow(el, node);
     if (isFlex(node)) applyFlexLayout(el, node);
   }
-  (node.children || []).forEach(cid => {
-    const c = getNode(cid);
-    if (c) renderGhost(c, el, depth);
-  });
+  const kids = (node.children || []).map(getNode).filter(Boolean);
+  const copies = node.repeat ? repeatScopes(node, scope) : null;
+  if (copies && copies.length) copies.forEach(s => kids.forEach(c => renderGhost(c, el, depth, s, copy)));
+  else kids.forEach(c => renderGhost(c, el, depth, scope, copy));
 }
 
 // A constant-size name tag above a frame/section. Pressing it acts on the node
@@ -612,14 +636,17 @@ export function updateNodeEl(node) {
   applyNodeTransform(el, node);
   applyWrapperAlignment(el, node);
   el.style.opacity = node.opacity != null ? node.opacity : 1;
+  const scope = node.bind ? scopeFor(node) : null;
+  const view = scope ? viewOf(node, scope) : node;
   if (node.type === 'text') {
     applyTextStyle(el, node);
-    el.textContent = node.text;
+    el.textContent = view.text;
+    const bc = scope && boundColor(node, scope); if (bc) el.style.color = bc;
     syncTextSize(el, node);
   } else if (node.type === 'icon') {
     applyIcon(el, node, false);
   } else {
-    applyFill(el, node);
+    applyFill(el, view);
     applyStroke(el, node);
     applyRadius(el, node);
     if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);

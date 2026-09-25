@@ -153,7 +153,7 @@ function dartObject(model, obj, indent) {
 
 // The full Dart snippet for a mock set: a `final` variable holding the object
 // (single) or a list of objects.
-function toDart(set) {
+export function toDart(set) {
   const m = getModel(set.modelId);
   if (!m || set.data == null) return '// model was deleted — pick another';
   const name = (set.name || '').trim() || defaultName(m, set.kind);

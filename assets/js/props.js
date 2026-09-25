@@ -5,6 +5,7 @@ import { updateNodeEl, render } from './render.js';
 import { renderLayers } from './layers.js';
 import { ddTrigger } from './dropdown.js';
 import { saveHistory } from './history.js';
+import { scopeFor, pathOptions, pathType, canRepeat, aliasOf, OPS, isUnary } from './data.js';
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 
@@ -171,6 +172,35 @@ propsFields.addEventListener('dd:change', e => {
   switch (e.target.dataset.pp) {
     case 'fit': node.fit = v; updateNodeEl(node); break;
     case 'sstyle': node.strokeStyle = v; updateNodeEl(node); renderProps(); break;
+    case 'repeat-src':
+      if (v) node.repeat = { source: v, as: aliasOf(node) }; else delete node.repeat;
+      commitData(); break;
+    case 'bind': {
+      const slot = e.target.dataset.slot;
+      node.bind = { ...(node.bind || {}) };
+      if (v) node.bind[slot] = v; else delete node.bind[slot];
+      if (!Object.keys(node.bind).length) delete node.bind;
+      commitData(); break;
+    }
+    case 'cond-path':
+      if (v) node.showIf = { path: v, op: (node.showIf && node.showIf.op) || 'truthy', value: node.showIf ? node.showIf.value : '' };
+      else delete node.showIf;
+      commitData(); break;
+    case 'cond-op': if (node.showIf) { node.showIf.op = v; commitData(); } break;
+    case 'cond-value': if (node.showIf) { node.showIf.value = v; commitData(); } break;
+    case 'route-path': case 'route-op': case 'route-value': case 'route-target': {
+      const r = node.action && node.action.routes && node.action.routes[Number(e.target.dataset.route)];
+      if (!r) break;
+      const pp = e.target.dataset.pp;
+      if (pp === 'route-target') r.target = v || null;
+      else {
+        r.when = { ...(r.when || { op: 'truthy' }) };
+        if (pp === 'route-path') r.when.path = v;
+        if (pp === 'route-op') r.when.op = v;
+        if (pp === 'route-value') r.when.value = v;
+      }
+      commitData(); break;
+    }
     case 'wmode': setSizeMode(node, 'w', v); break;
     case 'hmode': setSizeMode(node, 'h', v); break;
     case 'tweight':
@@ -179,6 +209,39 @@ propsFields.addEventListener('dd:change', e => {
     case 'tcolor': node.colorId = v || null; updateNodeEl(node); renderProps(); saveHistory(); break;
   }
 });
+
+// A data change affects copies and other screens' links, so it re-renders fully.
+function commitData() { saveHistory(); render(); }
+
+// The Data section's text inputs and the routes' add / remove buttons.
+function bindDataInputs(node) {
+  const asEl = document.getElementById('p-repeat-as');
+  asEl?.addEventListener('change', () => {
+    const v = asEl.value.trim();
+    // An alias is a Dart variable in the generated code, and mustn't hide a mock set.
+    if (!/^[a-z][A-Za-z0-9_]*$/.test(v) || state.mockSets.some(m => m.name === v)) { asEl.value = aliasOf(node); return; }
+    node.repeat = { ...node.repeat, as: v };
+    commitData();
+  });
+  const cv = document.getElementById('p-cond-value');
+  cv?.addEventListener('change', () => { if (node.showIf) { node.showIf.value = cv.value; commitData(); } });
+  document.querySelectorAll('[id^="p-route-value-"]').forEach(inp => inp.addEventListener('change', () => {
+    const r = node.action && node.action.routes && node.action.routes[Number(inp.id.split('-').pop())];
+    if (r) { r.when = { ...(r.when || { op: 'truthy' }), value: inp.value }; commitData(); }
+  }));
+  document.getElementById('p-add-route')?.addEventListener('click', () => {
+    if (!node.action || node.action.type !== 'navigate') {
+      node.action = { type: 'navigate', targetFrameId: null, mode: 'push', transition: 'platform', ...(node.action && node.action.type === 'navigate' ? node.action : {}) };
+    }
+    node.action.routes = [...(node.action.routes || []), { when: { path: '', op: 'truthy', value: '' }, target: null }];
+    commitData();
+  });
+  document.querySelectorAll('[data-del-route]').forEach(btn => btn.addEventListener('click', () => {
+    node.action.routes.splice(Number(btn.dataset.delRoute), 1);
+    if (!node.action.routes.length) delete node.action.routes;
+    commitData();
+  }));
+}
 
 // ───────── Navigation / Interactions (Phase 1: design only) ─────────
 // Screens are the top-level frame nodes.
@@ -279,6 +342,97 @@ function screenSection(node) {
     </div>`;
 }
 
+// ───────── Data (mock data in the design) ─────────
+// Bind an element's text / image / fill / color to a mock-data field, show it only
+// while a condition holds, or repeat a container's children once per list item.
+// Rules and evaluation live in data.js; this is only the panel.
+
+// A path picker for one slot, keeping a now-broken path visible (flagged).
+function pathPicker(scope, slot, value, data) {
+  const opts = [{ value: '', label: '—' }, ...pathOptions(scope, slot).map(o => ({ value: o.path, label: o.path }))];
+  if (value && !opts.some(o => o.value === value)) opts.push({ value, label: '\u26a0 ' + value });
+  return ddTrigger({ value: value || '', options: opts, data, triggerClass: 'dd-block' });
+}
+
+// The value to compare against: the enum's values or true/false when the path
+// has those types, free text otherwise. Unary ops (is set, is empty…) need none.
+function condValueControl(scope, cond, data, inputId) {
+  if (!cond.path || isUnary(cond.op || 'truthy')) return '';
+  const t = pathType(scope, cond.path).type;
+  const en = t && state.enums.find(e => e.name === t.base);
+  if (en || (t && t.base === 'bool')) {
+    const opts = en ? en.values.map(v => ({ value: v.name, label: v.name })) : [{ value: 'true', label: 'true' }, { value: 'false', label: 'false' }];
+    return ddTrigger({ value: cond.value == null ? '' : String(cond.value), options: [{ value: '', label: '—' }, ...opts], data, triggerClass: 'dd-block' });
+  }
+  return `<input class="prop-input" id="${inputId}" value="${esc(cond.value == null ? '' : cond.value)}" placeholder="value" spellcheck="false">`;
+}
+
+const opPicker = (op, data) => ddTrigger({ value: op || 'truthy', options: OPS.map(o => ({ value: o.value, label: o.label })), data, triggerClass: 'dd-block' });
+const dataRow = (label, control) => `<div class="prop-row data-row"><span class="prop-label-wide">${label}</span>${control}</div>`;
+
+function dataSection(node) {
+  if (node.type === 'section') return '';
+  const scope = scopeFor(node);
+  if (!Object.keys(scope).length) {
+    return `<div class="prop-section"><div class="prop-section-title">Data</div>
+      <div class="api-hint">Add mock data in the Mock Data tab to fill this element from it.</div></div>`;
+  }
+  const rows = [];
+  if (canRepeat(node)) {
+    rows.push(dataRow('Repeat', pathPicker(scope, 'list', node.repeat && node.repeat.source, { pp: 'repeat-src' })));
+    if (node.repeat) rows.push(dataRow('Each as', `<input class="prop-input" id="p-repeat-as" value="${esc(aliasOf(node))}" spellcheck="false">`));
+  }
+  const b = node.bind || {};
+  if (node.type === 'text') {
+    rows.push(dataRow('Text', pathPicker(scope, 'text', b.text, { pp: 'bind', slot: 'text' })));
+    rows.push(dataRow('Color', pathPicker(scope, 'color', b.color, { pp: 'bind', slot: 'color' })));
+  }
+  if (node.type === 'image') rows.push(dataRow('Image', pathPicker(scope, 'src', b.src, { pp: 'bind', slot: 'src' })));
+  if (node.type === 'container' || node.type === 'image') rows.push(dataRow('Fill', pathPicker(scope, 'fill', b.fill, { pp: 'bind', slot: 'fill' })));
+  if (node.type !== 'frame') {
+    const c = node.showIf || {};
+    rows.push(dataRow('Show if', pathPicker(scope, 'cond', c.path, { pp: 'cond-path' })));
+    if (c.path) {
+      rows.push(dataRow('', opPicker(c.op, { pp: 'cond-op' })));
+      const vc = condValueControl(scope, c, { pp: 'cond-value' }, 'p-cond-value');
+      if (vc) rows.push(dataRow('', vc));
+    }
+  }
+  if (!rows.length) return '';
+  const inRepeat = Object.keys(scope).some(k => !state.mockSets.some(m => m.name === k));
+  return `<div class="prop-section"><div class="prop-section-title">Data</div>
+    ${rows.join('')}
+    ${node.repeat ? `<div class="api-hint" style="margin-top:6px">Design the first copy; the others follow it, one per item.</div>` : ''}
+    ${!node.repeat && inRepeat && node.type !== 'frame' ? `<div class="api-hint" style="margin-top:6px">Inside a repeat \u2014 use its item (e.g. ${esc(Object.keys(scope).find(k => !state.mockSets.some(m => m.name === k)))}.\u2026) to show each copy's own data.</div>` : ''}
+  </div>`;
+}
+
+// Conditional routes: tried in order before the tap's own target (the Connect link).
+function routesEditor(node) {
+  const a = node.action || {};
+  const scope = scopeFor(node);
+  const screens = state.nodes.filter(n => n.type === 'frame' && (!n.parentId || getNode(n.parentId)?.type === 'section'));
+  if (!Object.keys(scope).length || !screens.length || a.type === 'back') return '';
+  const screenOpts = screens.map(f => ({ value: f.id, label: f.name }));
+  const rows = (a.routes || []).map((r, i) => {
+    const when = r.when || {};
+    const vc = condValueControl(scope, when, { pp: 'route-value', route: i }, `p-route-value-${i}`);
+    return `<div class="route-card">
+      <div class="prop-row data-row"><span class="prop-label-wide">If</span>${pathPicker(scope, 'cond', when.path, { pp: 'route-path', route: i })}
+        <button type="button" class="prop-del" data-del-route="${i}" title="Remove route">&times;</button></div>
+      ${when.path ? dataRow('', opPicker(when.op, { pp: 'route-op', route: i })) : ''}
+      ${vc ? dataRow('', vc) : ''}
+      ${dataRow('Go to', ddTrigger({ value: r.target || '', options: [{ value: '', label: '—' }, ...screenOpts], data: { pp: 'route-target', route: i }, triggerClass: 'dd-block' }))}
+    </div>`;
+  }).join('');
+  return `<div class="routes-block">
+    <div class="prop-section-sub">Conditional routes</div>
+    ${rows}
+    <button type="button" class="prop-add" id="p-add-route">+ Add route</button>
+    ${(a.routes || []).length ? `<div class="api-hint" style="margin-top:6px">Checked in order; if none match, the tap goes to its Connect target${a.targetFrameId ? '' : ' (none set, so nothing happens)'}.</div>` : ''}
+  </div>`;
+}
+
 const MODE_SHORT = { push: 'Push', replace: 'Replace', clear: 'Clear stack' };
 const TRANS_SHORT = { platform: 'Platform', fade: 'Fade', slideRight: 'Slide', none: 'None' };
 
@@ -298,6 +452,7 @@ function interactionsSection(node) {
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:8px">Edit or remove it with the <span style="color:var(--text2)">Connect</span> tool.</div>` : `
       <div style="font-size:11.5px;color:var(--text3);line-height:1.55">Pick the <span style="color:var(--text2)">Connect</span> tool, then drag from this layer to a screen to link them.</div>`}
+      ${routesEditor(node)}
     </div>`;
 }
 
@@ -661,6 +816,7 @@ export function renderProps() {
       ${textOverrides(node)}
     </div>` : ''}
     ${node.type !== 'frame' && node.type !== 'section' ? interactionsSection(node) : ''}
+    ${dataSection(node)}
   `;
 
   // Bind inputs
@@ -885,6 +1041,8 @@ export function renderProps() {
 
   document.querySelectorAll('[data-ah]').forEach(b => b.addEventListener('click', () => { node.alignment.h = b.dataset.ah; updateNodeEl(node); renderProps(); }));
   document.querySelectorAll('[data-av]').forEach(b => b.addEventListener('click', () => { node.alignment.v = b.dataset.av; updateNodeEl(node); renderProps(); }));
+
+  bindDataInputs(node);
 
   // Viewer (read-only): make every control inert — values remain visible, but
   // nothing responds to clicks, typing, or the custom dropdowns.

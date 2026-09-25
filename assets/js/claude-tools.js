@@ -28,6 +28,7 @@ import { provNameError, apiNameError, anyProviderError } from './api.js';
 import { frameNameError, routeError, anyFrameError } from './props.js';
 import { finalizeImages, resolveRefsForExport } from './images.js';
 import { exportModelsCode } from './codegen.js';
+import { scopeFor, pathError, condError, canRepeat, OP_VALUES } from './data.js';
 import { loadComments } from './comments.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
 
@@ -52,6 +53,10 @@ const ELEMENT_HELP = [
   'Any element also takes: name, width / height (px number, "fill" to fill the parent, or "hug" to fit content), x / y (only inside a stack or on the bare canvas), '
     + 'opacity (0–1), rotation, stroke / strokeWidth / strokeStyle ("solid|dashed|dotted"), shadows ([{x,y,blur,spread,color:"var:…",alpha}]), '
     + 'margin, visible, locked, scroll (containers), and "props" — raw node fields for anything else (see get_element for field names).',
+  'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","fill":"item.color_hex","color":"…"} fills an element from a field; '
+    + '"showIf":{"path":"user.role","op":"==","value":"admin"} shows it only while the condition holds (op: truthy, falsy, ==, !=, >, <, >=, <=, empty, notEmpty — compare enums by value name); '
+    + 'on a row/column/wrap container, "repeat":{"source":"exercises","as":"item"} draws its children once per item of a list — design them once, bound to item.<field>. '
+    + 'Paths start at a mock set\'s name or an enclosing repeat\'s alias. Set any of these to null to remove it.',
   'Down a column, children fill its width by default. Along a row, children fit their content; give width "fill" to the ones that should share the row\'s free space (e.g. two buttons side by side). ' + COLOR_HELP,
 ].join('\n');
 
@@ -153,13 +158,16 @@ const TOOLS = [
   },
   {
     name: 'set_interaction', title: 'Set interaction', annotations: EDIT,
-    description: 'What tapping an element does in the app: navigate to a screen, go back, or nothing. This is what the Connect tool wires.',
+    description: 'What tapping an element does in the app: navigate to a screen, go back, or nothing. This is what the Connect tool wires. '
+      + 'routes adds conditional navigation, tried in order before target_screen_id: [{"when":{"path":"user.role","op":"==","value":"admin"},"target_screen_id":"n12"}] — e.g. route admins and members to different screens. '
+      + 'Paths are mock-data paths in scope for the element (a mock set, or an enclosing repeat\'s item).',
     inputSchema: obj({
       id: str(),
       action: { type: 'string', enum: ['navigate', 'back', 'none'] },
       target_screen_id: str('For navigate: the screen (frame) id.'),
       mode: { type: 'string', enum: ['push', 'replace', 'clear'], description: 'Default push.' },
       transition: { type: 'string', enum: ['platform', 'fade', 'slideRight', 'none'], description: 'Default platform.' },
+      routes: { type: 'array', items: { type: 'object' }, description: 'Conditional routes: [{ when: {path, op, value}, target_screen_id }].' },
     }, ['id', 'action']),
   },
   {
@@ -240,11 +248,15 @@ const TOOLS = [
   },
   {
     name: 'edit_mock_data', title: 'Edit mock data', annotations: EDIT,
-    description: 'Create, update, regenerate or delete a mock data set: fake instances of a model (one object, or a list of up to 50) generated from its field types.',
+    description: 'Create, update, regenerate or delete a mock data set: instances of a model — one object, or a list of up to 50. '
+      + 'Give "data" to write the values yourself: an object for kind single, a list of objects for kind list, keyed by the model\'s field names, with enum fields as the enum value\'s name and nested models as objects. '
+      + 'Write data yourself whenever realistic values depend on meaning the field names don\'t carry (exercise names, product titles, prices that fit the item); '
+      + 'without it, values are generated from field types and names, which suits only generic fields (emails, dates, ids). regenerate replaces the values with generated ones.',
     inputSchema: obj({
       action: { type: 'string', enum: ['create', 'update', 'regenerate', 'delete'] },
       id: str(), model: str('Model name.'), kind: { type: 'string', enum: ['single', 'list'] },
       count: { type: 'integer', minimum: 1, maximum: 50 }, name: str('Variable name, camelCase.'),
+      data: { type: ['object', 'array'], description: 'The values: an object (single) or a list of objects (list).' },
     }, ['action']),
   },
   {
@@ -435,7 +447,7 @@ async function searchPhoto(query) {
 
 // Keys handled by name (everything else must go through "props").
 const SPEC_KEYS = new Set([
-  'type', 'name', 'children', 'component_id', 'props',
+  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat',
   'text', 'fontSize', 'fontWeight', 'color', 'textStyle',
   'fill', 'gradient', 'radius', 'padding', 'margin', 'gap', 'layout', 'align', 'valign',
   'width', 'height', 'size', 'x', 'y', 'opacity', 'rotation', 'flipH', 'flipV',
@@ -564,6 +576,50 @@ async function applyProps(node, p) {
     node.alignment = { h, v };
   }
   if (p.scroll !== undefined) node.scroll = !!p.scroll;
+
+  // Mock data: checked against what's in scope for this node (the mock sets, and
+  // the item of every enclosing repeat).
+  if (p.repeat !== undefined) {
+    if (p.repeat === null) delete node.repeat;
+    else {
+      if (!canRepeat(node)) fail('Only a container (or screen) with a row, column or wrap layout can repeat — set its layout first');
+      const src = p.repeat && p.repeat.source;
+      const err = pathError(scopeFor(node), src, 'list');
+      if (err) fail(`repeat.source: ${err}`);
+      const as = p.repeat.as || 'item';
+      if (!/^[a-z][A-Za-z0-9_]*$/.test(as)) fail('repeat.as is a lowerCamel name, e.g. "item" or "exercise"');
+      if (state.mockSets.some(m => m.name === as)) fail(`repeat.as "${as}" would hide the mock set of that name — pick another`);
+      node.repeat = { source: src, as };
+    }
+  }
+  if (p.bind !== undefined) {
+    if (p.bind === null) delete node.bind;
+    else {
+      if (typeof p.bind !== 'object' || Array.isArray(p.bind)) fail('bind is an object: { text, src, fill, color }');
+      const scope = scopeFor(node);
+      const allowed = { text: ['text'], color: ['text'], src: ['image'], fill: ['container', 'image', 'frame'] };
+      const next = { ...(node.bind || {}) };
+      for (const [slot, path] of Object.entries(p.bind)) {
+        if (!allowed[slot]) fail(`bind has text, src, fill and color — not "${slot}"`);
+        if (!allowed[slot].includes(t)) fail(`bind.${slot} doesn't apply to a ${t}`);
+        if (path === null || path === '') { delete next[slot]; continue; }
+        const err = pathError(scope, path, slot);
+        if (err) fail(`bind.${slot}: ${err}`);
+        next[slot] = path;
+      }
+      if (Object.keys(next).length) node.bind = next; else delete node.bind;
+    }
+  }
+  if (p.showIf !== undefined) {
+    if (p.showIf === null) delete node.showIf;
+    else {
+      if (t === 'frame' && !node.parentId) fail('A screen is always there; put the condition on what\'s inside it');
+      const err = condError(scopeFor(node), p.showIf);
+      if (err) fail(`showIf: ${err}`);
+      const { path, op, value } = p.showIf;
+      node.showIf = { path, op, value: value === undefined ? '' : value };
+    }
+  }
 
   // Size and position
   const size = (axis, v) => {
@@ -794,7 +850,11 @@ function describe(node) {
   if (node.action && node.action.type !== 'none') {
     out.onTap = node.action.type === 'back' ? 'back'
       : { navigate: node.action.targetFrameId, mode: node.action.mode, transition: node.action.transition };
+    if (node.action.routes && node.action.routes.length) out.onTap.routes = node.action.routes;
   }
+  if (node.bind) out.bind = node.bind;
+  if (node.showIf) out.showIf = node.showIf;
+  if (node.repeat) out.repeat = node.repeat;
   if (node.visible === false) out.hidden = true;
   const kids = (node.children || []).map(getNode).filter(Boolean);
   if (kids.length) out.children = kids.map(describe);
@@ -1071,13 +1131,27 @@ function setInteraction(args) {
   const mode = args.mode || 'push';
   const transition = args.transition || 'platform';
   if (args.action === 'navigate') {
-    const target = need(getNode(args.target_screen_id), args.target_screen_id);
-    if (!isScreenFrame(target)) fail(`"${target.name}" isn't a screen`);
-    node.action = { type: 'navigate', targetFrameId: target.id, mode, transition };
+    const screen = (id) => {
+      const s = need(getNode(id), id);
+      if (!isScreenFrame(s)) fail(`"${s.name}" isn't a screen`);
+      return s.id;
+    };
+    const routes = (args.routes || []).map((r, i) => {
+      if (!r || typeof r !== 'object') fail(`routes[${i}] is { when, target_screen_id }`);
+      const err = condError(scopeFor(node), r.when);
+      if (err) fail(`routes[${i}].when: ${err}`);
+      return { when: { path: r.when.path, op: r.when.op, value: r.when.value === undefined ? '' : r.when.value }, target: screen(r.target_screen_id) };
+    });
+    if (!args.target_screen_id && !routes.length) fail('navigate needs target_screen_id, routes, or both');
+    node.action = { type: 'navigate', targetFrameId: args.target_screen_id ? screen(args.target_screen_id) : null, mode, transition };
+    if (routes.length) node.action.routes = routes;
   } else if (args.action === 'back') node.action = { type: 'back', targetFrameId: null, mode, transition };
   else node.action = { type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' };
   commit([node.id]);
-  const what = args.action === 'navigate' ? `goes to "${getNode(args.target_screen_id).name}"` : args.action === 'back' ? 'goes back' : 'does nothing';
+  const routed = node.action.routes ? ` (${plural(node.action.routes.length, 'conditional route')} first)` : '';
+  const what = args.action === 'navigate'
+    ? (node.action.targetFrameId ? `goes to "${getNode(node.action.targetFrameId).name}"${routed}` : `follows ${plural(node.action.routes.length, 'conditional route')}`)
+    : args.action === 'back' ? 'goes back' : 'does nothing';
   return { ok: true, summary: `Tapping "${node.name}" ${what}` };
 }
 
@@ -1377,17 +1451,79 @@ function editEnum(args) {
   return { ok: true, summary: `Updated enum "${en.name}"` };
 }
 
+// Check a value against a Model-tab type tree, the way the Mock Data tab and
+// its Dart output read it. Returns the value to store (Sets arrive as lists).
+function checkValue(type, value, path) {
+  const base = type.base;
+  const want = (ok, what) => { if (!ok) fail(`${path} must be ${what}, got ${JSON.stringify(value)}`); return value; };
+  if (base === 'String') return want(typeof value === 'string', 'text');
+  if (base === 'int') return want(Number.isInteger(value), 'a whole number');
+  if (base === 'double') return want(typeof value === 'number' && isFinite(value), 'a number');
+  if (base === 'bool') return want(typeof value === 'boolean', 'true or false');
+  if (base === 'List' || base === 'Set') {
+    want(Array.isArray(value), 'a list');
+    return value.map((v, i) => checkValue(type.args[0], v, `${path}[${i}]`));
+  }
+  if (base === 'Map') {
+    want(value && typeof value === 'object' && !Array.isArray(value), 'an object');
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, checkValue(type.args[1], v, `${path}.${k}`)]));
+  }
+  const en = state.enums.find(e => e.name === base);
+  if (en) {
+    const names = en.values.map(v => v.name);
+    return want(names.includes(value), `one of ${en.name}'s values (${names.join(', ')})`);
+  }
+  const m = state.models.find(x => x.name === base);
+  if (m) return checkObject(m, value, path);
+  fail(`${path} has type ${base}, which no longer exists — fix the model first`);
+}
+
+function checkObject(model, value, path) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${path} must be a ${model.name} object`);
+  const fields = new Map(model.properties.map(p => [p.name, p]));
+  const unknown = Object.keys(value).filter(k => !fields.has(k));
+  if (unknown.length) fail(`${path} has no field ${unknown.map(k => `"${k}"`).join(', ')} — ${model.name}'s fields are ${[...fields.keys()].join(', ')}`);
+  const out = {};
+  for (const p of model.properties) {
+    const v = value[p.name];
+    if (v === undefined || v === null) {
+      if (p.required !== false) fail(`${path}.${p.name} is required`);
+      out[p.name] = null;
+    } else out[p.name] = checkValue(p.type, v, `${path}.${p.name}`);
+  }
+  return out;
+}
+
+// Supplied values for a set, checked against its model and kind.
+function checkedData(set, data) {
+  const m = state.models.find(x => x.id === set.modelId);
+  if (set.kind === 'list') {
+    if (!Array.isArray(data) || !data.length) fail('For a list, "data" is a non-empty list of objects');
+    if (data.length > 50) fail('A mock list holds at most 50 items');
+    return data.map((row, i) => checkObject(m, row, `data[${i}]`));
+  }
+  if (Array.isArray(data)) fail('For kind single, "data" is one object — or use kind "list"');
+  return checkObject(m, data, 'data');
+}
+
 function editMockData(args) {
   const modelNamed = (name) => {
     const m = state.models.find(x => x.name === name);
     if (!m) fail(`No model "${name}" — create it with edit_model first`);
     return m;
   };
+  // Fill a set: the supplied values, or generated ones.
+  const fill = (set) => {
+    if (args.data !== undefined) {
+      set.data = checkedData(set, args.data);
+      if (set.kind === 'list') set.count = set.data.length;
+    } else generateMock(set);
+  };
   if (args.action === 'create') {
     const m = modelNamed(args.model);
-    const kind = args.kind || 'single';
+    const kind = args.kind || (Array.isArray(args.data) ? 'list' : 'single');
     const set = { id: 'mock' + state.nextMockId++, name: args.name || mockName(m, kind), modelId: m.id, kind, count: args.count || 5, data: null };
-    generateMock(set);
+    fill(set);
     state.mockSets.push(set);
     commit();
     return { ok: true, summary: `Added mock data "${set.name}" (${kind === 'list' ? plural(set.count, m.name) : `one ${m.name}`})`, id: set.id };
@@ -1402,7 +1538,10 @@ function editMockData(args) {
   if (args.kind !== undefined) set.kind = args.kind;
   if (args.count !== undefined) set.count = Math.max(1, Math.min(50, args.count));
   if (args.name !== undefined) set.name = String(args.name);
-  generateMock(set);
+  if (args.action === 'regenerate') generateMock(set);
+  else if (args.data !== undefined) fill(set);
+  // Changing the model or kind makes the old values the wrong shape.
+  else if (args.model !== undefined || args.kind !== undefined || args.count !== undefined) generateMock(set);
   commit();
   return { ok: true, summary: `${args.action === 'regenerate' ? 'Regenerated' : 'Updated'} mock data "${set.name}"` };
 }
