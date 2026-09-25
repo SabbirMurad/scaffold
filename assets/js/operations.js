@@ -1,4 +1,4 @@
-import { state, getNode, getComponent, getMasterNode, isMaster, isInstance } from './state.js';
+import { state, getNode, getComponent, getMasterNode, isMaster, isInstance, nextNodeId } from './state.js';
 import { showToast } from './utils.js';
 import { saveHistory } from './history.js';
 import { render } from './render.js';
@@ -18,7 +18,7 @@ function componentRefOf(node) {
 function makeInstance(componentId, x, y, parentId) {
   const master = getMasterNode(componentId);
   const node = {
-    id: 'n' + (state.nextId++),
+    id: nextNodeId(),
     type: 'instance',
     componentId,
     x, y,
@@ -93,7 +93,7 @@ function instantiate(tree, parentId, x, y) {
   delete node._children;
   delete node._world;
   delete node.componentId; // a deep copy is a plain node, never a component master
-  node.id = 'n' + (state.nextId++);
+  node.id = nextNodeId();
   node.parentId = parentId || null;
   node.x = x;
   node.y = y;
@@ -182,7 +182,7 @@ export function duplicateSelected() {
     const ref = componentRefOf(n);
     if (ref) { newSel.add(makeInstance(ref, n.x + 20, n.y + 20, n.parentId).id); return; }
     const clone = JSON.parse(JSON.stringify(n));
-    clone.id = 'n' + (state.nextId++);
+    clone.id = nextNodeId();
     clone.x += 20; clone.y += 20;
     clone.name += ' copy';
     clone.children = [];

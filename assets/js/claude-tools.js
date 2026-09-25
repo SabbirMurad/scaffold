@@ -12,7 +12,7 @@
 // Every tool answers { ok, summary, ...data }. `summary` is what the chat panel
 // shows; on failure it tells Claude what to fix.
 
-import { state, makeNode, getNode, getColorById, getTypoById, getComponent, isMaster, isInstance,
+import { state, makeNode, getNode, getColorById, getTypoById, getComponent, isMaster, isInstance, nextNodeId,
   makeColorValue, routeFromName } from './state.js';
 import { canvasWrap } from './utils.js';
 import { canvasToWorld, canAcceptChild, canBeComponent, getWorldPos, isDescendant, isStack,
@@ -743,7 +743,7 @@ async function build(spec, parent, index, made) {
     const master = getNode(comp.rootId);
     const { x, y } = at(master ? master.w : 100, master ? master.h : 100);
     node = {
-      id: 'n' + (state.nextId++), type: 'instance', componentId: comp.id, x, y,
+      id: nextNodeId(), type: 'instance', componentId: comp.id, x, y,
       w: master ? master.w : 100, h: master ? master.h : 100, parentId: parent ? parent.id : null,
       visible: true, locked: false, name: comp.name, opacity: 1, rotation: 0, flipH: false, flipV: false,
       wMode: 'fixed', hMode: 'fixed', action: { type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' },

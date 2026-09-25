@@ -43,6 +43,11 @@ export function initToolEvents() {
   document.addEventListener('keydown', e => {
     const tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || document.activeElement.isContentEditable) return;
+    // Text selected on the page (a Claude reply, a comment): copy and select-all
+    // work on the text, as anywhere else, instead of on canvas elements.
+    const sel = window.getSelection();
+    const textSelected = sel && !sel.isCollapsed && sel.toString().trim() !== '';
+    if (textSelected && (e.metaKey || e.ctrlKey) && ['c', 'a'].includes(e.key.toLowerCase())) return;
 
     // Undo/redo apply in every tab (Design, Model, API, Color). Normalise the
     // key case: with Shift held the browser reports 'Z' (uppercase), so a raw

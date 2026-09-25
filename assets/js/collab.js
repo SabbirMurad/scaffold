@@ -7,7 +7,7 @@
 // In-progress motion is never sent — only commits are — because the mid-drag path
 // updates the DOM live but doesn't call saveHistory, so no `doc:commit` fires.
 
-import { state } from './state.js';
+import { state, repairCounters } from './state.js';
 import { serializeDocument } from './history.js';
 import { render } from './render.js';
 import { getAuth } from './session.js';
@@ -136,6 +136,7 @@ function applyRemote(slices) {
     state[key] = slices[key];
     baseline[key] = JSON.stringify(slices[key]); // in sync now — never echo it back
   }
+  repairCounters(); // a peer's nodes may be ahead of the counters we hold
   // A selection pointing at a node the peer deleted would dangle — prune it.
   if (slices.nodes) {
     const ids = new Set(state.nodes.map(n => n.id));

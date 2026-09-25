@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state, repairCounters } from './state.js';
 import { render } from './render.js';
 import { renderModels } from './models.js';
 import { renderApi } from './api.js';
@@ -97,6 +97,7 @@ export function serializeDocument() {
 export function loadDocument(doc) {
   if (!doc) return;
   KEYS.forEach(k => { if (k in doc) state[k] = doc[k]; });
+  repairCounters(); // a document saved with stale counters must not reuse ids
   state.history = [];
   state.historyIndex = -1;
   state.selected.clear();

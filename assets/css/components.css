@@ -1331,3 +1331,6 @@ body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
 .prop-row.data-row .dd-trigger, .prop-row.data-row .prop-input { flex: 1; min-width: 0; }
 .prop-section-sub { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--text3); margin: 12px 0 2px; text-transform: uppercase; }
 .route-card { border: 1px solid var(--border); border-radius: 8px; padding: 2px 8px 8px; margin-top: 8px; }
+
+/* Claude's replies and comment threads are text to copy from. */
+.claude-msg, .cmt-thread { user-select: text; -webkit-user-select: text; cursor: text; }

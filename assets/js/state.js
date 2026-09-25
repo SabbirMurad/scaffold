@@ -62,6 +62,47 @@ export function getNode(id) {
   return state.nodes.find(n => n.id === id);
 }
 
+// A fresh node id. The counter normally stays ahead of every id in use; the check
+// makes sure a stale counter can never hand out an id that's taken.
+export function nextNodeId() {
+  let id;
+  do { id = 'n' + (state.nextId++); } while (getNode(id));
+  return id;
+}
+
+// Every id counter, with the ids it numbers. A document whose counters fell behind
+// its ids (e.g. a save that lost the counter but kept the nodes) would hand out
+// duplicate ids, and a new element would replace an existing one.
+const COUNTERS = [
+  ['nextId', 'n', () => state.nodes],
+  ['nextComponentId', 'cmp', () => state.components],
+  ['nextThemeId', 'th', () => state.themes],
+  ['nextColorId', 'c', () => state.colors],
+  ['nextTypoId', 't', () => state.typography],
+  ['nextModelId', 'm', () => state.models],
+  ['nextPropId', 'p', () => state.models.flatMap(m => m.properties || [])],
+  ['nextEnumId', 'e', () => state.enums],
+  ['nextEnumValId', 'ev', () => state.enums.flatMap(e => e.values || [])],
+  ['nextMockId', 'mock', () => state.mockSets],
+  ['nextProviderId', 'pr', () => state.providers],
+  ['nextApiId', 'a', () => state.providers.flatMap(p => p.apis || [])],
+  ['nextHeaderId', 'h', () => state.providers.flatMap(p => (p.apis || []).flatMap(a => a.headers || []))],
+  ['nextParamId', 'q', () => state.providers.flatMap(p => (p.apis || []).flatMap(a => a.params || []))],
+];
+
+// Move every counter past the highest id actually in use.
+export function repairCounters() {
+  for (const [key, prefix, items] of COUNTERS) {
+    const re = new RegExp('^' + prefix + '(\\d+)$');
+    let max = 0;
+    for (const it of items() || []) {
+      const m = it && typeof it.id === 'string' && re.exec(it.id);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    if (!(state[key] > max)) state[key] = max + 1;
+  }
+}
+
 // Seed a fresh project with sensible starting variables: white + black color
 // swatches and a default "body" type style (white, 14px, 400) that new text
 // adopts. Runs once at boot, before the first history snapshot.
@@ -169,7 +210,7 @@ export function makeNode(type, x, y, w, h, parentId = null) {
   };
   const d = defaults[type] || defaults.container;
   const node = {
-    id: 'n' + (state.nextId++),
+    id: nextNodeId(),
     type, x, y, w, h, parentId,
     children: [],
     visible: true,
