@@ -13,7 +13,8 @@ import { initColors, renderColors, renderThemeSwitch, applyTheme } from './color
 import { initTypography, renderTypography } from './typography.js';
 import { logout, getAuth, initialsAvatar } from './session.js';
 import { getProject, saveProjectDoc, updateProject, requestAccess,
-  listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite, getMe } from './projects.js';
+  listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite, getMe,
+  setPublicLink, getPublicProject } from './projects.js';
 import { initMock, renderMock } from './mock.js';
 import { exportModelsCode, collectExportables, dartPath } from './codegen.js';
 import { updateExportButton } from './validate.js';
@@ -26,6 +27,11 @@ import { initPlay } from './play.js';
 import { initAi } from './ai.js';
 import { initCollab } from './collab.js';
 import { initComments, loadComments } from './comments.js';
+import { fitView } from './render.js';
+
+// A public view link (/view/<token>, served by the web server) opens this editor
+// read-only in the browser: the Design tab only, no account. Set by the page.
+const PUBLIC_TOKEN = window.SCAFFOLD_PUBLIC || null;
 import { confirmModal } from './confirm.js';
 import { restoreViewport, saveViewport } from './viewport.js';
 
@@ -75,7 +81,7 @@ document.addEventListener('collab:applied', () => {
 window.addEventListener('beforeunload', saveViewport);
 
 // Fill the editor's profile chip with the signed-in user's real name/email.
-getMe().then(res => {
+if (!PUBLIC_TOKEN) getMe().then(res => {
   if (!res.ok || !res.data) return;
   const nameEl = document.getElementById('profile-name');
   const emailEl = document.getElementById('profile-email');
@@ -252,6 +258,8 @@ document.getElementById('nav-home')?.addEventListener('click', () => { window.lo
 // The project this editor is bound to (from ?id=…). null → an unsaved scratch
 // session (nothing is persisted until it's opened from a real project).
 let currentProjectId = null;
+let currentRole = null;          // the signed-in person's role on it (Owner / Editor / Viewer)
+let currentPublicToken = null;   // its public view link token, when on (owner only)
 let currentVersion = null;
 
 // Persistence + live sync now run over a WebSocket (see collab.js): each committed
@@ -371,8 +379,42 @@ sharePeopleList?.addEventListener('click', async e => {
   else showToast(res.error || 'Couldn’t remove collaborator');
 });
 
+// Public view link (owner only): a toggle, and the link to copy while it's on.
+const sharePublic = document.getElementById('share-public');
+const sharePublicOn = document.getElementById('share-public-on');
+const sharePublicRow = document.getElementById('share-public-row');
+const sharePublicUrl = document.getElementById('share-public-url');
+const publicUrl = (token) => `${(window.projectDomain || location.origin).replace(/\/$/, '')}/view/${token}`;
+
+function renderSharePublic() {
+  if (!sharePublic) return;
+  sharePublic.hidden = !currentProjectId || currentRole !== 'Owner';
+  sharePublicOn.checked = !!currentPublicToken;
+  sharePublicRow.hidden = !currentPublicToken;
+  sharePublicUrl.value = currentPublicToken ? publicUrl(currentPublicToken) : '';
+}
+
+sharePublicOn?.addEventListener('change', async () => {
+  const on = sharePublicOn.checked;
+  sharePublicOn.disabled = true;
+  const res = await setPublicLink(currentProjectId, on);
+  sharePublicOn.disabled = false;
+  if (res.ok) {
+    currentPublicToken = (res.data && res.data.public_token) || null;
+    showToast(on ? 'Public link is on \u2014 anyone with it can view' : 'Public link turned off');
+  } else {
+    showToast(res.error || 'Couldn\u2019t change the public link');
+  }
+  renderSharePublic();
+});
+
+document.getElementById('share-public-copy')?.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(sharePublicUrl.value); showToast('Link copied'); }
+  catch { sharePublicUrl.select(); showToast('Press Ctrl+C to copy'); }
+});
+
 const closeShare = () => { if (shareModal) { shareModal.hidden = true; document.getElementById('share-form')?.reset(); } };
-document.getElementById('profile-share')?.addEventListener('click', () => { shareModal.hidden = false; renderInviteRole(); renderSharePeople(); shareEmail?.focus(); });
+document.getElementById('profile-share')?.addEventListener('click', () => { shareModal.hidden = false; renderInviteRole(); renderSharePublic(); renderSharePeople(); shareEmail?.focus(); });
 document.getElementById('share-close')?.addEventListener('click', closeShare);
 document.getElementById('share-cancel')?.addEventListener('click', closeShare);
 shareModal?.addEventListener('click', e => { if (e.target === shareModal) closeShare(); });
@@ -468,7 +510,7 @@ modeTabs.forEach(tab => {
 
 // Switch tab from the URL — on back/forward, and (via boot, after data has loaded)
 // on initial load.
-function routeMode() { applyMode(decodeURIComponent(location.hash.slice(1)) || 'design'); }
+function routeMode() { applyMode(PUBLIC_TOKEN ? 'design' : decodeURIComponent(location.hash.slice(1)) || 'design'); }
 window.addEventListener('hashchange', routeMode);
 
 // Frame preset menu — opens above the frame tool button (toolbar is bottom-anchored)
@@ -533,6 +575,9 @@ function showAccessScreen(kind, projectId) {
     el.innerHTML = view('\ud83d\udd12', 'Sign in to view this project',
       'This project is private. Sign in to request access to it.',
       `<a class="access-btn" href="/auth.html?next=${target}">Sign in</a>`);
+  } else if (kind === 'link') {
+    el.innerHTML = view('\ud83d\udd17', 'This link isn\u2019t active',
+      'The owner may have turned off public viewing, or the project was deleted.', '');
   } else if (kind === 'notfound') {
     el.innerHTML = view('\ud83d\udd0d', 'Project not found',
       'This project doesn\u2019t exist, or it was deleted.', dashBtn);
@@ -575,6 +620,7 @@ function showAccessScreen(kind, projectId) {
 // by someone without access shows the access screen instead of the editor; no id
 // starts a fresh scratch canvas.
 async function boot() {
+  if (PUBLIC_TOKEN) return bootPublic(PUBLIC_TOKEN);
   // The project id is a query parameter: /editor.html?id=<id>.
   const projectId = new URLSearchParams(window.location.search).get('id') || null;
   let serverContent = {}; // what the server holds at load, for the save baseline
@@ -591,6 +637,8 @@ async function boot() {
       // Viewer role → read-only editor: no create / move / delete / edit. A body
       // class hides the creation tools; `state.readonly` gates the interactions.
       state.readonly = res.data.role === 'Viewer';
+      currentRole = res.data.role;
+      currentPublicToken = (res.data.project && res.data.project.public_token) || null;
       document.body.classList.toggle('role-viewer', state.readonly);
       currentVersion = res.data.document && res.data.document.version != null
         ? res.data.document.version : null;
@@ -624,4 +672,28 @@ async function boot() {
   // Restore the active tab from the URL now that models/colors/etc. are loaded.
   routeMode();
 }
+// Public view: load the design through the link, read-only, and follow changes
+// live over the link's receive-only socket. The body classes hide everything
+// but the Design tab's viewing tools (see components.css).
+async function bootPublic(token) {
+  state.readonly = true;
+  state.publicToken = token;
+  document.body.classList.add('role-viewer', 'public-view');
+  const res = await getPublicProject(token);
+  if (!res.ok || !res.data) { showAccessScreen('link'); return; }
+  const content = (res.data.document && res.data.document.content) || {};
+  loadDocument(content);
+  state.projectName = (res.data.project && res.data.project.name) || 'Untitled';
+  document.title = `${state.projectName} \u2014 Scaffold`;
+  seedDefaults();
+  saveHistory();
+  render();
+  renderThemeSwitch();
+  fitView(); // open on the whole design
+  if (projectNameInput) { projectNameInput.value = state.projectName; projectNameInput.readOnly = true; }
+  initCollab(null, content, { publicToken: token });
+  loadComments();
+  applyMode('design');
+}
+
 boot();

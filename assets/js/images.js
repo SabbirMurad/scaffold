@@ -41,6 +41,12 @@ async function authedFetch(path, opts = {}) {
   return res;
 }
 
+// Where an image's bytes are served: the member endpoint, or — on a public view
+// link — the link's own read-only endpoint.
+const imagePath = (id) => state.publicToken
+  ? `/v1/public/${encodeURIComponent(state.publicToken)}/image/${encodeURIComponent(id)}`
+  : `/v1/image/${encodeURIComponent(id)}`;
+
 // Upload one image's bytes for the current project; resolves to an `img:<uuid>`
 // ref, or null on failure (e.g. an unsaved scratch session with no project id).
 // Seeds the render cache so the image shows immediately without a round-trip.
@@ -107,7 +113,7 @@ function loadRef(id) {
   if (objectUrls.has(id) || inflight.has(id)) return;
   const p = (async () => {
     try {
-      const res = await authedFetch(`/v1/image/${encodeURIComponent(id)}`);
+      const res = await authedFetch(imagePath(id));
       if (!res.ok) return;
       const blob = await res.blob();
       objectUrls.set(id, URL.createObjectURL(blob));
@@ -133,7 +139,7 @@ export function resolvedSrc(src) {
 async function fetchDataUri(id) {
   if (dataUris.has(id)) return;
   try {
-    const res = await authedFetch(`/v1/image/${encodeURIComponent(id)}`);
+    const res = await authedFetch(imagePath(id));
     if (!res.ok) return;
     const blob = await res.blob();
     const uri = await new Promise((resolve) => {

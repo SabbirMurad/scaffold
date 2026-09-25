@@ -31,6 +31,13 @@ export const updateProject  = (id, body)        => authed('patch',  { endpoint: 
 // Pin/unpin is per-user state, not shared metadata, so it has its own endpoint.
 export const pinProject     = (id, pinned)      => authed('post',   { endpoint: `/v1/project/${id}/pin`, body: { pinned } });
 export const deleteProject  = (id)              => authed('delete', { endpoint: `/v1/project/${id}` });
+// Owner: turn the public view link on / off → { public_token } (null when off).
+export const setPublicLink  = (id, enabled)     => authed('post',   { endpoint: `/v1/project/${id}/public-link`, body: { enabled } });
+
+// ── Public view link (no account) ──
+const pub = (token) => `/v1/public/${encodeURIComponent(token)}`;
+export const getPublicProject  = (token) => Fetcher.get({ endpoint: pub(token), showError: false });
+export const getPublicComments = (token) => Fetcher.get({ endpoint: `${pub(token)}/comments`, showError: false });
 export const requestAccess  = (id)              => authed('post',   { endpoint: `/v1/project/${id}/request-access` });
 
 // ── Collaborators ──

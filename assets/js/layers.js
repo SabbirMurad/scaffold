@@ -56,7 +56,7 @@ function buildLayerItem(node, depth) {
     (!node.visible ? ' hidden' : '') +
     (node.locked ? ' locked' : '');
   item.dataset.id = node.id;
-  item.draggable = true;
+  item.draggable = !state.readonly; // viewers can't reorder or re-nest layers
 
   const hasChildren = node.children && node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
@@ -83,6 +83,8 @@ function buildLayerItem(node, depth) {
       }
       return;
     }
+    // Viewers see lock / visibility state but can't change it.
+    if (state.readonly && e.target.closest('.layer-lock, .layer-vis')) return;
     if (e.target.closest('.layer-lock')) {
       node.locked = !node.locked;
       if (node.locked) state.selected.delete(node.id); // a locked layer can't stay selected
@@ -165,7 +167,7 @@ function initLayerDnd() {
     layersList.addEventListener('dragover', e => { e.preventDefault(); });
     layersList.addEventListener('drop', e => {
       e.preventDefault();
-      if (e.target !== layersList) return; // only handle drops on empty list area
+      if (e.target !== layersList || state.readonly) return; // only handle drops on empty list area
       if (!layerDrag) return;
       const srcNode = getNode(layerDrag.nodeId);
       if (!srcNode) return;
@@ -198,6 +200,7 @@ function clearLayerDndUI() {
 }
 
 function applyLayerDrop(srcNode, targetNode, zone) {
+  if (state.readonly) return;
   if (zone === 'into' && canAcceptChild(targetNode, srcNode.id)) {
     // reparentNode positions the child per parent type (pinned for frame/container)
     reparentNode(srcNode, targetNode.id);

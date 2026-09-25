@@ -105,9 +105,12 @@ pub async fn task(req: HttpRequest) -> Result<HttpResponse, Error> {
 
     let items: Vec<ProjectListItem> = projects
         .into_iter()
-        .map(|core| ProjectListItem {
-            pinned: pinned_ids.contains(&core.uuid),
-            core,
+        .map(|mut core| {
+            // The public link is the owner's to hand out.
+            if core.owner_id != user.user_id {
+                core.public_token = None;
+            }
+            ProjectListItem { pinned: pinned_ids.contains(&core.uuid), core }
         })
         .collect();
 

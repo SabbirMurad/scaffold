@@ -26,6 +26,10 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             web::get().to(Markup::desktop_only)
         )
         .route(
+            "/view/{token}",
+            web::get().to(Markup::public_view)
+        )
+        .route(
             "/sitemap.xml",
             web::get().to(sitemap::handler)
         )

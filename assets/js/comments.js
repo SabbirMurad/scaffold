@@ -11,7 +11,7 @@
 
 import { state } from './state.js';
 import { canvas, canvasWrap, esc, showToast } from './utils.js';
-import { listComments, createComment, replyComment, resolveComment, deleteComment } from './projects.js';
+import { listComments, createComment, replyComment, resolveComment, deleteComment, getPublicComments } from './projects.js';
 
 // Local thread shape: { id (client handle), serverId (null until saved), x, y,
 // resolved, messages: [{ author, text, ts }] }.
@@ -47,8 +47,8 @@ function applyServer(c, t) {
 // unsaved scratch session. Called on project open and on Comment-tool activation;
 // a thread is never open at those moments, so replacing the array is safe.
 export async function loadComments() {
-  if (!state.projectId) return;
-  const res = await listComments(state.projectId);
+  if (!state.projectId && !state.publicToken) return;
+  const res = state.publicToken ? await getPublicComments(state.publicToken) : await listComments(state.projectId);
   if (!res.ok || !Array.isArray(res.data)) return;
   comments = res.data.map(fromServer);
   drawPins();
@@ -185,6 +185,7 @@ function onClick(e) {
   const pin = e.target.closest && e.target.closest('.comment-pin');
   if (pin) { e.stopPropagation(); openThread(pin.dataset.id); return; }
   e.stopPropagation();
+  if (state.publicToken) return; // a public viewer reads threads, never starts one
   // Empty canvas → drop a new pin and start composing.
   const p = worldOf(e.clientX, e.clientY);
   if (isDraft(get(activeId))) closeThread(); // drop any previous unsent draft

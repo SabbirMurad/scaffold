@@ -56,6 +56,12 @@ pub struct ProjectCore {
     pub created_at: i64,                 // epoch millis
     pub modified_at: i64,                // bumped whenever the document is saved
     pub archived_at: Option<i64>,        // soft-delete marker (None = active)
+
+    // Public view link: anyone with /view/<token> can see the design read-only.
+    // None = no public link. Only ever returned to the owner; turning the link off
+    // clears it, so an old link stops working. `default` keeps older records valid.
+    #[serde(default)]
+    pub public_token: Option<String>,
 }
 
 // project_document — the design itself (canvas nodes, colors, typography, themes,

@@ -63,6 +63,9 @@ pub use remove_collaborator as RemoveCollaborator;
 pub mod my_invites;
 pub use my_invites as MyInvites;
 
+pub mod public_link;
+pub use public_link as PublicLink;
+
 // Privilege ordering for role checks (Viewer < Editor < Owner).
 pub fn role_rank(role: &ProjectRole) -> u8 {
     match role {

@@ -2,7 +2,7 @@ use serde_json::json;
 use mongodb::bson::doc;
 use crate::BuiltIns::mongo::MongoDB;
 use crate::utils::response::Response;
-use crate::Model::Project::ProjectDocument;
+use crate::Model::Project::{ ProjectDocument, ProjectRole };
 use actix_web::{ web, Error, HttpResponse, HttpRequest };
 use crate::Middleware::Auth::{ require_access, AccessRequirement };
 
@@ -13,10 +13,15 @@ pub async fn task(req: HttpRequest, path: web::Path<String>) -> Result<HttpRespo
     let project_id = path.into_inner();
     let db = MongoDB.connect();
 
-    let (core, role) = match super::access(&db, &project_id, &user.user_id).await {
+    let (mut core, role) = match super::access(&db, &project_id, &user.user_id).await {
         Ok(result) => result,
         Err(response) => return Ok(response),
     };
+
+    // The public link is the owner's to hand out.
+    if role != ProjectRole::Owner {
+        core.public_token = None;
+    }
 
     let document = match db
         .collection::<ProjectDocument>("project_document")

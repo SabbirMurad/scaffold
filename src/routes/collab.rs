@@ -6,6 +6,8 @@ use crate::Handler;
 pub fn router(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/v1/ws")
-            .route("/project/{id}", web::get().to(Handler::Collab::Connect::task)),
+            .route("/project/{id}", web::get().to(Handler::Collab::Connect::task))
+            // A public view link's live updates: receive-only, no account.
+            .route("/public/{token}", web::get().to(Handler::Collab::Connect::public_task)),
     );
 }

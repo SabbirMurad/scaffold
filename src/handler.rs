@@ -16,4 +16,7 @@ pub use feedback as Feedback;
 pub mod image;
 pub use image as Image;
 
+pub mod public;
+pub use public as Public;
+
 pub mod seo;

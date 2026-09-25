@@ -308,6 +308,7 @@ async fn main() -> io::Result<()> {
             .configure(Routes::Ai::router)
             .configure(Routes::Feedback::router)
             .configure(Routes::Image::router)
+            .configure(Routes::Public::router)
             .configure(Routes::Pages::router)
     });
 

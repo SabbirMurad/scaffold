@@ -13,6 +13,7 @@ import { render } from './render.js';
 import { getAuth } from './session.js';
 
 let projectId = null;
+let publicToken = null;     // a public view link: receive changes, never send
 let ws = null;
 let baseline = {};          // sliceKey → JSON string we consider already in sync
 let commitTimer = null;
@@ -26,8 +27,9 @@ const COMMIT_DEBOUNCE = 200; // ms after a commit before we flush (coalesces bur
 // Open the collaboration channel for a loaded project. `serverContent` is what the
 // server held at load, so anything the client seeded/migrated on top counts as
 // dirty and gets pushed as soon as the socket opens.
-export function initCollab(id, serverContent) {
+export function initCollab(id, serverContent, { publicToken: token = null } = {}) {
   projectId = id;
+  publicToken = token;
   baseline = {};
   const server = serverContent || {};
   for (const key in server) baseline[key] = JSON.stringify(server[key]);
@@ -52,6 +54,7 @@ function socketUrl() {
   // this page's own host when it's served by that server directly.
   const base = new URL(window.projectDomain || location.origin);
   const proto = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (publicToken) return `${proto}//${base.host}/api/v1/ws/public/${encodeURIComponent(publicToken)}`;
   return `${proto}//${base.host}/api/v1/ws/project/${encodeURIComponent(projectId)}?token=${encodeURIComponent(token)}`;
 }
 
@@ -94,6 +97,7 @@ function scheduleFlush() {
 
 function flushNow() {
   clearTimeout(commitTimer);
+  if (publicToken) return; // a public viewer never writes
   const patch = computePatch();
   if (!patch) return;
   if (ws && ws.readyState === WebSocket.OPEN) {

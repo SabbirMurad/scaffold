@@ -30,6 +30,10 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             web::delete().to(Handler::Project::Delete::task)   // archive (soft-delete)
         )
         .route(
+            "/{id}/public-link",
+            web::post().to(Handler::Project::PublicLink::task)  // owner: turn the public view link on / off
+        )
+        .route(
             "/{id}/pin",
             web::post().to(Handler::Project::Pin::task)        // per-user pin / unpin
         )

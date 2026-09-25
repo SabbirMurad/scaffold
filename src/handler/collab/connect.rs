@@ -63,3 +63,26 @@ pub async fn task(
 
     ws::start(conn, &req, stream)
 }
+
+// A public view link joins the project's room receive-only: it sees every change
+// live, and anything it sends is ignored (can_edit = false).
+pub async fn public_task(
+    req: HttpRequest,
+    stream: Payload,
+    path: web::Path<String>,
+    srv: Data<Addr<Lobby>>,
+) -> Result<HttpResponse, Error> {
+    let db = MongoDB.connect();
+    let core = match crate::Handler::Public::project_by_token(&db, &path.into_inner()).await {
+        Ok(core) => core,
+        Err(_response) => return Ok(HttpResponse::NotFound().finish()),
+    };
+    let conn = WsConn::new(
+        core.uuid,
+        Uuid::new_v4().to_string(),
+        "public".to_string(),
+        false,
+        srv.get_ref().clone(),
+    );
+    ws::start(conn, &req, stream)
+}

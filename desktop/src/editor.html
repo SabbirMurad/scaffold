@@ -231,6 +231,18 @@
         <button type="submit" class="modal-btn">Send invite</button>
       </div>
     </form>
+    <div id="share-public" class="share-public" hidden>
+      <div class="share-people-head">Public link</div>
+      <label class="share-public-toggle">
+        <input type="checkbox" id="share-public-on">
+        <span>Anyone with the link can view this design in a browser</span>
+      </label>
+      <div id="share-public-row" class="share-public-row" hidden>
+        <input type="text" id="share-public-url" class="modal-input" readonly>
+        <button type="button" class="modal-btn" id="share-public-copy">Copy</button>
+      </div>
+      <p class="share-public-note">View only, live: the Design tab with properties, comments, connections, Play, and the light/dark switch. Turn it off to stop the link working.</p>
+    </div>
     <div id="share-people" class="share-people" hidden>
       <div class="share-people-head">People with access</div>
       <div id="share-people-list" class="share-people-list"></div>

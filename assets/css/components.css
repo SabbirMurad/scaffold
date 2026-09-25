@@ -1287,6 +1287,35 @@ body.sidebar-collapsed #api-board { padding-left: 20px; }
    remaining tools (select, hand, connect/prototype, comment) and the theme/color
    controls stay usable. Interactions are also gated in JS via state.readonly. */
 body.role-viewer #tools-create { display: none !important; }
+
+/* Public view link (in a browser): the Design tab's viewing tools only — no other
+   tabs, nothing that edits, shares, exports, or belongs to an account. */
+body.public-view .mode-tab:not([data-mode="design"]),
+body.public-view #nav-home,
+body.public-view #profile-card,
+body.public-view #tool-ai,
+body.public-view #btn-export-code,
+body.public-view #profile-share,
+body.public-view .cmt-composer,
+body.public-view #cmt-resolve,
+body.public-view #cmt-delete { display: none !important; }
+body.public-view #project-name { pointer-events: none; }
+/* No left panel at all (no tabs, layers or name), and the viewing controls —
+   theme switch and Play — sit at the right, over the Properties panel. */
+body.public-view #layers-panel,
+body.public-view #sidebar-open { display: none !important; }
+body.public-view #action-bar { justify-content: flex-end; }
+body.public-view #actions-card { flex: 0 0 auto; padding: 6px; }
+/* Viewers see a layer's lock / visibility state, not buttons for it. */
+body.role-viewer .layer-ctrl { pointer-events: none; }
+
+/* Share modal: public view link */
+.share-public { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+.share-public-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.share-public-toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
+.share-public-row { display: flex; gap: 8px; }
+.share-public-row .modal-input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
+.share-public-note { font-size: 11.5px; color: var(--text3); line-height: 1.5; margin: 0; }
 body.role-viewer #ctx-menu { display: none !important; }
 /* Properties are look-only: controls are inert but values stay readable/scrollable. */
 body.role-viewer #props-panel input,

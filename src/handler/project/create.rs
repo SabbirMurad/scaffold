@@ -49,6 +49,7 @@ pub async fn task(req: HttpRequest, body: web::Json<ReqBody>) -> Result<HttpResp
         created_at: now,
         modified_at: now,
         archived_at: None,
+        public_token: None,
     };
 
     let db = MongoDB.connect();
