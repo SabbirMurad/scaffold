@@ -1,4 +1,4 @@
-import { state, getNode } from './state.js';
+import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
 import { flexKind, isStack } from './nodes.js';
 import { isImageRef, refId, imageDataUri } from './images.js';
 import { rootScope, pathType, aliasOf, isUnary } from './data.js';
@@ -330,7 +330,8 @@ function buildFlex(ctx, node, kids, fk) {
   return W(fk === 'row' ? 'Row' : 'Column', props, { children });
 }
 function buildFlexChild(ctx, k, fk) {
-  const fillMain = (fk === 'row' && k.wMode === 'fill') || (fk === 'column' && k.hMode === 'fill');
+  const sized = k.type === 'instance' ? (getMasterNode(k.componentId) || k) : k; // an instance sizes like its master
+  const fillMain = (fk === 'row' && sized.wMode === 'fill') || (fk === 'column' && sized.hMode === 'fill');
   if (fillMain) {
     return W('Expanded', {}, { child: buildNode(ctx, k, fk === 'row' ? { omitW: true } : { omitH: true }) });
   }
@@ -385,6 +386,10 @@ function applyEffects(ctx, node, w) {
 // condition (a Visibility works in any slot, unlike a collection-if).
 function buildNode(ctx, node, opts = {}) {
   if (!node) return null;
+  // A component's master and its instances are its widget class (see componentWidget).
+  if (node.type === 'instance') return instanceWidget(ctx, node, opts);
+  if (isMaster(node) && !opts.asMaster) return componentWidget(ctx, node.componentId, opts) || buildNode(ctx, node, { ...opts, asMaster: true });
+  opts = { ...opts, asMaster: false };
   let w;
   if (node.type === 'text') w = buildText(ctx, node);
   else if (node.type === 'image') w = buildImage(ctx, node, opts);
@@ -398,6 +403,70 @@ function buildNode(ctx, node, opts = {}) {
     if (cond) w = W('Visibility', { visible: cond }, { child: w });
   }
   return w;
+}
+
+// ───────── Components ─────────
+// Each component is a StatelessWidget of its own (lib/widget/<name>.dart) that
+// screens use wherever its master or an instance sits — one definition, used
+// everywhere. A component that reads mock data or providers, or branches on it,
+// is written out in place instead: a class of its own couldn't see that data.
+
+// Flutter names a component mustn't shadow.
+const FLUTTER_NAMES = new Set(['Card', 'Container', 'Text', 'Icon', 'Image', 'Row', 'Column', 'Stack', 'Wrap',
+  'Button', 'Scaffold', 'Center', 'Padding', 'Align', 'Expanded', 'Chip', 'Divider', 'Badge', 'Title', 'Material',
+  'Form', 'Table', 'Checkbox', 'Radio', 'Switch', 'Slider', 'Tab', 'Drawer', 'Dialog', 'Banner', 'Placeholder']);
+
+export function componentClass(c) {
+  const master = getNode(c.rootId);
+  const words = String((master && master.name) || c.name || 'Component').split(/[^A-Za-z0-9]+/).filter(Boolean);
+  let cls = words.map(w => w[0].toUpperCase() + w.slice(1)).join('') || 'Component';
+  if (/^[0-9]/.test(cls)) cls = 'C' + cls;
+  if (FLUTTER_NAMES.has(cls)) cls += 'Widget';
+  return cls;
+}
+
+// Whether a component can be its own class: nothing in it reads screen data.
+export function componentStandalone(componentId) {
+  const master = getMasterNode(componentId);
+  if (!master) return false;
+  const reads = (n) => !!(n.bind || n.showIf || n.repeat || (n.action && n.action.routes && n.action.routes.length));
+  const walk = (n) => n && !reads(n) && (n.children || []).every(id => walk(getNode(id)));
+  return walk(master);
+}
+
+// The component's class, used where its master sits (or null → written in place).
+function componentWidget(ctx, componentId) {
+  const c = getComponent(componentId);
+  if (!c || !componentStandalone(componentId)) return null;
+  ctx.components.add(c.id);
+  return `${componentClass(c)}()`;
+}
+
+// An instance: its component's class (or its master written in place), with
+// what the instance itself sets around it — opacity, rotation, tap, condition.
+function instanceWidget(ctx, node, opts) {
+  const master = getMasterNode(node.componentId);
+  if (!master) return W('SizedBox'); // its component was deleted
+  ctx.inline = (ctx.inline || 0) + 1;
+  let w = ctx.inline > 8 ? W('SizedBox')
+    : componentWidget(ctx, node.componentId) || buildNode(ctx, master, { ...opts, asMaster: true });
+  ctx.inline--;
+  w = applyEffects(ctx, node, w);
+  const onTap = tapExpr(ctx, node);
+  if (onTap) w = W('GestureDetector', { onTap }, { child: w });
+  if (node.showIf && node.showIf.path) {
+    const cond = condExpr(ctx, node.showIf);
+    if (cond) w = W('Visibility', { visible: cond }, { child: w });
+  }
+  return w;
+}
+
+// A component's class body: its master's design.
+export function generateComponentBody(componentId, { routeName = null } = {}) {
+  const ctx = newCtx(routeName);
+  const master = getMasterNode(componentId);
+  const w = master ? buildNode(ctx, master, { asMaster: true }) : W('SizedBox');
+  return { code: printW(w, 2), ctx };
 }
 
 // ───────── Mock data ─────────
@@ -524,17 +593,25 @@ function tapExpr(ctx, node) {
   return { raw: lines };
 }
 
+// Generation state shared by a screen or component: imports it needs, assets it
+// bundles, and the mock data / providers in scope (each by its name).
+function newCtx(routeName) {
+  return {
+    screenutil: false, colors: false, typo: false, svg: false, icons: new Map(), images: new Map(),
+    scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
+      [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
+    mocks: new Set(), providers: new Set(), enums: new Set(), components: new Set(),
+    hexColor: false, routes: false, routeName,
+  };
+}
+
 // Public: build a screen frame's Scaffold body. Returns the Dart expression for
 // `build()` plus a `ctx` of which imports it needs.
 export function generateScreenBody(frame, { routeName = null } = {}) {
   // ctx also collects the asset files the screen uses so the exporter can drop them
   // into the zip: icon SVGs (path → svg markup) under assets/icons/, and image bytes
   // (path → Uint8Array) under assets/images/.
-  const ctx = { screenutil: false, colors: false, typo: false, svg: false, icons: new Map(), images: new Map(),
-    // Mock data in scope: each set by its variable name (→ lib/mock/<set>.dart).
-    scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
-      [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
-    mocks: new Set(), providers: new Set(), enums: new Set(), hexColor: false, routes: false, routeName };
+  const ctx = newCtx(routeName);
   const bg = solidColor(ctx, frame.colorId, frame.fill);
   const inner = buildBox(ctx, frame, { isRoot: true });
   const props = {};

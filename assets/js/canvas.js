@@ -5,7 +5,12 @@ import { saveHistory } from './history.js';
 import { render, updateNodeEl, applyTransform, positionRadiusHandles, applyDragTransform } from './render.js';
 import { renderProps } from './props.js';
 import { setTool } from './tools.js';
-import { duplicateSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace, createComponent } from './operations.js';
+import { duplicateSelected, deleteSelected, bringToFront, sendToBack, cloneNodeInPlace, createComponent,
+  copySelected, pasteClipboard, hasClipboard, canReorder, detachInstance, goToNode } from './operations.js';
+import { getComponent, getMasterNode } from './state.js';
+import { isMaster, isInstance } from './state.js';
+import { canBeComponent } from './nodes.js';
+import { fitView } from './render.js';
 
 let dragging = null;
 let resizing = null;
@@ -911,20 +916,65 @@ function deleteNode(node) {
   state.selected.delete(node.id);
 }
 
+// The right-click menu offers only what applies to what's under the pointer:
+// on an element, actions on it (and the rest of the selection); on empty canvas,
+// actions on the canvas. Items that would do nothing aren't shown.
+const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? '\u2318' : 'Ctrl+';
+
+function menuItems(nodes) {
+  const items = [];
+  const add = (action, label, shortcut, extra = '') => items.push({ action, label, shortcut, extra });
+  const sep = () => { if (items.length && items[items.length - 1] !== 'sep') items.push('sep'); };
+
+  if (!nodes.length) {
+    // Empty canvas.
+    if (hasClipboard()) add('paste', 'Paste', MOD + 'V');
+    if (state.nodes.length) {
+      add('select-all', 'Select all', MOD + 'A');
+      add('fit', 'Zoom to fit', '0');
+    }
+    return items;
+  }
+
+  add('copy', 'Copy', MOD + 'C');
+  if (hasClipboard()) add('paste', 'Paste', MOD + 'V');
+  add('duplicate', 'Duplicate', MOD + 'D');
+  if (nodes.length === 1 && nodes[0].parentId) add('select-parent', 'Select parent');
+  sep();
+  if (nodes.length === 1 && canBeComponent(nodes[0]) && !isMaster(nodes[0]) && !isInstance(nodes[0])) {
+    add('component', 'Create component');
+  }
+  if (nodes.length === 1 && isInstance(nodes[0]) && getMasterNode(nodes[0].componentId)) {
+    add('go-component', 'Go to component');
+    add('detach', 'Detach instance');
+  }
+  if (nodes.some(canReorder)) { add('front', 'Bring to front'); add('back', 'Send to back'); }
+  sep();
+  add('delete', 'Delete', 'Del', 'ctx-danger');
+  return items;
+}
+
 function onContextMenu(e) {
   e.preventDefault();
-  const nodeEl = e.target.closest('.node');
-  if (nodeEl) {
-    const node = getNode(nodeEl.dataset.id);
-    if (node && !state.selected.has(node.id)) {
-      state.selected.clear();
-      state.selected.add(node.id);
-      render();
-    }
+  if (state.readonly) return; // viewers get no editing menu
+  const nodeEl = e.target.closest('.node:not(.ghost)');
+  const node = nodeEl && getNode(nodeEl.dataset.id);
+  if (node) {
+    if (!state.selected.has(node.id)) { state.selected = new Set([node.id]); render(); }
+  } else if (state.selected.size) {
+    state.selected.clear(); // right-clicking empty canvas deselects, as a left click does
+    render();
   }
-  ctxMenu.style.left = e.clientX + 'px';
-  ctxMenu.style.top = e.clientY + 'px';
+  const nodes = node ? [...state.selected].map(getNode).filter(Boolean) : [];
+  const items = menuItems(nodes);
+  if (!items.length) { ctxMenu.style.display = 'none'; return; }
+  ctxMenu.innerHTML = items.map(it => it === 'sep' ? '<div class="ctx-sep"></div>'
+    : `<div class="ctx-item ${it.extra}" data-action="${it.action}"><span>${it.label}</span>${it.shortcut ? `<span class="shortcut">${it.shortcut}</span>` : ''}</div>`).join('');
+  // Keep the menu on screen near the window edges.
   ctxMenu.style.display = 'block';
+  const w = ctxMenu.offsetWidth, h = ctxMenu.offsetHeight;
+  ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - w - 8) + 'px';
+  ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - h - 8) + 'px';
 }
 
 export function initCanvasEvents() {
@@ -955,12 +1005,28 @@ export function initCanvasEvents() {
     const item = e.target.closest('.ctx-item');
     if (!item) return;
     const action = item.dataset.action;
+    closeMenus();
+    if (action === 'copy') copySelected();
+    if (action === 'paste') pasteClipboard();
     if (action === 'duplicate') duplicateSelected();
-    if (action === 'delete') deleteSelected();
+    if (action === 'select-parent') {
+      const n = getNode([...state.selected][0]);
+      if (n && n.parentId) { state.selected = new Set([n.parentId]); render(); }
+    }
+    if (action === 'component') createComponent();
+    if (action === 'go-component') {
+      const c = getComponent((getNode([...state.selected][0]) || {}).componentId);
+      if (c) goToNode(c.rootId);
+    }
+    if (action === 'detach') {
+      const n = getNode([...state.selected][0]);
+      if (n && detachInstance(n)) { saveHistory(); render(); }
+    }
     if (action === 'front') bringToFront();
     if (action === 'back') sendToBack();
-    if (action === 'component') createComponent();
-    closeMenus();
+    if (action === 'delete') deleteSelected();
+    if (action === 'select-all') { state.selected = new Set(state.nodes.filter(n => !n.parentId).map(n => n.id)); render(); }
+    if (action === 'fit') fitView();
   });
 
   // Close menus on outside click

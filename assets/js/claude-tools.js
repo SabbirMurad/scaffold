@@ -19,7 +19,7 @@ import { canvasToWorld, canAcceptChild, canBeComponent, getWorldPos, isDescendan
   isScreenFrame, reparentNode, flexKind, CONTAINER_TYPES } from './nodes.js';
 import { render, applyTransform } from './render.js';
 import { saveHistory, undo, redo, rerenderActive, fieldApplies, captureState, restoreState } from './history.js';
-import { cloneNodeInPlace } from './operations.js';
+import { cloneNodeInPlace, componentName, instancesOf, detachInstance, detachInstancesOf, renameComponent } from './operations.js';
 import { applyTheme, colorError, anyColorError } from './colors.js';
 import { typoError, anyTypoError } from './typography.js';
 import { modelError, enumError, propError, enumValError, typeToString, anyModelError, anyEnumError } from './models.js';
@@ -152,6 +152,16 @@ const TOOLS = [
     name: 'delete_elements', title: 'Delete elements', annotations: DESTROY,
     description: 'Delete screens, sections or elements, with everything inside them. The person can undo it.',
     inputSchema: obj({ ids: { type: 'array', items: { type: 'string' }, minItems: 1 } }, ['ids']),
+  },
+  {
+    name: 'edit_component', title: 'Edit component', annotations: EDIT,
+    description: 'Rename a component (its master is renamed with it), or detach an instance — replace it with a plain, editable copy of the component\'s design in the same place. '
+      + 'To change what every instance looks like, edit the master (see get_design: components → master_id); deleting the master turns its instances into plain copies.',
+    inputSchema: obj({
+      action: { type: 'string', enum: ['rename', 'detach'] },
+      component_id: str('For rename.'), name: str('For rename.'),
+      id: str('For detach: the instance.'),
+    }, ['action']),
   },
   {
     name: 'make_component', title: 'Make component', annotations: EDIT,
@@ -878,7 +888,7 @@ function getDesign() {
     summary: `${state.projectName}: ${plural(screens, 'screen')}`,
     project: state.projectName,
     canvas: roots.map(describe),
-    components: state.components.map(c => ({ id: c.id, name: c.name, root_id: c.rootId })),
+    components: state.components.map(c => ({ id: c.id, name: componentName(c), master_id: c.rootId, instances: instancesOf(c.id).length })),
   };
 }
 
@@ -1105,6 +1115,8 @@ function removeTree(id) {
     if (n && n.children) n.children.forEach(collect);
   };
   collect(id);
+  // A master going away: its instances elsewhere become plain copies first.
+  detachInstancesOf(state.components.filter(c => doomed.has(c.rootId)).map(c => c.id), doomed);
   const n = getNode(id);
   const parent = n && n.parentId && getNode(n.parentId);
   if (parent) parent.children = parent.children.filter(c => c !== id);
@@ -1134,7 +1146,24 @@ function makeComponent({ id, name }) {
   node.componentId = cid;
   state.components.push({ id: cid, name: node.name || 'Component', rootId: node.id });
   commit([node.id]);
-  return { ok: true, summary: `Made "${node.name}" a component`, component_id: cid };
+  return { ok: true, summary: `Made "${node.name}" a component — place copies with add_elements {"type":"instance","component_id":"${cid}"}`, component_id: cid };
+}
+
+function editComponent(args) {
+  if (args.action === 'rename') {
+    const c = getComponent(args.component_id);
+    if (!c) fail(`No component "${args.component_id}" — see get_design for component ids`);
+    if (!args.name || !String(args.name).trim()) fail('A component needs a name');
+    renameComponent(c.id, args.name);
+    commit();
+    return { ok: true, summary: `Renamed the component to "${componentName(c)}"` };
+  }
+  const inst = need(getNode(args.id), args.id);
+  if (inst.type !== 'instance') fail(`"${inst.name}" isn't an instance`);
+  const copy = detachInstance(inst);
+  if (!copy) fail('Its component was deleted — there\'s no design to detach');
+  commit([copy.id]);
+  return withChecks({ ok: true, summary: `Detached "${copy.name}" — it's a regular copy now`, id: copy.id }, [copy]);
 }
 
 function setInteraction(args) {
@@ -1835,7 +1864,7 @@ const HANDLERS = {
   get_design: getDesign, get_element: getElement, get_data: getData,
   create_screen: createScreen, create_section: createSection, add_elements: addElements,
   update_element: updateElement, move_element: moveElement, duplicate_elements: duplicateElements,
-  delete_elements: deleteElements, make_component: makeComponent, set_interaction: setInteraction,
+  delete_elements: deleteElements, make_component: makeComponent, edit_component: editComponent, set_interaction: setInteraction,
   search_icons: searchIcons, focus, check_design: checkDesign,
   edit_color: editColor, edit_theme: editTheme, set_color_role: setColorRole, edit_text_style: editTextStyle,
   edit_model: editModel, edit_enum: editEnum, edit_mock_data: editMockData, edit_provider: editProvider,

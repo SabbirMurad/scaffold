@@ -122,6 +122,11 @@
         <span class="panel-title">Layers</span>
       </div>
       <div id="layers-list"></div>
+      <!-- Components: every component in the project — go to it, or place an instance -->
+      <div id="components-panel" hidden>
+        <div class="panel-header"><span class="panel-title">Components</span></div>
+        <div id="components-list"></div>
+      </div>
     </div>
     <!-- COLOR CONTROLLER (Color tab) — sits under the tabs, like the Layers card -->
     <div id="color-panel"></div>
@@ -319,14 +324,8 @@
 </div>
 
 <!-- Context Menu -->
-<div id="ctx-menu">
-  <div class="ctx-item" data-action="duplicate"><span>Duplicate</span><span class="shortcut">&#8984;D</span></div>
-  <div class="ctx-item" data-action="component"><span>Create component</span></div>
-  <div class="ctx-item" data-action="front"><span>Bring to Front</span></div>
-  <div class="ctx-item" data-action="back"><span>Send to Back</span></div>
-  <div class="ctx-sep"></div>
-  <div class="ctx-item ctx-danger" data-action="delete"><span>Delete</span><span class="shortcut">&#9003;</span></div>
-</div>
+<!-- Filled per right-click with the actions that apply there (canvas.js) -->
+<div id="ctx-menu"></div>
 
 <!-- Frame Preset Menu -->
 <div id="frame-menu">

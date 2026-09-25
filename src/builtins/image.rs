@@ -102,6 +102,21 @@ pub async fn get(uuid: &str) -> Result<Option<StoredImage>, String> {
     }
 }
 
+// Remove an image by id (e.g. a project thumbnail that has been replaced).
+pub async fn delete(uuid: &str) -> Result<(), String> {
+    let db_conn = sqlite::connect(sqlite::DBF::IMG).map_err(|error| {
+        log::error!("{:?}", error);
+        "Image store unavailable".to_string()
+    })?;
+    db_conn
+        .execute("DELETE FROM image WHERE uuid = ?1", params![uuid])
+        .map_err(|error| {
+            log::error!("{:?}", error);
+            error.to_string()
+        })?;
+    Ok(())
+}
+
 /* Validates image format based on image blob data */
 fn get_image_format(data: &Vec<u8>) -> Result<AllowedImageType, String> {
     if let Some(image_type) = imghdr::from_bytes(data) {

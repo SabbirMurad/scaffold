@@ -44,6 +44,12 @@ pub fn router(cfg: &mut web::ServiceConfig) {
                 .app_data(web::PayloadConfig::new(15 * 1024 * 1024))
                 .route(web::post().to(Handler::Project::ImageUpload::task))
         )
+        // Dashboard card preview, drawn by the editor — raw image bytes as the body.
+        .service(
+            web::resource("/{id}/thumbnail")
+                .app_data(web::PayloadConfig::new(Handler::Project::Thumbnail::MAX_BYTES))
+                .route(web::post().to(Handler::Project::Thumbnail::task))
+        )
         // Access requests (from someone who can't open the project yet)
         .route(
             "/{id}/request-access",

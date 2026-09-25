@@ -46,6 +46,7 @@ pub async fn task(req: HttpRequest, body: web::Json<ReqBody>) -> Result<HttpResp
         thumbnail_from: body.thumbnail_from.clone().unwrap_or_else(|| "#5b8af5".to_string()),
         thumbnail_to: body.thumbnail_to.clone().unwrap_or_else(|| "#3d6de0".to_string()),
         thumbnail_image: None,
+        thumbnail_sig: None,
         created_at: now,
         modified_at: now,
         archived_at: None,

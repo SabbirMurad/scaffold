@@ -79,9 +79,16 @@
 }
 
 /* Projects search bar */
-.projects-toolbar { margin-bottom: 20px; }
+/* Filter chips on the left, search on the right (under the New project button). */
+.projects-toolbar { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.projects-search-wrap { position: relative; display: block; width: 280px; }
+.projects-search-icon {
+  position: absolute; left: 12px; top: 50%; width: 15px; height: 15px; transform: translateY(-50%);
+  fill: none; stroke: var(--text3); stroke-width: 2.2; stroke-linecap: round; pointer-events: none; z-index: 1;
+}
+.projects-search-wrap:focus-within .projects-search-icon { stroke: var(--text2, var(--text)); }
 .projects-search {
-  width: 100%; max-width: 340px; padding: 10px 13px;
+  width: 100%; padding: 10px 13px 10px 35px;
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   border: 1px solid var(--glass-border); border-radius: 10px;
@@ -91,6 +98,21 @@
 }
 .projects-search::placeholder { color: var(--text3); }
 .projects-search:focus { border-color: var(--accent); }
+
+/* All / Owner / Shared — one at a time */
+.project-filter { display: flex; gap: 8px; }
+.project-chip {
+  padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  color: var(--text2, var(--text)); font-family: var(--sans); font-size: 12.5px; font-weight: 500;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.project-chip:hover { border-color: var(--border2); color: var(--text); }
+.project-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (max-width: 640px) {
+  .projects-toolbar { flex-wrap: wrap; }
+  .projects-search-wrap { flex: 1 1 100%; width: auto; }
+}
 
 /* Projects grid */
 #projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
@@ -134,12 +156,27 @@
 .project-card:hover .project-del, .project-card:focus-within .project-del { opacity: 1; }
 .project-del:hover { background: var(--red, #f55b5b); }
 .project-preview {
-  height: 116px; display: flex; align-items: center; justify-content: center;
-  font-size: 34px; font-weight: 600; color: rgba(255,255,255,0.92);
+  position: relative; overflow: hidden;
+  height: 172px; display: flex; align-items: center; justify-content: center; padding-bottom: 34px;
+  background: linear-gradient(135deg, #4a4d55, #2a2c31); /* same grey the previews are drawn on */
+  font-size: 34px; font-weight: 600; color: rgba(255,255,255,0.85);
 }
-.project-meta { padding: 11px 13px 13px; }
-.project-name { font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-edited { font-size: 11px; color: var(--text3); margin-top: 3px; }
+/* The editor's picture of the project's latest screens, once it has loaded. */
+.project-preview img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top;
+  opacity: 0; transition: opacity 0.2s;
+}
+.project-preview.has-image img { opacity: 1; }
+.project-preview.has-image span { visibility: hidden; }
+.project-card { height: 172px; }
+/* Name + edit time sit over the preview, on a fade from dark (bottom) to clear. */
+.project-meta {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; pointer-events: none;
+  padding: 40px 13px 12px;
+  background: linear-gradient(to top, rgba(6,7,9,0.98) 0%, rgba(6,7,9,0.88) 30%, rgba(6,7,9,0.5) 62%, rgba(6,7,9,0) 100%);
+}
+.project-name { font-size: 13.5px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-edited { font-size: 11px; color: rgba(255,255,255,0.68); margin-top: 3px; }
 
 /* ───────── Account page ───────── */
 .home-page[data-page="account"] { max-width: 1040px; }

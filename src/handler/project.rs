@@ -24,6 +24,9 @@ pub use pin as Pin;
 pub mod image_upload;
 pub use image_upload as ImageUpload;
 
+pub mod thumbnail;
+pub use thumbnail as Thumbnail;
+
 pub mod comments_list;
 pub use comments_list as CommentsList;
 

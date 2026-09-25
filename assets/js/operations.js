@@ -1,8 +1,8 @@
 import { state, getNode, getComponent, getMasterNode, isMaster, isInstance, nextNodeId } from './state.js';
-import { showToast } from './utils.js';
+import { showToast, canvasWrap } from './utils.js';
 import { saveHistory } from './history.js';
-import { render } from './render.js';
-import { canAcceptChild, getWorldPos, canBeComponent } from './nodes.js';
+import { render, applyTransform } from './render.js';
+import { canAcceptChild, getWorldPos, canBeComponent, isStack, canvasToWorld } from './nodes.js';
 
 // ───────── Components ─────────
 // The component a node stamps as an instance when duplicated/pasted: a master (or an
@@ -12,9 +12,9 @@ function componentRefOf(node) {
   return null;
 }
 
-// A fresh instance node of a component at (x,y) under `parentId`, fixed to the
-// master's size (v1: instances aren't resized). Instances are leaves — they carry
-// no children; render.js live-mirrors the master's subtree inside them.
+// A fresh instance node of a component at (x,y) under `parentId`. Instances are
+// leaves — they carry no children; render.js live-mirrors the master's subtree
+// inside them, and gives them the master's size and sizing modes.
 function makeInstance(componentId, x, y, parentId) {
   const master = getMasterNode(componentId);
   const node = {
@@ -30,7 +30,7 @@ function makeInstance(componentId, x, y, parentId) {
     name: (getComponent(componentId) || {}).name || 'Instance',
     opacity: 1,
     rotation: 0, flipH: false, flipV: false,
-    wMode: 'fixed', hMode: 'fixed',
+    wMode: master ? master.wMode : 'fixed', hMode: master ? master.hMode : 'fixed',
     action: { type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' },
   };
   state.nodes.push(node);
@@ -53,7 +53,93 @@ export function createComponent() {
   state.components.push({ id, name: node.name || 'Component', rootId: node.id });
   saveHistory();
   render();
-  showToast('Component created — copy it to place instances');
+  showToast('Component created — place copies from Components in the left panel');
+}
+
+// ───────── Component management ─────────
+// A component's name is its master's name (renaming either renames both).
+export function componentName(c) {
+  const m = c && getNode(c.rootId);
+  return (m && m.name) || (c && c.name) || 'Component';
+}
+export const instancesOf = (componentId) => state.nodes.filter(n => n.type === 'instance' && n.componentId === componentId);
+
+export function renameComponent(componentId, name) {
+  const c = getComponent(componentId);
+  const v = String(name || '').trim();
+  if (!c || !v) return false;
+  c.name = v;
+  const m = getNode(c.rootId);
+  if (m) m.name = v;
+  return true;
+}
+
+// Replace an instance with a plain, editable copy of its master's design, in the
+// same place (same parent, position and order), keeping what the instance itself
+// set: its name, tap action, visibility and opacity. Returns the new node.
+export function detachInstance(inst) {
+  const master = inst && getMasterNode(inst.componentId);
+  if (!master) return null;
+  const parent = inst.parentId ? getNode(inst.parentId) : null;
+  const index = parent ? parent.children.indexOf(inst.id) : state.nodes.indexOf(inst);
+  const id = instantiate(serializeSubtree(master.id), inst.parentId, inst.x, inst.y);
+  const copy = getNode(id);
+  copy.name = inst.name || copy.name;
+  ['action', 'opacity', 'visible', 'locked', 'showIf', 'rotation', 'flipH', 'flipV'].forEach(k => {
+    if (inst[k] !== undefined) copy[k] = JSON.parse(JSON.stringify(inst[k]));
+  });
+  // Take the instance's place, then drop the instance.
+  if (parent) {
+    parent.children = parent.children.filter(c => c !== id && c !== inst.id);
+    parent.children.splice(index, 0, id);
+  } else {
+    state.nodes.splice(state.nodes.indexOf(copy), 1);
+    state.nodes.splice(index, 0, copy);
+  }
+  state.nodes = state.nodes.filter(n => n.id !== inst.id);
+  if (state.selected.delete(inst.id)) state.selected.add(id);
+  return copy;
+}
+
+// Before a component's master goes, turn its instances (outside `doomed`, the
+// nodes being deleted with it) into plain copies, so nothing on the canvas breaks.
+export function detachInstancesOf(componentIds, doomed = new Set()) {
+  let n = 0;
+  componentIds.forEach(cid => instancesOf(cid).forEach(inst => {
+    if (!doomed.has(inst.id) && detachInstance(inst)) n++;
+  }));
+  return n;
+}
+
+// Select a node and bring it to the middle of the view (e.g. a component's master).
+export function goToNode(id) {
+  const n = getNode(id);
+  if (!n) return;
+  state.selected = new Set([n.id]);
+  const wp = getWorldPos(n);
+  state.panX = canvasWrap.clientWidth / 2 - (wp.x + n.w / 2) * state.zoom;
+  state.panY = canvasWrap.clientHeight / 2 - (wp.y + n.h / 2) * state.zoom;
+  applyTransform();
+  render();
+}
+
+// Place an instance: into the selected container if it can take it, else at the
+// centre of the view. One undo step; the new instance is selected.
+export function placeInstance(componentId) {
+  if (state.readonly || !getMasterNode(componentId)) return null;
+  const sel = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
+  const parent = sel && canAcceptChild(sel, null, 'container') ? sel : null;
+  const master = getMasterNode(componentId);
+  let x = 0, y = 0;
+  if (!parent) {
+    const c = canvasToWorld(canvasWrap.clientWidth / 2, canvasWrap.clientHeight / 2);
+    x = Math.round(c.x - master.w / 2); y = Math.round(c.y - master.h / 2);
+  }
+  const node = makeInstance(componentId, x, y, parent ? parent.id : null);
+  state.selected = new Set([node.id]);
+  saveHistory();
+  render();
+  return node;
 }
 
 // ───────── Copy / paste ─────────
@@ -92,7 +178,9 @@ function instantiate(tree, parentId, x, y) {
   const node = JSON.parse(JSON.stringify(tree));
   delete node._children;
   delete node._world;
-  delete node.componentId; // a deep copy is a plain node, never a component master
+  // A deep copy is a plain node, never a component master — but an instance
+  // inside it stays an instance of its component.
+  if (node.type !== 'instance') delete node.componentId;
   node.id = nextNodeId();
   node.parentId = parentId || null;
   node.x = x;
@@ -164,52 +252,73 @@ export function deleteSelected() {
     }
   });
 
+  // A deleted master takes its component with it; its instances elsewhere
+  // become plain copies of its design first, so nothing on the canvas breaks.
+  const gone = state.components.filter(c => toDelete.has(c.rootId));
+  const detached = detachInstancesOf(gone.map(c => c.id), toDelete);
+
   state.nodes = state.nodes.filter(n => !toDelete.has(n.id));
-  // Drop component definitions whose master was deleted (their instances orphan,
-  // rendering as a "missing" placeholder until re-pointed or removed).
   state.components = state.components.filter(c => !toDelete.has(c.rootId));
   state.selected.clear();
   saveHistory();
   render();
+  if (detached) showToast(`${gone.length === 1 ? `Component "${componentName(gone[0])}"` : 'Components'} deleted \u2014 ${detached} instance${detached === 1 ? ' is' : 's are'} now regular copies`);
 }
 
+// Duplicate the selection with everything inside it, beside the original.
 export function duplicateSelected() {
   if (state.readonly) return;
   const newSel = new Set();
   state.selected.forEach(id => {
     const n = getNode(id);
     if (!n) return;
-    const ref = componentRefOf(n);
-    if (ref) { newSel.add(makeInstance(ref, n.x + 20, n.y + 20, n.parentId).id); return; }
-    const clone = JSON.parse(JSON.stringify(n));
-    clone.id = nextNodeId();
-    clone.x += 20; clone.y += 20;
-    clone.name += ' copy';
-    clone.children = [];
-    state.nodes.push(clone);
-    if (clone.parentId) {
-      const parent = getNode(clone.parentId);
-      if (parent) parent.children.push(clone.id);
-    }
-    newSel.add(clone.id);
+    const copy = cloneNodeInPlace(n); // a whole subtree (or a new instance of a component)
+    if (!copy) return;
+    // Laid-out parents place the copy after its siblings; elsewhere it's offset.
+    const parent = copy.parentId && getNode(copy.parentId);
+    if (!parent || isStack(parent)) { copy.x += 20; copy.y += 20; }
+    if (!isInstance(copy)) copy.name = (n.name || '') + ' copy';
+    newSel.add(copy.id);
   });
   state.selected = newSel;
   saveHistory();
   render();
 }
 
-export function bringToFront() {
-  state.selected.forEach(id => {
-    const i = state.nodes.findIndex(n => n.id === id);
-    if (i !== -1) { const [n] = state.nodes.splice(i, 1); state.nodes.push(n); }
-  });
-  render();
+// Whether a node's stacking order means anything: it sits on the canvas, or in
+// a stack or section — laid-out parents order their children by layout instead.
+export function canReorder(node) {
+  if (!node || node.type === 'section') return false;
+  const parent = node.parentId && getNode(node.parentId);
+  return !parent || isStack(parent);
 }
 
-export function sendToBack() {
+// Move each reorderable selected node above (front) or below (back) its
+// siblings: in its parent's children for nested nodes, among the canvas roots
+// otherwise. One undo step.
+function reorderSelected(toFront) {
+  if (state.readonly) return;
+  let moved = false;
   state.selected.forEach(id => {
-    const i = state.nodes.findIndex(n => n.id === id);
-    if (i !== -1) { const [n] = state.nodes.splice(i, 1); state.nodes.unshift(n); }
+    const n = getNode(id);
+    if (!canReorder(n)) return;
+    const parent = n.parentId && getNode(n.parentId);
+    const list = parent ? parent.children : null;
+    if (list) {
+      list.splice(list.indexOf(n.id), 1);
+      if (toFront) list.push(n.id); else list.unshift(n.id);
+    } else {
+      state.nodes.splice(state.nodes.indexOf(n), 1);
+      if (toFront) state.nodes.push(n); else state.nodes.unshift(n);
+    }
+    moved = true;
   });
+  if (!moved) return;
+  saveHistory();
   render();
 }
+export const bringToFront = () => reorderSelected(true);
+export const sendToBack = () => reorderSelected(false);
+
+// Whether Copy has something to paste.
+export const hasClipboard = () => !!(clipboard && clipboard.length);

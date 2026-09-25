@@ -46,7 +46,15 @@
         <button class="home-btn" id="new-project-btn"><span class="home-btn-plus">+</span> New project</button>
       </div>
       <div class="projects-toolbar">
-        <input id="project-search" class="projects-search" type="search" placeholder="Search projects…" autocomplete="off">
+        <div class="project-filter" id="project-filter" role="radiogroup" aria-label="Show projects">
+          <button type="button" class="project-chip active" data-filter="all" role="radio" aria-checked="true">All</button>
+          <button type="button" class="project-chip" data-filter="owned" role="radio" aria-checked="false">Owner</button>
+          <button type="button" class="project-chip" data-filter="shared" role="radio" aria-checked="false">Shared</button>
+        </div>
+        <label class="projects-search-wrap">
+          <svg class="projects-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+          <input id="project-search" class="projects-search" type="search" placeholder="Search projects…" autocomplete="off" aria-label="Search projects">
+        </label>
       </div>
       <div id="projects-grid"></div>
     </section>

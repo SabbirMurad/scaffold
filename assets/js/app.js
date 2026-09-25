@@ -26,6 +26,7 @@ import { initFlow } from './flow.js';
 import { initPlay } from './play.js';
 import { initAi } from './ai.js';
 import { initCollab } from './collab.js';
+import { initThumbnail, flushThumbnail } from './thumbnail.js';
 import { initComments, loadComments } from './comments.js';
 import { fitView } from './render.js';
 
@@ -252,7 +253,10 @@ exportModal?.addEventListener('click', (e) => { if (e.target === exportModal) cl
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && exportModal && !exportModal.hidden) closeExport(); });
 
 // Nav icons.
-document.getElementById('nav-home')?.addEventListener('click', () => { window.location.href = '/dashboard.html'; });
+document.getElementById('nav-home')?.addEventListener('click', async () => {
+  await flushThumbnail(); // the projects list shows the latest preview
+  window.location.href = '/dashboard.html';
+});
 
 // ───────── Project persistence ─────────
 // The project this editor is bound to (from ?id=…). null → an unsaved scratch
@@ -624,6 +628,7 @@ async function boot() {
   // The project id is a query parameter: /editor.html?id=<id>.
   const projectId = new URLSearchParams(window.location.search).get('id') || null;
   let serverContent = {}; // what the server holds at load, for the save baseline
+  let project = null;     // the project's metadata (name, preview…)
 
   if (projectId) {
     if (!getAuth()) { showAccessScreen('signin', projectId); return; }
@@ -633,6 +638,7 @@ async function boot() {
     if (res.status === 404) { showAccessScreen('notfound', projectId); return; }
     if (res.ok && res.data) {
       currentProjectId = projectId;
+      project = res.data.project || null;
       state.projectId = projectId; // let image uploads (images.js) target this project
       // Viewer role → read-only editor: no create / move / delete / edit. A body
       // class hides the creation tools; `state.readonly` gates the interactions.
@@ -663,6 +669,7 @@ async function boot() {
 
   if (currentProjectId) {
     initCollab(currentProjectId, serverContent); // live sync + persistence over WS
+    initThumbnail(currentProjectId, project);   // keeps the dashboard card's preview current
     loadComments(); // pull existing comment threads for this project
     showToast('Project loaded');
   } else {

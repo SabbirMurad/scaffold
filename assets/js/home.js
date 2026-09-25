@@ -2,7 +2,7 @@
 // Settings, Account, Billing) by toggling the matching <section>.
 
 import { ddTrigger, initDropdowns } from './dropdown.js';
-import { logout, getAuth, initialsAvatar } from './session.js';
+import { logout, getAuth, initialsAvatar, refreshToken } from './session.js';
 import { listProjects, createProject, updateProject, pinProject, deleteProject, myInvites, respondInvite, getMe } from './projects.js';
 import { listFeedback, sendFeedback } from './feedback.js';
 import { confirmModal } from './confirm.js';
@@ -39,6 +39,17 @@ window.addEventListener('hashchange', routeFromHash);
 // Loaded from the project API. Each card opens the editor bound to that project.
 let projects = [];
 const projectSearch = document.getElementById('project-search');
+let projectFilter = 'all'; // all | owned | shared
+document.getElementById('project-filter')?.addEventListener('click', e => {
+  const chip = e.target.closest('.project-chip');
+  if (!chip) return;
+  projectFilter = chip.dataset.filter;
+  chip.parentElement.querySelectorAll('.project-chip').forEach(c => {
+    c.classList.toggle('active', c === chip);
+    c.setAttribute('aria-checked', String(c === chip));
+  });
+  renderProjects();
+});
 
 // "Edited 3 hours ago" style relative time from an epoch-millis timestamp.
 function timeAgo(ms) {
@@ -55,21 +66,51 @@ function timeAgo(ms) {
   return 'just now';
 }
 
+// Card previews: the image the editor drew of the project's latest screens. It's
+// access-gated, so it's fetched with the token and shown from a blob URL; each
+// upload gets a new id, so a URL fetched once stays right for the session.
+const previewUrls = new Map(); // image uuid → Promise<blob URL | null>
+function previewUrl(uuid) {
+  if (!previewUrls.has(uuid)) previewUrls.set(uuid, (async () => {
+    const url = `${window.projectDomain || ''}/api/v1/image/${encodeURIComponent(uuid)}`;
+    const get = (t) => fetch(url, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    const auth = getAuth();
+    let res = await get(auth && auth.access_token);
+    if (res.status === 401) { const fresh = await refreshToken(); if (fresh) res = await get(fresh); }
+    return res.ok ? URL.createObjectURL(await res.blob()) : null;
+  })().catch(() => null));
+  return previewUrls.get(uuid);
+}
+
+function showPreview(card, p) {
+  const uuid = p.thumbnail_image && p.thumbnail_image.uuid;
+  if (!uuid) return;
+  previewUrl(uuid).then(src => {
+    const box = card.querySelector('.project-preview');
+    if (!src || !box) return;
+    const img = new Image();
+    img.alt = '';
+    img.onload = () => { box.classList.add('has-image'); };
+    img.src = src;
+    box.appendChild(img);
+  });
+}
+
 function makeCard(p) {
   const card = document.createElement('div');
   card.className = 'project-card' + (p.pinned ? ' pinned' : '');
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
-  const from = p.thumbnail_from || '#5b8af5';
-  const to = p.thumbnail_to || '#3d6de0';
   card.innerHTML = `
     <button type="button" class="project-pin" title="${p.pinned ? 'Unpin' : 'Pin'}" aria-label="${p.pinned ? 'Unpin project' : 'Pin project'}"></button>
     <button type="button" class="project-del" title="Delete project" aria-label="Delete project">&times;</button>
-    <div class="project-preview" style="background:linear-gradient(135deg, ${from}, ${to})">${escHtml((p.name || '?').charAt(0))}</div>
+    <div class="project-preview"><span>${escHtml((p.name || '?').charAt(0))}</span></div>
     <div class="project-meta">
       <div class="project-name">${escHtml(p.name || 'Untitled')}</div>
       <div class="project-edited">Edited ${timeAgo(p.modified_at)}</div>
     </div>`;
+
+  showPreview(card, p);
 
   const open = () => { window.location.href = `/editor.html?id=${encodeURIComponent(p.uuid)}`; };
   card.addEventListener('click', e => { if (!e.target.closest('.project-pin, .project-del')) open(); });
@@ -104,7 +145,8 @@ function renderProjects() {
   const grid = document.getElementById('projects-grid');
   if (!grid) return;
   const q = (projectSearch?.value || '').trim().toLowerCase();
-  const matches = projects.filter(p => (p.name || '').toLowerCase().includes(q));
+  const matches = projects.filter(p => (p.name || '').toLowerCase().includes(q)
+    && (projectFilter === 'all' || (projectFilter === 'owned' ? p.owned : !p.owned)));
   // Pinned first, then most-recently edited.
   const sorted = matches.slice().sort((a, b) =>
     (Number(b.pinned) - Number(a.pinned)) || ((b.modified_at || 0) - (a.modified_at || 0)));
@@ -113,6 +155,7 @@ function renderProjects() {
   if (!sorted.length) {
     grid.innerHTML = q
       ? `<div class="home-placeholder">No projects match “${escHtml(q)}”.</div>`
+      : projectFilter === 'shared' ? `<div class="home-placeholder">No projects have been shared with you yet.</div>`
       : `<div class="home-placeholder">No projects yet. Click “New project” to start.</div>`;
     return;
   }

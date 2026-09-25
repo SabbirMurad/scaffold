@@ -1,7 +1,7 @@
 import { state, getNode } from './state.js';
 import { isScreenFrame } from './nodes.js';
 import { typeToString, modelError, enumError } from './models.js';
-import { generateScreenBody } from './widgetgen.js';
+import { generateScreenBody, generateComponentBody, componentClass } from './widgetgen.js';
 import { makeZip } from './zip.js';
 import { toDart as mockDart } from './mock.js';
 
@@ -347,6 +347,7 @@ function generateViewFile(it) {
   [...ctx.mocks].sort().forEach(m => L.push(`import 'package:${pkg}/mock/${snake(m)}.dart';`));
   [...ctx.enums].sort().forEach(e => L.push(`import 'package:${pkg}/model/${snake(e)}.dart';`));
   if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
+  componentImports(ctx).forEach(i => L.push(i));
   // Providers the screen reads: a Riverpod consumer that watches each one.
   const watched = [...ctx.providers].map(name => state.providers.find(p => p.name === name)).filter(Boolean);
   if (watched.length) {
@@ -403,7 +404,34 @@ function generateViewFile(it) {
   }
   // Return the .dart content plus any asset files the screen references, so the
   // exporter can bundle icon SVGs (assets/icons/) and image bytes (assets/images/).
-  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks };
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks, components: ctx.components };
+}
+
+// ───────── Components (lib/widget/<name>.dart) ─────────
+const componentFile = (c) => snake(componentClass(c));
+function componentImports(ctx) {
+  const pkg = pkgName();
+  return [...ctx.components].map(id => state.components.find(c => c.id === id)).filter(Boolean)
+    .map(c => `import 'package:${pkg}/widget/${componentFile(c)}.dart';`).sort();
+}
+
+// A component as a StatelessWidget: its master's design, built once and used by
+// every screen (and component) that places it.
+function generateComponentFile(c) {
+  const pkg = pkgName();
+  const cls = componentClass(c);
+  const { code, ctx } = generateComponentBody(c.id, { routeName: (id) => (routeNames.get(id) || null) });
+  const L = [`import 'package:flutter/material.dart';`];
+  if (ctx.svg) L.push(`import 'package:flutter_svg/flutter_svg.dart';`);
+  if (ctx.screenutil) L.push(`import 'package:flutter_screenutil/flutter_screenutil.dart';`);
+  if (ctx.colors) L.push(`import 'package:${pkg}/constants/colors.dart';`);
+  if (ctx.typo) L.push(`import 'package:${pkg}/constants/typography.dart';`);
+  if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
+  ctx.components.delete(c.id);
+  componentImports(ctx).forEach(i => L.push(i));
+  L.push('', `class ${cls} extends StatelessWidget {`, `  const ${cls}({super.key});`, '');
+  L.push(`  @override`, `  Widget build(BuildContext context) {`, `    return ${code};`, `  }`, `}`, '');
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, components: ctx.components };
 }
 
 // Build lib/route.dart: one GoRoute per screen, unique constant + class names,
@@ -687,16 +715,33 @@ export function exportModelsCode(selection = null) {
     const items = screenItems(screens);
     routeNames = new Map(items.map(it => [it.fr.id, it.cname]));
     const usedMocks = new Set();
+    const usedComponents = new Set();
     const iconAssets = new Map();  // assets/icons/<name>.svg  → svg markup   (deduped across screens)
     const imageAssets = new Map(); // assets/images/<name>.<ext> → image bytes (deduped across screens)
     items.forEach(it => {
-      const { content, icons, images, mocks } = generateViewFile(it);
+      const { content, icons, images, mocks, components } = generateViewFile(it);
       mocks.forEach(m => usedMocks.add(m));
+      components.forEach(c => usedComponents.add(c));
       files.push({ name: `lib/view/${it.file}.dart`, content });
       icons.forEach((svg, path) => iconAssets.set(path, svg));
       images.forEach((bytes, path) => imageAssets.set(path, bytes));
     });
     files.push({ name: 'lib/route.dart', content: generateRouteFile(items) });
+    // Each component the screens use (and the components those use), once.
+    const done = new Set();
+    const queue = [...usedComponents];
+    while (queue.length) {
+      const id = queue.shift();
+      if (done.has(id)) continue;
+      done.add(id);
+      const c = state.components.find(x => x.id === id);
+      if (!c) continue;
+      const { content, icons, images, components } = generateComponentFile(c);
+      files.push({ name: `lib/widget/${componentFile(c)}.dart`, content });
+      icons.forEach((svg, path) => iconAssets.set(path, svg));
+      images.forEach((bytes, path) => imageAssets.set(path, bytes));
+      components.forEach(x => queue.push(x));
+    }
     // The mock data the screens read (lib/mock/<set>.dart), plus the model and enum
     // files it needs even if they weren't picked for export.
     usedMocks.forEach(name => {

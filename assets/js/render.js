@@ -395,6 +395,7 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
   el.id = 'node-' + node.id;
   el.dataset.id = node.id;
   if (inRepeat) el.dataset.scope = registerScope(scope); // Play resolves conditional routes per item
+  if (node.type === 'instance') followMaster(node);
   // A condition that doesn't hold: dimmed on the canvas (still editable), gone in Play.
   if (node.showIf && !evalCond(node.showIf, scope)) el.classList.add('cond-hidden');
 
@@ -480,6 +481,15 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
   // corner (Figma style). It lives beside the node — not inside it — and
   // counter-scales off --zoom so it stays a constant on-screen size.
   if (node.type === 'frame' || node.type === 'section') addFrameLabel(node, parent);
+}
+
+// An instance is its component's size: it takes the master's size and sizing
+// modes (fill / hug / fixed), so resizing the master resizes every instance.
+function followMaster(node) {
+  const m = getMasterNode(node.componentId);
+  if (!m) return;
+  node.w = m.w; node.h = m.h;
+  node.wMode = m.wMode || 'fixed'; node.hMode = m.hMode || 'fixed';
 }
 
 // ── Component instances: a read-only live mirror of the master's subtree ──
@@ -631,6 +641,7 @@ export function updateNodeEl(node) {
     if (label) { label.style.left = node.x + 'px'; label.style.top = node.y + 'px'; }
   }
   if (node.type === 'frame') applyScreenFold(el, node); // live-update the fold on resize
+  if (node.type === 'instance') followMaster(node);
   applyPosition(el, node);
   applySize(el, node);
   applyNodeTransform(el, node);

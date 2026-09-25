@@ -1325,6 +1325,13 @@ body.role-viewer #props-panel select,
 body.role-viewer #props-panel .dd-trigger,
 body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
 
+/* Properties → Component */
+.comp-line { font-size: 12.5px; color: var(--text2); margin-bottom: 4px; }
+.comp-line b { color: #b69cff; font-weight: 600; }
+.comp-actions { display: flex; gap: 8px; margin-top: 8px; }
+.comp-btn { flex: 1; border: 1px solid var(--border2); background: var(--surface2); color: var(--text); border-radius: 7px; padding: 6px 8px; font: 500 12px var(--sans); cursor: pointer; }
+.comp-btn:hover { background: var(--surface3); }
+
 /* Properties → Data / conditional routes */
 .prop-row.data-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .prop-row.data-row .prop-label-wide { width: 58px; flex-shrink: 0; }
@@ -1334,3 +1341,16 @@ body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
 
 /* Claude's replies and comment threads are text to copy from. */
 .claude-msg, .cmt-thread { user-select: text; -webkit-user-select: text; cursor: text; }
+
+/* Components: layer glyphs + the Components list under Layers */
+.comp-glyph { color: #b69cff; font-size: 11px; }
+.comp-glyph.missing { color: var(--red); }
+#components-panel { flex-shrink: 0; max-height: 34%; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+#components-panel[hidden] { display: none; }
+#components-list { overflow-y: auto; padding: 4px 0; }
+.comp-row { display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer; font-size: 12.5px; color: var(--text2); }
+.comp-row:hover { background: var(--surface2); color: var(--text); }
+.comp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comp-count { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+.comp-place { border: none; background: var(--surface3); color: var(--text); width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 14px; line-height: 1; }
+.comp-place:hover { background: var(--accent); color: #fff; }

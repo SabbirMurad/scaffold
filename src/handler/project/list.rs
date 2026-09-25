@@ -16,6 +16,7 @@ struct ProjectListItem {
     #[serde(flatten)]
     core: ProjectCore,
     pinned: bool,
+    owned: bool,   // the caller owns it (otherwise it's shared with them)
 }
 
 // Every active project the caller can open: the ones they own, plus the ones
@@ -110,7 +111,7 @@ pub async fn task(req: HttpRequest) -> Result<HttpResponse, Error> {
             if core.owner_id != user.user_id {
                 core.public_token = None;
             }
-            ProjectListItem { pinned: pinned_ids.contains(&core.uuid), core }
+            ProjectListItem { pinned: pinned_ids.contains(&core.uuid), owned: core.owner_id == user.user_id, core }
         })
         .collect();
 

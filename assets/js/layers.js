@@ -1,10 +1,16 @@
-import { state, getNode } from './state.js';
+import { state, getNode, isMaster } from './state.js';
+import { componentName, instancesOf, goToNode, placeInstance } from './operations.js';
 import { layersList, showToast } from './utils.js';
-import { isDescendant, reparentNode, canAcceptChild } from './nodes.js';
+import { isDescendant, reparentNode, canAcceptChild, isStack } from './nodes.js';
 import { saveHistory } from './history.js';
 import { render } from './render.js';
 
 let layerFlatList = [];
+
+// Children of a laid-out container (column, row, wrap, or a single-child box) are
+// listed in their visual order, top to bottom. On the canvas and in stacks and
+// sections, where things overlap, the list runs front-most first instead.
+const listsInOrder = (parent) => !!parent && !isStack(parent);
 // Transient UI state — which tree nodes are collapsed in the layers panel.
 // Kept out of the node model so it isn't saved to history or exported.
 const collapsed = new Set();
@@ -41,13 +47,14 @@ export function renderLayers() {
     layersList.appendChild(el);
     layerFlatList.push({ node, depth, el });
     if (node.children && node.children.length && !collapsed.has(node.id)) {
-      [...node.children].reverse().forEach(cid => walk(cid, depth + 1));
+      (listsInOrder(node) ? node.children : [...node.children].reverse()).forEach(cid => walk(cid, depth + 1));
     }
   }
 
   const roots = [...state.nodes].filter(n => !n.parentId).reverse();
   roots.forEach(n => walk(n.id, 0));
   initLayerDnd();
+  renderComponents();
 
   // Rebuilding the list resets its scroll; keep the reader where they were, then
   // bring a newly selected layer into view if it's outside it.
@@ -57,6 +64,35 @@ export function renderLayers() {
     if (first) scrollIntoList(first.el);
   }
 }
+
+// Every component: click to go to its master, + to place an instance.
+function renderComponents() {
+  const panel = document.getElementById('components-panel');
+  const list = document.getElementById('components-list');
+  if (!panel || !list) return;
+  panel.hidden = !state.components.length;
+  list.innerHTML = state.components.map(c => {
+    const n = instancesOf(c.id).length;
+    return `<div class="comp-row" data-comp="${c.id}" title="Go to component">
+      <span class="comp-glyph">◆</span>
+      <span class="comp-name"></span>
+      <span class="comp-count">${n}</span>
+      ${state.readonly ? '' : `<button type="button" class="comp-place" data-place="${c.id}" title="Place an instance">+</button>`}
+    </div>`;
+  }).join('');
+  // Names as text (not markup) — they're user-typed.
+  list.querySelectorAll('.comp-row').forEach(row => {
+    row.querySelector('.comp-name').textContent = componentName(state.components.find(c => c.id === row.dataset.comp));
+  });
+}
+
+document.getElementById('components-list')?.addEventListener('click', e => {
+  const place = e.target.closest('[data-place]');
+  if (place) { placeInstance(place.dataset.place); return; }
+  const row = e.target.closest('[data-comp]');
+  const c = row && state.components.find(x => x.id === row.dataset.comp);
+  if (c) goToNode(c.rootId);
+});
 
 // Scroll the list just enough to show `el` (nothing if it's already fully visible).
 function scrollIntoList(el) {
@@ -70,6 +106,12 @@ function scrollIntoList(el) {
 // (masked to the text colour); a section uses the open/closed folder icon; other
 // types keep a unicode glyph.
 function layerIconHtml(node) {
+  // Components: a filled diamond for the master, an outlined one for instances.
+  if (isMaster(node)) return `<span class="layer-icon comp-glyph" title="Component">◆</span>`;
+  if (node.type === 'instance') {
+    const ok = state.components.some(c => c.id === node.componentId);
+    return `<span class="layer-icon comp-glyph${ok ? '' : ' missing'}" title="${ok ? 'Instance' : 'Its component was deleted'}">${ok ? '◇' : '⚠'}</span>`;
+  }
   let svg = { frame: 'frame', container: 'container', image: 'image' }[node.type];
   if (node.type === 'section') svg = collapsed.has(node.id) ? 'folder-close' : 'folder-open';
   if (svg) {
@@ -245,8 +287,10 @@ function applyLayerDrop(srcNode, targetNode, zone) {
       const parent = getNode(newParentId);
       const children = parent.children.filter(id => id !== srcNode.id);
       const tIdx = children.indexOf(targetNode.id);
-      if (zone === 'above') children.splice(tIdx + 1, 0, srcNode.id);
-      else children.splice(tIdx, 0, srcNode.id);
+      // "Above" in the list is earlier in a laid-out parent, but in front (later)
+      // in a stack or section, whose list is shown front-most first.
+      const after = listsInOrder(parent) ? zone === 'below' : zone === 'above';
+      children.splice(after ? tIdx + 1 : tIdx, 0, srcNode.id);
       parent.children = children;
     } else {
       const nodesWithoutSrc = state.nodes.filter(n => n.id !== srcNode.id);

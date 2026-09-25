@@ -42,7 +42,7 @@ const FIELD_OWNERS = {
   text: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
   fontSizeOverride: ['text'], fontWeightOverride: ['text'],
   repeat: ['frame', 'container'],
-  routePath: ['frame'], isInitial: ['frame'], screenH: ['frame'],
+  routePath: ['frame'], isInitial: ['frame'], screenH: ['frame'], editedAt: ['frame'],
   layout: LAYOUT_TYPES, scroll: LAYOUT_TYPES, gap: LAYOUT_TYPES, gapH: LAYOUT_TYPES, gapV: LAYOUT_TYPES,
 };
 

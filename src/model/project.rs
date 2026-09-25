@@ -52,6 +52,10 @@ pub struct ProjectCore {
     pub thumbnail_from: String,         // hex, e.g. "#5b8af5"
     pub thumbnail_to: String,           // hex, e.g. "#3d6de0"
     pub thumbnail_image: Option<ImageStruct>,
+    // Fingerprint of the design the thumbnail was drawn from. The editor compares
+    // it with the design it has open and only redraws + uploads when they differ.
+    #[serde(default)]
+    pub thumbnail_sig: Option<String>,
 
     pub created_at: i64,                 // epoch millis
     pub modified_at: i64,                // bumped whenever the document is saved

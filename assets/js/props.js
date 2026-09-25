@@ -1,4 +1,5 @@
-import { state, getNode } from './state.js';
+import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
+import { componentName, instancesOf, detachInstance, placeInstance, goToNode, renameComponent } from './operations.js';
 import { noSelection, propsFields, esc } from './utils.js';
 import { swatchBg } from './colors.js';
 import { updateNodeEl, render } from './render.js';
@@ -340,6 +341,53 @@ function screenSection(node) {
       </label>
       <div style="font-size:11px;color:var(--text3);margin-top:6px">${inboundText}</div>
     </div>`;
+}
+
+// ───────── Components ─────────
+// An instance says what it's an instance of (it takes its size from there), with
+// the way back to the component and the way out (detach). A master says it's a
+// component and how many copies it has, and places another.
+function componentSection(node) {
+  if (node.type === 'instance') {
+    const c = getComponent(node.componentId);
+    const master = getMasterNode(node.componentId);
+    return `<div class="prop-section">
+      <div class="prop-section-title">Component</div>
+      ${master ? `
+      <div class="comp-line">Instance of <b>${esc(componentName(c))}</b></div>
+      <div class="api-hint">Its design and size come from the component \u2014 edit the component to change every instance.</div>
+      <div class="comp-actions">
+        <button type="button" class="comp-btn" id="p-comp-go">Go to component</button>
+        <button type="button" class="comp-btn" id="p-comp-detach" title="Turn into a regular, editable copy">Detach</button>
+      </div>` : `
+      <div class="comp-line">Its component was deleted.</div>`}
+    </div>`;
+  }
+  if (isMaster(node)) {
+    const c = getComponent(node.componentId);
+    const n = instancesOf(node.componentId).length;
+    return `<div class="prop-section">
+      <div class="prop-section-title">Component</div>
+      <div class="comp-line"><b>${esc(componentName(c))}</b> \u00b7 ${n} instance${n === 1 ? '' : 's'}</div>
+      <div class="api-hint">Changes here show in every instance. Renaming this layer renames the component.</div>
+      <div class="comp-actions"><button type="button" class="comp-btn" id="p-comp-place">Place an instance</button></div>
+    </div>`;
+  }
+  return '';
+}
+
+function bindComponentButtons(node) {
+  document.getElementById('p-comp-go')?.addEventListener('click', () => {
+    const c = getComponent(node.componentId);
+    if (c) goToNode(c.rootId);
+  });
+  document.getElementById('p-comp-detach')?.addEventListener('click', () => {
+    if (detachInstance(node)) { saveHistory(); render(); }
+  });
+  document.getElementById('p-comp-place')?.addEventListener('click', () => {
+    state.selected.clear(); // place on the canvas, not inside the master
+    placeInstance(node.componentId);
+  });
 }
 
 // ───────── Data (mock data in the design) ─────────
@@ -687,13 +735,15 @@ export function renderProps() {
         <label class="input-affix"><span class="input-affix-label">Y</span><input class="prop-input bare" id="p-y" type="number" value="${Math.round(node.y)}"></label>
       </div>
     </div>
+    ${componentSection(node)}
+    ${node.type === 'instance' ? '' : `
     <div class="prop-section">
       <div class="prop-section-title">Size</div>
       <div class="prop-row affix-row">
         ${sizeWField(node)}
         ${sizeHField(node)}
       </div>
-    </div>
+    </div>`}
     ${node.type === 'container' || node.type === 'frame' ? boxSection('Padding', 'pad', node.padding) : ''}
     ${node.type === 'container' ? boxSection('Margin', 'mar', node.margin) : ''}
     ${node.type !== 'frame' && node.type !== 'section' ? `
@@ -824,6 +874,7 @@ export function renderProps() {
   // Bind inputs
   bindProp('p-name', v => {
     node.name = v;
+    if (isMaster(node)) renameComponent(node.componentId, v); // a component is named after its master
     if (isIdentNode(node)) {
       const err = frameNameError(v);
       const inp = document.getElementById('p-name');
@@ -1045,6 +1096,7 @@ export function renderProps() {
   document.querySelectorAll('[data-av]').forEach(b => b.addEventListener('click', () => { node.alignment.v = b.dataset.av; updateNodeEl(node); renderProps(); }));
 
   bindDataInputs(node);
+  bindComponentButtons(node);
 
   // Viewer (read-only): make every control inert — values remain visible, but
   // nothing responds to clicks, typing, or the custom dropdowns.
