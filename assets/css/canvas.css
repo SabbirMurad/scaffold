@@ -261,6 +261,9 @@ body.comment-mode #design-view { display: none; }
 .play-screen::-webkit-scrollbar { width: 0; height: 0; display: none; }
 /* Any tappable layer (has a navigate action) shows a pointer in Play. */
 .play-screen .node.has-action { cursor: pointer; }
+/* Drag to scroll: no text selection while dragging, and a grabbing hand once it's a drag. */
+.play-screen { user-select: none; -webkit-user-select: none; }
+.play-screen.dragging, .play-screen.dragging * { cursor: grabbing !important; }
 
 @keyframes play-anim-fwd  { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes play-anim-back { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }

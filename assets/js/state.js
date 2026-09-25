@@ -90,6 +90,21 @@ const COUNTERS = [
   ['nextParamId', 'q', () => state.providers.flatMap(p => (p.apis || []).flatMap(a => a.params || []))],
 ];
 
+// A screen's device height (screenH) marks where the visible screen ends; the
+// frame may run taller (scrolling), never shorter. A screen saved with a device
+// height taller than its frame (it drew no fold and played as a stretched phone)
+// gets the device height the project's other screens use, or the default phone's.
+export function repairScreens() {
+  const frames = state.nodes.filter(n => n.type === 'frame');
+  const valid = frames.filter(f => f.screenH != null && f.screenH <= f.h).map(f => f.screenH);
+  const counts = new Map();
+  valid.forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
+  const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  frames.forEach(f => {
+    if (f.screenH != null && f.screenH > f.h) f.screenH = Math.min(f.h, common ? common[0] : 852);
+  });
+}
+
 // Move every counter past the highest id actually in use.
 export function repairCounters() {
   for (const [key, prefix, items] of COUNTERS) {

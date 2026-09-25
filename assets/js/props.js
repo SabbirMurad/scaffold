@@ -349,7 +349,9 @@ function screenSection(node) {
 
 // A path picker for one slot, keeping a now-broken path visible (flagged).
 function pathPicker(scope, slot, value, data) {
-  const opts = [{ value: '', label: '—' }, ...pathOptions(scope, slot).map(o => ({ value: o.path, label: o.path }))];
+  const opts = [{ value: '', label: '—' }, ...pathOptions(scope, slot).map(o => ({
+    value: o.path, label: o.source === 'provider' ? `${o.path} \u00b7 provider` : o.path,
+  }))];
   if (value && !opts.some(o => o.value === value)) opts.push({ value, label: '\u26a0 ' + value });
   return ddTrigger({ value: value || '', options: opts, data, triggerClass: 'dd-block' });
 }

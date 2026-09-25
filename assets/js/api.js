@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { esc } from './utils.js';
 import { validModelNames } from './models.js';
+import { providerPreview, previewCandidates } from './data.js';
 import { ddTrigger } from './dropdown.js';
 import { saveHistory } from './history.js';
 
@@ -283,11 +284,45 @@ function renderProviderCard(p) {
       </div>
       <button class="prop-add provider-add" data-add-api="${p.id}">+ Add endpoint</button>
     </div>
+    ${providerSourceRow(p)}
     <div class="provider-endpoints">
       ${p.apis.map(a => renderEndpointCard(p, a)).join('')}
       ${p.apis.length === 0 ? `<div class="api-hint" style="margin:2px 0 0">No endpoints yet.</div>` : ''}
     </div>
   </div>`;
+}
+
+// What the provider's state is: the endpoint build() loads it with, and the mock
+// set that stands in for it in the design tab.
+function providerSourceRow(p) {
+  if (!p.output.model) return '';
+  const loads = loadCandidates(p);
+  const loadDD = ddTrigger({
+    value: p.load || '',
+    options: [{ value: '', label: '— none —' }, ...loads.map(a => ({ value: a.id, label: a.name }))],
+    data: { prov: p.id, field: 'provLoad' },
+  });
+  const auto = providerPreview(p);
+  const previewDD = ddTrigger({
+    value: p.preview || '',
+    options: [
+      { value: '', label: auto && !p.preview ? `Auto (${auto.name})` : 'Auto' },
+      ...previewCandidates(p).map(s => ({ value: s.id, label: s.name })),
+    ],
+    data: { prov: p.id, field: 'provPreview' },
+  });
+  return `
+    <div class="provider-source">
+      <div class="provider-output"><span class="provider-output-label">Loads with</span>${loadDD}
+        <span class="api-hint">${loads.length ? 'build() returns this endpoint\u2019s result' : `add an endpoint whose output is ${esc(provOutputStr(p))}`}</span></div>
+      <div class="provider-output"><span class="provider-output-label">Preview data</span>${previewDD}
+        <span class="api-hint">${previewCandidates(p).length ? 'shown for this provider in the design tab' : `create ${p.output.type === 'list' ? 'a list' : 'a single'} ${esc(p.output.model)} in Mock Data to preview it`}</span></div>
+    </div>`;
+}
+
+// Endpoints whose result is the provider's state (same model, same single/list).
+export function loadCandidates(p) {
+  return p.apis.filter(a => a.output.model === p.output.model && a.output.type === p.output.type);
 }
 
 export function renderApi() {
@@ -355,6 +390,8 @@ export function initApi() {
       if (!p) return;
       if (t.dataset.field === 'provOutType') p.output.type = v;
       else if (t.dataset.field === 'provOutModel') p.output.model = v;
+      else if (t.dataset.field === 'provLoad') p.load = v || null;
+      else if (t.dataset.field === 'provPreview') p.preview = v || null;
       else return;
       saveHistory();
       return renderApi();

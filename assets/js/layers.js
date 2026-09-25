@@ -15,7 +15,22 @@ const EYE_OFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const LOCK_CLOSED = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>`;
 const LOCK_OPEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 7.5-1.8"/></svg>`;
 
+// The selection the panel last scrolled to. Revealing only when the selection
+// changes keeps the list still while you scroll it yourself or edit the design.
+let revealedFor = '';
+
 export function renderLayers() {
+  // A newly selected layer inside a collapsed group: open the groups above it.
+  const selKey = [...state.selected].sort().join(',');
+  const reveal = selKey !== '' && selKey !== revealedFor;
+  if (reveal) {
+    state.selected.forEach(id => {
+      for (let p = getNode(id); p && p.parentId; p = getNode(p.parentId)) collapsed.delete(p.parentId);
+    });
+  }
+  revealedFor = selKey;
+
+  const scrollTop = layersList.scrollTop;
   layersList.innerHTML = '';
   layerFlatList = [];
 
@@ -33,6 +48,22 @@ export function renderLayers() {
   const roots = [...state.nodes].filter(n => !n.parentId).reverse();
   roots.forEach(n => walk(n.id, 0));
   initLayerDnd();
+
+  // Rebuilding the list resets its scroll; keep the reader where they were, then
+  // bring a newly selected layer into view if it's outside it.
+  layersList.scrollTop = scrollTop;
+  if (reveal) {
+    const first = layerFlatList.find(({ node }) => state.selected.has(node.id));
+    if (first) scrollIntoList(first.el);
+  }
+}
+
+// Scroll the list just enough to show `el` (nothing if it's already fully visible).
+function scrollIntoList(el) {
+  const list = layersList.getBoundingClientRect();
+  const row = el.getBoundingClientRect();
+  if (row.top < list.top) layersList.scrollTop -= list.top - row.top + 8;
+  else if (row.bottom > list.bottom) layersList.scrollTop += row.bottom - list.bottom + 8;
 }
 
 // The row icon for a layer. Frame/container/image use the SVGs in /icons/layers/

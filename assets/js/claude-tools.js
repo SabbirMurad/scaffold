@@ -28,7 +28,7 @@ import { provNameError, apiNameError, anyProviderError } from './api.js';
 import { frameNameError, routeError, anyFrameError } from './props.js';
 import { finalizeImages, resolveRefsForExport } from './images.js';
 import { exportModelsCode } from './codegen.js';
-import { scopeFor, pathError, condError, canRepeat, OP_VALUES } from './data.js';
+import { scopeFor, pathError, condError, canRepeat, OP_VALUES, providerPreview, previewCandidates } from './data.js';
 import { loadComments } from './comments.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
 
@@ -56,7 +56,7 @@ const ELEMENT_HELP = [
   'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","fill":"item.color_hex","color":"…"} fills an element from a field; '
     + '"showIf":{"path":"user.role","op":"==","value":"admin"} shows it only while the condition holds (op: truthy, falsy, ==, !=, >, <, >=, <=, empty, notEmpty — compare enums by value name); '
     + 'on a row/column/wrap container, "repeat":{"source":"exercises","as":"item"} draws its children once per item of a list — design them once, bound to item.<field>. '
-    + 'Paths start at a mock set\'s name or an enclosing repeat\'s alias. Set any of these to null to remove it.',
+    + 'Paths start at a mock set\'s name, an API provider\'s name (the design shows its preview mock data; exported screens read the provider), or an enclosing repeat\'s alias. Set any of these to null to remove it.',
   'Down a column, children fill its width by default. Along a row, children fit their content; give width "fill" to the ones that should share the row\'s free space (e.g. two buttons side by side). ' + COLOR_HELP,
 ].join('\n');
 
@@ -96,7 +96,9 @@ const TOOLS = [
     inputSchema: obj({
       name: str('snake_case, e.g. "login_page".'),
       section_id: str('Put the screen inside this section.'),
-      width: num('Default 393.'), height: num('Default 852 (the device screen height).'),
+      width: num('Default 393.'),
+      height: num('The frame\'s height. Default: the screen height. Taller makes the screen scroll: the device screen stays screen_height tall and the rest is below the fold.'),
+      screen_height: num('The device screen\'s height (what\'s visible without scrolling). Default 852; change it only for another device size.'),
       background: str(COLOR_HELP),
       padding: { description: 'A number, or {t,r,b,l}.' }, gap: num(),
       layout: { type: 'string', enum: ['column', 'row', 'stack', 'none'] },
@@ -263,13 +265,17 @@ const TOOLS = [
     name: 'edit_provider', title: 'Edit API provider', annotations: EDIT,
     description: 'Create, update or delete an API provider (a Riverpod provider grouping REST endpoints that share the base URL). Names are camelCase. '
       + 'endpoints replaces the whole list: [{"name":"getUser","method":"GET","version":"v1","route":"users/:id","params":{"page":"1"},"headers":{"Accept":"application/json"},"body":"","output":"User","output_type":"single"}]. '
-      + 'output is a model name (or "json" for endpoints); output_type is single or list. base_url sets the shared API base URL.',
+      + 'output is a model name (or "json" for endpoints); output_type is single or list. base_url sets the shared API base URL. '
+      + 'load names the endpoint the provider\'s build() returns (its state; the endpoint\'s output must match the provider\'s). preview names the mock set shown for the provider in the design tab (same model and single/list; default: the only matching set). '
+      + 'A provider with a model output is a data source in the design like a mock set: bind, repeat and route on "<providerName>.<field>".',
     inputSchema: obj({
       action: { type: 'string', enum: ['create', 'update', 'delete'] },
       id: str(), name: str(), rename: str(),
       output: str('Model name for the provider\'s state.'), output_type: { type: 'string', enum: ['single', 'list'] },
       endpoints: { type: 'array', items: { type: 'object' } },
       base_url: str(),
+      load: { type: ['string', 'null'], description: 'Endpoint name build() loads the state with.' },
+      preview: { type: ['string', 'null'], description: 'Mock set name shown for this provider in the design.' },
     }, ['action']),
   },
 
@@ -630,7 +636,9 @@ async function applyProps(node, p) {
     } else if (isNum(v) && v > 0) {
       node[axis] = v; node[mode] = 'fixed';
       if (t === 'text' && axis === 'w') node.autoSize = false;
-      if (t === 'frame' && axis === 'h' && !node.screenH) node.screenH = v;
+      // A frame's height only changes how far it scrolls; the device screen stays,
+      // unless the frame gets shorter than it.
+      if (t === 'frame' && axis === 'h' && (!node.screenH || node.screenH > v)) node.screenH = v;
     } else fail(`${axis === 'w' ? 'width' : 'height'} is a px number, "fill" or "hug"`);
   };
   if (p.height !== undefined && t === 'text') fail('A text\'s height follows its content — set fontSize, or wrap it in a container with a height');
@@ -910,6 +918,8 @@ function getData() {
     apiBaseUrl: state.apiBaseUrl,
     providers: state.providers.map(p => ({
       id: p.id, name: p.name, output: p.output.model, output_type: p.output.type,
+      load: (p.apis.find(a => a.id === p.load) || {}).name || null,
+      preview: (providerPreview(p) || {}).name || null,
       endpoints: p.apis.map(a => ({
         id: a.id, name: a.name, method: a.method, version: a.version, route: a.route,
         params: Object.fromEntries((a.params || []).map(x => [x.key, x.value])),
@@ -926,7 +936,9 @@ async function createScreen(args) {
   const section = args.section_id ? need(getNode(args.section_id), args.section_id) : null;
   if (section && section.type !== 'section') fail(`"${section.name}" is a ${section.type}, not a section`);
   const w = isNum(args.width) ? args.width : DEVICE.w;
-  const h = isNum(args.height) ? args.height : DEVICE.h;
+  // The device screen, and the frame — which may run taller than it (scrolling).
+  const screenH = isNum(args.screen_height) ? args.screen_height : DEVICE.h;
+  const h = isNum(args.height) ? Math.max(args.height, 1) : screenH;
 
   let x, y;
   if (section) {
@@ -939,7 +951,7 @@ async function createScreen(args) {
   } else ({ x, y } = freeSpot(w, h));
 
   const frame = makeNode('frame', x, y, w, h, section ? section.id : null);
-  frame.screenH = h;
+  frame.screenH = Math.min(screenH, h); // a frame shorter than the screen is a shorter device
   frame.layout = 'column'; frame.gap = frame.gapH = frame.gapV = 12;
   frame.padding = { t: 20, r: 20, b: 20, l: 20 };
   frame.colorId = null; frame.fill = '#ffffff';
@@ -948,7 +960,7 @@ async function createScreen(args) {
 
   const made = { count: 0 };
   try {
-    const { children, section_id, width, height, ...props } = args;
+    const { children, section_id, width, height, screen_height, ...props } = args;
     await applyProps(frame, props);
     if (args.route === undefined) frame.routePath = routeFromName(frame.name);
     for (const child of children || []) await build(child, frame, undefined, made);
@@ -1575,11 +1587,33 @@ function editProvider(args) {
     if (args.output !== undefined) p.output.model = modelOk(args.output, false);
     if (args.output_type !== undefined) p.output.type = args.output_type;
   };
+  // What fills the provider: the endpoint build() returns, and its design preview.
+  const setSource = (p) => {
+    if (args.load !== undefined) {
+      if (!args.load) p.load = null;
+      else {
+        const a = p.apis.find(x => x.name === args.load);
+        if (!a) fail(`Provider "${p.name}" has no endpoint "${args.load}"`);
+        if (a.output.model !== p.output.model || a.output.type !== p.output.type) {
+          fail(`load: "${a.name}" returns ${a.output.type} ${a.output.model || 'nothing'}, but the provider holds ${p.output.type} ${p.output.model || 'nothing'}`);
+        }
+        p.load = a.id;
+      }
+    }
+    if (args.preview !== undefined) {
+      if (!args.preview) p.preview = null;
+      else {
+        const s = previewCandidates(p).find(x => x.name === args.preview);
+        if (!s) fail(`preview: no ${p.output.type} mock set of ${p.output.model} named "${args.preview}" (there are: ${previewCandidates(p).map(x => x.name).join(', ') || 'none'})`);
+        p.preview = s.id;
+      }
+    }
+  };
 
   if (args.action === 'create') {
     const p = { id: 'pr' + state.nextProviderId++, name: args.name || 'provider' + state.nextProviderId, output: { type: 'single', model: '' }, apis: [] };
     state.providers.push(p);
-    try { validated(provNameError(p), `Provider "${p.name}"`); setOutput(p); setEndpoints(p); } catch (e) { state.providers.pop(); throw e; }
+    try { validated(provNameError(p), `Provider "${p.name}"`); setOutput(p); setEndpoints(p); setSource(p); } catch (e) { state.providers.pop(); throw e; }
     baseUrl();
     commit();
     return { ok: true, summary: `Added provider "${p.name}" with ${plural(p.apis.length, 'endpoint')}`, id: p.id };
@@ -1599,7 +1633,7 @@ function editProvider(args) {
   const before = clone(p);
   try {
     if (args.rename !== undefined) { p.name = args.rename; validated(provNameError(p), `Provider "${p.name}"`); }
-    setOutput(p); setEndpoints(p);
+    setOutput(p); setEndpoints(p); setSource(p);
   } catch (e) { Object.assign(p, before); throw e; }
   baseUrl();
   commit();

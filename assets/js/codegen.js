@@ -275,7 +275,10 @@ function generateProviderFile(p) {
   L.push(`class ${cls} extends _$${cls} {`);
   L.push(`  @override`);
   L.push(`  FutureOr<${provBuildType(p)}> build() async {`);
-  L.push(`    return null;`);
+  // The state starts as what the provider's load endpoint returns.
+  const load = p.load && p.apis.find(a => a.id === p.load
+    && a.output.model === p.output.model && a.output.type === p.output.type);
+  L.push(load ? `    return ${load.name}();` : `    return null;`);
   L.push(`  }`);
   p.apis.forEach(a => { L.push(''); L.push(generateApiMethod(a)); });
   L.push(`}`);
@@ -344,9 +347,16 @@ function generateViewFile(it) {
   [...ctx.mocks].sort().forEach(m => L.push(`import 'package:${pkg}/mock/${snake(m)}.dart';`));
   [...ctx.enums].sort().forEach(e => L.push(`import 'package:${pkg}/model/${snake(e)}.dart';`));
   if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
+  // Providers the screen reads: a Riverpod consumer that watches each one.
+  const watched = [...ctx.providers].map(name => state.providers.find(p => p.name === name)).filter(Boolean);
+  if (watched.length) {
+    L.push(`import 'package:flutter_riverpod/flutter_riverpod.dart';`);
+    watched.forEach(p => L.push(`import 'package:${pkg}/provider/${snake(p.name)}.dart';`));
+  }
   it.mocks = ctx.mocks;
   L.push('');
-  L.push(`class ${cls} extends StatefulWidget {`);
+  const consumer = watched.length > 0;
+  L.push(`class ${cls} extends ${consumer ? 'ConsumerStatefulWidget' : 'StatefulWidget'} {`);
   if (it.params.length) {
     it.params.forEach(p => L.push(`  final String ${p};`));
     L.push('');
@@ -356,10 +366,10 @@ function generateViewFile(it) {
   }
   L.push('');
   L.push(`  @override`);
-  L.push(`  State<${cls}> createState() => _${cls}State();`);
+  L.push(`  ${consumer ? 'ConsumerState' : 'State'}<${cls}> createState() => _${cls}State();`);
   L.push(`}`);
   L.push('');
-  L.push(`class _${cls}State extends State<${cls}> {`);
+  L.push(`class _${cls}State extends ${consumer ? 'ConsumerState' : 'State'}<${cls}> {`);
   L.push(`  @override`);
   L.push(`  void initState() {`);
   L.push(`    super.initState();`);
@@ -372,6 +382,12 @@ function generateViewFile(it) {
   L.push('');
   L.push(`  @override`);
   L.push(`  Widget build(BuildContext context) {`);
+  // Each provider's current data (null while loading or on error; the design's
+  // reads are null-safe, so the screen renders its empty state meanwhile).
+  watched.forEach(p => {
+    const cls = pascal(p.name) + 'Notifier';
+    L.push(`    final ${p.name} = ref.watch(${cls[0].toLowerCase() + cls.slice(1)}Provider).valueOrNull;`);
+  });
   L.push(`    return ${code};`);
   L.push(`  }`);
   L.push(`}`);

@@ -412,7 +412,9 @@ function dataPath(ctx, path) {
   const root = ctx.scope[parts[0]];
   if (!root) return null;
   if (root.set) ctx.mocks.add(root.set);
-  let expr = parts[0], type = root.type, nullable = false;
+  if (root.provider) ctx.providers.add(root.provider);
+  // A provider's data is null until it loads, so every read from it is null-safe.
+  let expr = parts[0], type = root.type, nullable = !!root.provider;
   for (const field of parts.slice(1)) {
     const m = state.models.find(x => x.name === type.base);
     const f = m && m.properties.find(p => p.name === field);
@@ -530,8 +532,9 @@ export function generateScreenBody(frame, { routeName = null } = {}) {
   // (path → Uint8Array) under assets/images/.
   const ctx = { screenutil: false, colors: false, typo: false, svg: false, icons: new Map(), images: new Map(),
     // Mock data in scope: each set by its variable name (→ lib/mock/<set>.dart).
-    scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) => [name, { type: v.type, set: name }])),
-    mocks: new Set(), enums: new Set(), hexColor: false, routes: false, routeName };
+    scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
+      [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
+    mocks: new Set(), providers: new Set(), enums: new Set(), hexColor: false, routes: false, routeName };
   const bg = solidColor(ctx, frame.colorId, frame.fill);
   const inner = buildBox(ctx, frame, { isRoot: true });
   const props = {};

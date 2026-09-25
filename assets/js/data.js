@@ -10,8 +10,13 @@
 //                                                action's own (fallback) target
 //
 // Paths start at a name in scope: every mock set by its variable name (a single
-// set is one object, a list set is a list), plus each enclosing repeat's alias
-// (default `item`) for the item being drawn. Fields follow by name:
+// set is one object, a list set is a list), every API provider by its name (same
+// shape — its output model, one or a list), plus each enclosing repeat's alias
+// (default `item`) for the item being drawn.
+//
+// A provider's real data only exists in the running app, so the design shows its
+// preview data: a mock set of the same model and kind (p.preview, or the only
+// matching set). Exported screens read the provider itself. Fields follow by name:
 // 'user.address.city', 'item.body_region'. The canvas, Play, the properties
 // panel, Claude's tools and the code generator all read the same rules here.
 
@@ -43,7 +48,9 @@ const listType = (t) => t && (t.base === 'List' || t.base === 'Set');
 // ── scopes ──────────────────────────────────────────────────────────────────
 // A scope maps each name in reach → { type, value }.
 
-// Every mock set whose model still exists, by its variable name.
+// Every mock set whose model still exists, by its variable name, and every
+// provider with a model output, by its name (showing its preview data). A mock
+// set keeps its name if a provider shares it.
 export function rootScope() {
   const scope = {};
   for (const set of state.mockSets || []) {
@@ -52,10 +59,40 @@ export function rootScope() {
     if (!m || !name) continue;
     const model = { base: m.name, args: [] };
     scope[name] = set.kind === 'list'
-      ? { type: { base: 'List', args: [model] }, value: Array.isArray(set.data) ? set.data : [] }
-      : { type: model, value: set.data };
+      ? { type: { base: 'List', args: [model] }, value: Array.isArray(set.data) ? set.data : [], source: 'mock' }
+      : { type: model, value: set.data, source: 'mock' };
+  }
+  for (const p of state.providers || []) {
+    const name = (p.name || '').trim();
+    const m = p.output && modelByName(p.output.model);
+    if (!m || !name || scope[name]) continue;
+    const model = { base: m.name, args: [] };
+    const preview = providerPreview(p);
+    scope[name] = p.output.type === 'list'
+      ? { type: { base: 'List', args: [model] }, value: preview && Array.isArray(preview.data) ? preview.data : [], source: 'provider' }
+      : { type: model, value: preview ? preview.data : undefined, source: 'provider' };
   }
   return scope;
+}
+
+// The mock set a provider shows in the design: its chosen preview, if that still
+// matches its output (same model, same single/list), else the only matching set.
+export function providerPreview(p) {
+  const m = p && p.output && modelByName(p.output.model);
+  if (!m) return null;
+  const kind = p.output.type === 'list' ? 'list' : 'single';
+  const fits = (s) => s && s.modelId === m.id && s.kind === kind;
+  const chosen = p.preview && state.mockSets.find(s => s.id === p.preview);
+  if (fits(chosen)) return chosen;
+  const matches = state.mockSets.filter(fits);
+  return matches.length === 1 ? matches[0] : null;
+}
+// Mock sets a provider could preview with.
+export function previewCandidates(p) {
+  const m = p && p.output && modelByName(p.output.model);
+  if (!m) return [];
+  const kind = p.output.type === 'list' ? 'list' : 'single';
+  return state.mockSets.filter(s => s.modelId === m.id && s.kind === kind);
 }
 
 // The scope a node's children see when `node` repeats: one per item (the value
@@ -157,15 +194,16 @@ export function pathError(scope, path, slot) {
   return null;
 }
 
-// Every path in scope that fits `slot`, for pickers: [{ path, type }].
+// Every path in scope that fits `slot`, for pickers: [{ path, type, source }]
+// (source: 'mock', 'provider' or 'item' — where the root comes from).
 export function pathOptions(scope, slot) {
   const out = [];
-  const walk = (path, type, depth) => {
-    if (SLOT_OK[slot](type)) out.push({ path, type: typeToString(type) });
+  const walk = (path, type, depth, source) => {
+    if (SLOT_OK[slot](type)) out.push({ path, type: typeToString(type), source });
     const m = modelByName(type.base);
-    if (m && depth < 3) m.properties.forEach(p => walk(`${path}.${p.name}`, p.type, depth + 1));
+    if (m && depth < 3) m.properties.forEach(p => walk(`${path}.${p.name}`, p.type, depth + 1, source));
   };
-  for (const [name, v] of Object.entries(scope)) walk(name, v.type, 0);
+  for (const [name, v] of Object.entries(scope)) walk(name, v.type, 0, v.source || 'item');
   return out;
 }
 

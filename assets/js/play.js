@@ -82,7 +82,7 @@ function show(frameId, anim, isBack) {
   if (!frame) return;
   const clone = buildClone(frameId);
   if (!clone) return;
-  const screenH = frame.screenH != null ? frame.screenH : frame.h;
+  const screenH = screenHeight(frame);
   screen.style.width = frame.w + 'px';
   screen.style.height = screenH + 'px';
   screen.scrollTop = 0;
@@ -96,6 +96,9 @@ function show(frameId, anim, isBack) {
   fit(frame.w, screenH);
 }
 
+// The device screen's height: the frame's screen height, never taller than the frame.
+const screenHeight = (f) => Math.min(f.screenH != null ? f.screenH : f.h, f.h);
+
 // Scale the phone shell down (never up) so it fits the stage.
 function fit(w, h) {
   const availW = stage.clientWidth - 48;
@@ -103,6 +106,59 @@ function fit(w, h) {
   const pad = 44; // bezel padding (12px each edge) + the titanium rail/buttons that overhang it
   const scale = Math.min(1, availW / (w + pad), availH / (h + pad));
   device.style.transform = `scale(${scale})`;
+  deviceScale = scale;
+}
+
+// ── Drag to scroll, as a finger does on the phone ──
+// Press and drag moves the screen — or the scrolling container under the pointer
+// that can move that way (a horizontal list scrolls sideways). A press that
+// barely moves is still a tap; a real drag never also fires the tap.
+let deviceScale = 1;
+let drag = null;          // the press in progress
+let suppressClick = false; // the drag that just ended must not count as a tap
+
+const DRAG_START = 5; // px of movement before a press becomes a drag
+
+// The nearest element from `el` up to the screen that can scroll along `axis`.
+function scrollerFor(el, axis) {
+  for (let e = el; e && e !== screen.parentElement; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    const overflow = axis === 'y' ? cs.overflowY : cs.overflowX;
+    const room = axis === 'y' ? e.scrollHeight > e.clientHeight : e.scrollWidth > e.clientWidth;
+    if (room && (overflow === 'auto' || overflow === 'scroll' || e === screen)) return e;
+    if (e === screen) break;
+  }
+  return screen;
+}
+
+function onDragStart(e) {
+  if (e.button !== 0 || e.pointerType === 'touch') return; // touch already scrolls natively
+  drag = { x: e.clientX, y: e.clientY, target: e.target, moved: false };
+}
+
+function onDragMove(e) {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!drag.moved) {
+    if (Math.hypot(dx, dy) < DRAG_START) return;
+    drag.moved = true;
+    drag.axis = Math.abs(dy) >= Math.abs(dx) ? 'y' : 'x';
+    drag.el = scrollerFor(drag.target, drag.axis);
+    drag.start = drag.axis === 'y' ? drag.el.scrollTop : drag.el.scrollLeft;
+    screen.classList.add('dragging');
+  }
+  // The phone is drawn scaled down; move the content as far as the pointer went.
+  if (drag.axis === 'y') drag.el.scrollTop = drag.start - dy / deviceScale;
+  else drag.el.scrollLeft = drag.start - dx / deviceScale;
+}
+
+function onDragEnd() {
+  if (drag && drag.moved) {
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0); // only the click this release produces
+  }
+  drag = null;
+  screen.classList.remove('dragging');
 }
 
 // Follow a node's action, honoring its stack mode. A conditional route picks its
@@ -155,6 +211,7 @@ function launch() {
 // A tap walks up from the hit element through the node tree; the first ancestor
 // with a navigate action wins (mirrors how an onTap bubbles in Flutter).
 function onScreenClick(e) {
+  if (suppressClick) { suppressClick = false; return; }
   let el = e.target.closest('[data-id]');
   while (el) {
     const action = nodeAction(getNode(el.dataset.id));
@@ -178,12 +235,16 @@ export function initPlay() {
   backBtn?.addEventListener('click', goBack);
   restartBtn?.addEventListener('click', restart);
   screen?.addEventListener('click', onScreenClick);
+  screen?.addEventListener('pointerdown', onDragStart);
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', onDragEnd);
+  window.addEventListener('pointercancel', onDragEnd);
   overlay.addEventListener('mousedown', e => { if (e.target === overlay || e.target === stage) close(); });
 
   window.addEventListener('resize', () => {
     if (overlay.hidden) return;
     const f = getNode(currentId);
-    if (f) fit(f.w, f.screenH != null ? f.screenH : f.h);
+    if (f) fit(f.w, screenHeight(f));
   });
 
   document.addEventListener('keydown', e => {
