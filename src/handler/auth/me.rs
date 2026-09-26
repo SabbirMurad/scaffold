@@ -40,6 +40,7 @@ pub async fn task(req: HttpRequest) -> Result<HttpResponse, Error> {
         "user_id": user.user_id,
         "email_address": core.email_address,
         "full_name": profile.as_ref().map(|p| p.full_name.clone()).unwrap_or_default(),
+        "biography": profile.as_ref().and_then(|p| p.biography.clone()),
         "profile_picture": profile.and_then(|p| p.profile_picture),
     });
     Ok(HttpResponse::Ok().content_type("application/json").json(data))

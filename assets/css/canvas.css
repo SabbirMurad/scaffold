@@ -26,6 +26,16 @@ body.panning #canvas-wrap, body.panning #canvas-wrap * { cursor: grabbing; }
    items to draw shows its template the same way. */
 .node.cond-hidden,
 .node.repeat-empty > .node { opacity: 0.35 !important; outline: 1px dashed rgba(255,255,255,0.35); outline-offset: -1px; }
+/* Double-clicking a copied row flashes the first (editable) row — see hintRepeatCopy. */
+.repeat-hint {
+  position: fixed; z-index: 90; pointer-events: none; border-radius: 4px;
+  outline: 2px solid var(--accent); outline-offset: 2px; background: var(--accent-glow);
+  animation: repeat-hint 1.4s ease-out forwards;
+}
+@keyframes repeat-hint {
+  0%, 30% { opacity: 1; }
+  100% { opacity: 0; }
+}
 /* In Play, repeated copies are tappable like the real thing. */
 #play-screen .node.ghost.repeat-copy { pointer-events: auto; }
 /* …and so does what's drawn inside a component instance (a button in a card). */

@@ -2,10 +2,12 @@
 // Settings, Account, Billing) by toggling the matching <section>.
 
 import { ddTrigger, initDropdowns } from './dropdown.js';
-import { logout, getAuth, initialsAvatar, refreshToken } from './session.js';
-import { listProjects, createProject, updateProject, pinProject, deleteProject, myInvites, respondInvite, getMe } from './projects.js';
+import { logout, getAuth, avatarSrc, refreshToken } from './session.js';
+import { listProjects, createProject, updateProject, pinProject, deleteProject, myInvites, respondInvite,
+  getMe, updateMe, uploadAvatar, removeAvatar } from './projects.js';
 import { listFeedback, sendFeedback } from './feedback.js';
 import { confirmModal } from './confirm.js';
+import { initUpdates } from './updates.js';
 
 const navItems = document.querySelectorAll('.home-nav-item');
 const pages = document.querySelectorAll('.home-page');
@@ -193,23 +195,89 @@ function toast(msg) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
 }
 
-// ───────── Account page (UI scaffold) ─────────
-// None of these perform real account changes — they only update the UI / preview.
+// ───────── Account page ─────────
+// Profile (name, bio, picture) saves to the server; the rows below it are still
+// UI only and don't perform real account changes.
 
-// Avatar: preview a locally-chosen image (no upload).
+// The signed-in user's profile as last loaded/saved; drives every avatar + name.
+let me = null;
+
+function showProfile() {
+  if (!me) return;
+  document.querySelectorAll('.home-profile-name').forEach(el => { el.textContent = me.full_name || ''; });
+  document.querySelectorAll('.home-profile-email').forEach(el => { el.textContent = me.email_address || ''; });
+  const removeBtn = document.getElementById('avatar-remove');
+  if (removeBtn) removeBtn.hidden = !me.profile_picture;
+  const shown = me.profile_picture && me.profile_picture.uuid;
+  avatarSrc(me).then(src => {
+    // A newer picture may have been chosen while this one loaded.
+    if (shown !== (me.profile_picture && me.profile_picture.uuid)) return;
+    document.querySelectorAll('.home-avatar, #acct-avatar').forEach(img => { img.src = src; });
+  });
+}
+
+function fillProfileForm() {
+  const nameInput = document.getElementById('acct-fullname');
+  const bioInput = document.getElementById('acct-bio');
+  if (nameInput) nameInput.value = me.full_name || '';
+  if (bioInput) bioInput.value = me.biography || '';
+}
+
+async function loadProfile() {
+  const res = await getMe();
+  if (!res.ok || !res.data) return;
+  me = res.data;
+  showProfile();
+  fillProfileForm();
+}
+
+const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const avatarInput = document.getElementById('avatar-input');
-document.getElementById('avatar-change')?.addEventListener('click', () => avatarInput?.click());
-avatarInput?.addEventListener('change', () => {
+const avatarChange = document.getElementById('avatar-change');
+const avatarRemove = document.getElementById('avatar-remove');
+avatarChange?.addEventListener('click', () => avatarInput?.click());
+avatarInput?.addEventListener('change', async () => {
   const file = avatarInput.files[0];
   avatarInput.value = '';
-  if (!file) return;
+  if (!file || !me) return;
+  if (!AVATAR_TYPES.includes(file.type)) { toast('Use a JPG, PNG, GIF or WebP image'); return; }
   if (file.size > 2 * 1024 * 1024) { toast('Image must be under 2MB'); return; }
-  const reader = new FileReader();
-  reader.onload = () => { document.getElementById('acct-avatar').src = reader.result; toast('Photo updated'); };
-  reader.readAsDataURL(file);
+  avatarChange.disabled = true;
+  const res = await uploadAvatar(file);
+  avatarChange.disabled = false;
+  if (!res.ok || !res.data) { toast(res.error || 'Couldn’t update your photo'); return; }
+  me = { ...me, profile_picture: res.data.profile_picture };
+  showProfile();
+  toast('Photo updated');
 });
 
-document.getElementById('profile-form')?.addEventListener('submit', (e) => { e.preventDefault(); toast('Profile saved'); });
+avatarRemove?.addEventListener('click', async () => {
+  if (!me) return;
+  avatarRemove.disabled = true;
+  const res = await removeAvatar();
+  avatarRemove.disabled = false;
+  if (!res.ok) { toast(res.error || 'Couldn’t remove your photo'); return; }
+  me = { ...me, profile_picture: null };
+  showProfile();
+  toast('Photo removed');
+});
+
+document.getElementById('profile-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!me) return;
+  const full_name = document.getElementById('acct-fullname').value.trim();
+  const biography = document.getElementById('acct-bio').value.trim();
+  if (full_name.length < 6) { toast('Full name must be 6 characters or more'); return; }
+  const saveBtn = document.getElementById('profile-save');
+  saveBtn.disabled = true;
+  const res = await updateMe({ full_name, biography });
+  saveBtn.disabled = false;
+  if (!res.ok) { toast(res.error || 'Couldn’t save your profile'); return; }
+  me = { ...me, full_name, biography: biography || null };
+  showProfile();
+  fillProfileForm();
+  toast('Profile saved');
+});
 
 // Change password: only checks the two new entries match (demo, nothing stored).
 document.getElementById('password-form')?.addEventListener('submit', (e) => {
@@ -237,25 +305,6 @@ document.querySelectorAll('.session-out').forEach(btn => btn.addEventListener('c
 
 document.getElementById('export-data')?.addEventListener('click', () => toast('Preparing your data export…'));
 
-// Timezone — uses the same custom dropdown component as the editor.
-const TIMEZONES = [
-  '(GMT+06:00) Dhaka',
-  '(GMT+00:00) London',
-  '(GMT-05:00) New York',
-  '(GMT-08:00) Los Angeles',
-  '(GMT+09:00) Tokyo',
-].map(t => ({ value: t, label: t }));
-
-const tzField = document.getElementById('tz-field');
-if (tzField) {
-  tzField.innerHTML = ddTrigger({ value: TIMEZONES[0].value, options: TIMEZONES, data: { tz: '1' } });
-  // The dropdown only updates its stored value on change; refresh the visible label too.
-  tzField.addEventListener('dd:change', (e) => {
-    const opt = TIMEZONES.find(o => o.value === e.detail.value);
-    const label = tzField.querySelector('.dd-label');
-    if (label && opt) label.textContent = opt.label;
-  });
-}
 initDropdowns();
 
 // ───────── Requests — invitations addressed to you ─────────
@@ -564,18 +613,5 @@ document.getElementById('home-logout')?.addEventListener('click', async () => {
 routeFromHash();
 
 // Fill the profile chip (sidebar + Account tab) with the signed-in user's real data.
-async function loadProfile() {
-  const res = await getMe();
-  if (!res.ok || !res.data) return;
-  const { full_name, email_address, profile_picture } = res.data;
-  document.querySelectorAll('.home-profile-name').forEach(el => { el.textContent = full_name || ''; });
-  document.querySelectorAll('.home-profile-email').forEach(el => { el.textContent = email_address || ''; });
-  const nameInput = document.getElementById('acct-fullname');
-  if (nameInput) nameInput.value = full_name || '';
-  // No uploaded picture → show initials derived from the name.
-  if (!profile_picture) {
-    const src = initialsAvatar(full_name);
-    document.querySelectorAll('.home-avatar, #acct-avatar').forEach(img => { img.src = src; });
-  }
-}
 loadProfile();
+initUpdates();

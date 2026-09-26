@@ -11,12 +11,12 @@ import { initModels, renderModels } from './models.js';
 import { initApi, renderApi } from './api.js';
 import { initColors, renderColors, renderThemeSwitch, applyTheme } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
-import { logout, getAuth, initialsAvatar } from './session.js';
+import { logout, getAuth, avatarSrc } from './session.js';
 import { getProject, saveProjectDoc, updateProject, requestAccess,
   listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite, getMe,
   setPublicLink, getPublicProject } from './projects.js';
 import { initMock, renderMock } from './mock.js';
-import { exportModelsCode, collectExportables, dartPath } from './codegen.js';
+import { exportModelsCode, collectExportables, dartPaths } from './codegen.js';
 import { updateExportButton } from './validate.js';
 import { initDropdowns, ddTrigger } from './dropdown.js';
 import { initIconPicker } from './icons-picker.js';
@@ -89,10 +89,10 @@ if (!PUBLIC_TOKEN) getMe().then(res => {
   const emailEl = document.getElementById('profile-email');
   if (nameEl) nameEl.textContent = res.data.full_name || '';
   if (emailEl) emailEl.textContent = res.data.email_address || '';
-  if (!res.data.profile_picture) {
+  avatarSrc(res.data).then(src => {
     const av = document.getElementById('profile-avatar');
-    if (av) av.src = initialsAvatar(res.data.full_name);
-  }
+    if (av) av.src = src;
+  });
 });
 
 // Resolve where a new w×h node of `type` should be placed: parent (if a selected
@@ -191,7 +191,7 @@ function buildExportList(groups) {
       <label class="export-item">
         <input type="checkbox" data-kind="${kind}" value="${esc(n)}" checked>
         <span class="export-item-name">${esc(n)}</span>
-        <span class="export-item-path">${esc(dartPath(kind, n))}</span>
+        <span class="export-item-path">${dartPaths(kind, n).map(p => `<span>${esc(p)}</span>`).join('')}</span>
       </label>`).join('')}
     </div>` : '';
   return group('models', 'Models', groups.models.map(m => m.name))

@@ -481,6 +481,11 @@ async function applyProps(node, p) {
   const unknown = Object.keys(p).filter(k => !SPEC_KEYS.has(k));
   if (unknown.length) fail(`Unknown propert${unknown.length === 1 ? 'y' : 'ies'} ${unknown.map(k => `"${k}"`).join(', ')} — use "props" for raw node fields`);
   const only = (key, types) => { if (p[key] !== undefined && !types.includes(t)) fail(`"${key}" doesn't apply to a ${t}`); };
+  // "{{item.name}}" would be drawn (and exported) as those literal characters.
+  for (const [key, slot] of [['text', 'text'], ['url', 'src']]) {
+    const m = typeof p[key] === 'string' && /\{\{\s*([^}]*?)\s*\}\}/.exec(p[key]);
+    if (m) fail(`"${key}" doesn't fill in {{…}} templates — bind the field instead: "bind":{"${slot}":"${m[1]}"}`);
+  }
 
   if (p.name !== undefined) {
     if (t === 'frame' || t === 'section') {
@@ -599,6 +604,8 @@ async function applyProps(node, p) {
     if (p.repeat === null) delete node.repeat;
     else {
       if (!canRepeat(node)) fail('Only a container (or screen) with a row, column or wrap layout can repeat — set its layout first');
+      // "repeat":"shops" is shorthand for {"source":"shops"}.
+      if (typeof p.repeat === 'string') p.repeat = { source: p.repeat };
       const src = p.repeat && p.repeat.source;
       const err = pathError(scopeFor(node), src, 'list');
       if (err) fail(`repeat.source: ${err}`);

@@ -30,8 +30,11 @@ fn main() {
     let api_url = env::var("SCAFFOLD_API_URL").unwrap_or_else(|_| {
         if env::var("PROFILE").as_deref() == Ok("release") { PROD_API_URL } else { DEV_API_URL }.to_string()
     });
-    let config = include_str!("app-config.js").replace("__API_URL__", api_url.trim_end_matches('/'));
+    let api_url = api_url.trim_end_matches('/');
+    let config = include_str!("app-config.js").replace("__API_URL__", api_url);
     fs::write(dist.join("app-config.js"), config).expect("failed to write app-config.js");
+    // The same server for the Rust side: the updater asks it for the latest release.
+    println!("cargo:rustc-env=SCAFFOLD_API_URL={api_url}");
 
     tauri_build::build()
 }

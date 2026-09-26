@@ -19,10 +19,13 @@ pub async fn task(req: HttpRequest, path: web::Path<String>) -> Result<HttpRespo
         Err(msg) => return Ok(Response::internal_server_error(&msg)),
     };
 
-    // Authorize against the image's owning project (404/403 on failure).
-    let db = MongoDB.connect();
-    if let Err(response) = Handler::Project::access(&db, &stored.project_id, &user.user_id).await {
-        return Ok(response);
+    // Profile pictures are shown next to names, so any signed-in user may load
+    // them. Design images are gated by their owning project (404/403 on failure).
+    if !stored.project_id.starts_with(Handler::Auth::Avatar::SCOPE_PREFIX) {
+        let db = MongoDB.connect();
+        if let Err(response) = Handler::Project::access(&db, &stored.project_id, &user.user_id).await {
+            return Ok(response);
+        }
     }
 
     Ok(HttpResponse::Ok()

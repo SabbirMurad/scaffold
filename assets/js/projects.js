@@ -59,6 +59,33 @@ export const myInvites = () => authed('get', { endpoint: '/v1/invites' });
 
 // The signed-in user's profile (name/email/avatar), resolved from the token.
 export const getMe = () => authed('get', { endpoint: '/v1/auth/me' });
+// Edit your own profile; only the fields sent change ({ full_name, biography }).
+export const updateMe = (body) => authed('patch', { endpoint: '/v1/auth/me', body });
+export const removeAvatar = () => authed('delete', { endpoint: '/v1/auth/me/avatar' });
+
+// Upload a new profile picture (the file's raw bytes, not JSON, so this skips
+// Fetcher). Resolves to { ok, data: { profile_picture }, error }.
+export async function uploadAvatar(file) {
+  const url = `${window.projectDomain || ''}/api/v1/auth/me/avatar`;
+  const put = (t) => fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream', ...authHeader(t) },
+    body: file,
+  });
+  let res;
+  try {
+    res = await put();
+    if (res.status === 401) {
+      const fresh = await refreshToken();
+      if (fresh) res = await put(fresh);
+    }
+  } catch (error) {
+    return { ok: false, status: -1, data: null, error: error.toString() };
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty or non-JSON body */ }
+  return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data && data.message) || 'Upload failed' };
+}
 
 // ── AI ──
 // Text-to-design: describe a screen, get back a compact design DSL to render.

@@ -22,6 +22,26 @@ export function initialsAvatar(name) {
   return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 
+// The image for a profile ({ full_name, profile_picture }): the uploaded picture
+// as a blob URL, or the initials avatar when there is none or it fails to load.
+// The image route needs the bearer token, so it can't be a plain <img src>. Each
+// upload gets a new id, so a URL fetched once stays right for the session.
+const avatarUrls = new Map(); // image uuid → Promise<blob URL | null>
+export function avatarSrc(profile) {
+  const { full_name, profile_picture } = profile || {};
+  const uuid = profile_picture && profile_picture.uuid;
+  if (!uuid) return Promise.resolve(initialsAvatar(full_name));
+  if (!avatarUrls.has(uuid)) avatarUrls.set(uuid, (async () => {
+    const url = `${window.projectDomain || ''}/api/v1/image/${encodeURIComponent(uuid)}`;
+    const get = (t) => fetch(url, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    const auth = getAuth();
+    let res = await get(auth && auth.access_token);
+    if (res.status === 401) { const fresh = await refreshToken(); if (fresh) res = await get(fresh); }
+    return res.ok ? URL.createObjectURL(await res.blob()) : null;
+  })().catch(() => null));
+  return avatarUrls.get(uuid).then(src => src || initialsAvatar(full_name));
+}
+
 // The stored auth payload, or null when signed out / never signed in.
 export function getAuth() {
   try { return JSON.parse(localStorage.getItem(AUTH_KEY)) || null; }

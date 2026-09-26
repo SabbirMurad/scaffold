@@ -108,11 +108,11 @@ body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64
   transition: right 0.25s ease;
 }
 /* When the Claude panel is open, shift the whole right rail left to clear it. */
-body.claude-open #right-rail { right: calc(18px + 340px + 12px); }
+body.claude-open #right-rail { right: calc(18px + 380px + 12px); }
 
 /* Claude panel — docked at the far right, slid off-screen until opened. */
 #claude-panel {
-  position: fixed; top: 36px; right: 18px; bottom: 28px; width: 340px; z-index: 70;
+  position: fixed; top: 36px; right: 18px; bottom: 28px; width: 380px; z-index: 70;
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
@@ -131,54 +131,109 @@ body.claude-open #claude-panel { transform: translateX(0); }
 .claude-key-help { font-size: 12px; color: var(--accent); text-decoration: none; }
 .claude-key-help:hover { text-decoration: underline; }
 
-/* Chat view — fills the panel below the header */
-.claude-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Chat view — fills the panel below the header. Styled as a terminal, like
+   Claude Code: plain monospace lines, no bubbles. */
+.claude-chat {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  --term: 'Cascadia Mono', 'Cascadia Code', Consolas, var(--mono), monospace;
+  font: 11.5px/1.5 var(--term); color: var(--text);
+}
 /* Their display:flex overrides the UA [hidden] rule; the panel toggles them with `hidden`. */
 .claude-connect[hidden], .claude-chat[hidden] { display: none; }
 
-/* Conversation area (fills the space above the composer) */
-.claude-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.claude-msg {
-  max-width: 85%; padding: 8px 11px; border-radius: 12px;
-  font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+/* Transcript (fills the space above the prompt) */
+.claude-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 6px; display: flex; flex-direction: column; gap: 12px; }
+.claude-msg { word-break: break-word; }
+
+/* Claude's text: rendered Markdown with the ⏺ marker in the gutter. */
+.claude-msg.assistant { position: relative; padding-left: 18px; }
+.claude-msg.assistant::before { content: '⏺'; position: absolute; left: 0; top: 0; color: var(--text); font-size: 10px; }
+.claude-msg.assistant > :first-child { margin-top: 0; }
+.claude-msg.assistant > :last-child { margin-bottom: 0; }
+.claude-msg.assistant p { margin: 0 0 8px; }
+.claude-msg.assistant strong { font-weight: 700; color: #fff; }
+.claude-msg.assistant em { font-style: italic; }
+.claude-msg.assistant del { color: var(--text2); }
+.claude-msg.assistant a { color: var(--accent); }
+.claude-msg.assistant code { font-family: inherit; color: #c7b5ff; }
+.claude-msg.assistant .md-h { font-weight: 700; color: #fff; margin: 12px 0 6px; }
+.claude-msg.assistant .md-h1, .claude-msg.assistant .md-h2 { text-decoration: underline; text-underline-offset: 3px; }
+.claude-msg.assistant ul, .claude-msg.assistant ol { margin: 0 0 8px; padding-left: 20px; }
+.claude-msg.assistant li { margin: 2px 0; }
+.claude-msg.assistant li::marker { color: var(--text2); }
+.claude-msg.assistant blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border2); color: var(--text2); }
+.claude-msg.assistant hr { border: none; border-top: 1px solid var(--border2); margin: 10px 0; }
+.claude-msg.assistant .md-code { margin: 0 0 8px; padding: 8px 10px; border-left: 2px solid var(--border2); background: rgba(0,0,0,0.22); overflow-x: auto; white-space: pre; }
+.claude-msg.assistant .md-code code { color: var(--text); }
+.claude-msg.assistant .md-table { overflow-x: auto; margin: 0 0 8px; }
+.claude-msg.assistant table { border-collapse: collapse; }
+.claude-msg.assistant th, .claude-msg.assistant td { border: 1px solid var(--border2); padding: 3px 8px; text-align: left; vertical-align: top; }
+/* Cells wrap only between words. The transcript's break-word would let a column
+   shrink to one character wide (the table sizes columns by their narrowest
+   possible width); a table too wide for the panel scrolls sideways instead. */
+.claude-msg.assistant th, .claude-msg.assistant td { word-break: normal; overflow-wrap: normal; min-width: 6ch; }
+.claude-msg.assistant th { font-weight: 700; }
+
+/* Your message: a full-width row, a shade lighter, with the > prompt in front. */
+.claude-msg.user {
+  position: relative; margin: 0 -14px; padding: 6px 14px 6px 32px;
+  background: rgba(255,255,255,0.06); color: var(--text); white-space: pre-wrap;
 }
-.claude-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-.claude-msg.assistant { align-self: flex-start; background: var(--surface2); color: var(--text); border-bottom-left-radius: 4px; }
-.claude-msg.error { align-self: flex-start; background: rgba(245,91,91,0.15); color: var(--red); border-bottom-left-radius: 4px; }
-.claude-msg.thinking { color: var(--text2); font-style: italic; }
-/* A tool call in progress / answered — a quiet status line, not a bubble. */
-.claude-msg.activity { align-self: stretch; background: none; padding: 0 2px; font-size: 11.5px; color: var(--text3); }
-.claude-msg.activity.failed { color: var(--red); }
-/* A permission prompt: what Claude Code wants to do, and Allow / Deny. */
-.claude-msg.permission { align-self: stretch; background: var(--surface2); border: 1px solid var(--border2); display: flex; flex-direction: column; gap: 8px; }
-.claude-perm-title { font-weight: 600; color: var(--text); }
-.claude-perm-detail { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--surface); font: 11.5px var(--mono); color: var(--text2); white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow: auto; }
+.claude-msg.user::before { content: '>'; position: absolute; left: 14px; top: 6px; color: var(--text2); }
+
+.claude-msg.error { position: relative; padding-left: 18px; color: var(--red); white-space: pre-wrap; }
+.claude-msg.error::before { content: '⏺'; position: absolute; left: 0; font-size: 10px; }
+.claude-msg.note { padding-left: 18px; color: var(--text2); }
+
+/* A tool call (or several calls of one tool): ⏺ green when done, red when it
+   failed, blinking while it runs. Several collapse into one line that opens to
+   each call's result. */
+.claude-msg.activity { position: relative; padding-left: 18px; color: var(--text2); }
+.claude-msg.activity::before { content: '⏺'; position: absolute; left: 0; top: 0; font-size: 10px; color: var(--green); }
+.claude-msg.activity.pending::before { color: var(--text2); animation: claude-blink 1s steps(2, start) infinite; }
+.claude-msg.activity.failed::before, .claude-msg.activity.partial::before { color: var(--red); }
+.claude-msg.activity.failed .claude-act-line { color: var(--red); }
+.claude-msg.activity.many .claude-act-line { cursor: pointer; }
+.claude-msg.activity.many .claude-act-line::after { content: ' ▸'; color: var(--text2); }
+.claude-msg.activity.many.open .claude-act-line::after { content: ' ▾'; }
+.claude-msg.activity.many .claude-act-line:hover { color: var(--text); }
+.claude-act-items[hidden] { display: none; }
+.claude-act-items { margin-top: 2px; }
+.claude-act-item { position: relative; padding-left: 22px; color: var(--text2); }
+.claude-act-item::before { content: '⎿'; position: absolute; left: 4px; color: var(--text2); }
+.claude-act-item.failed { color: var(--red); }
+@keyframes claude-blink { to { visibility: hidden; } }
+
+/* A permission prompt: a bordered box, as Claude Code draws it. */
+.claude-msg.permission { border: 1px solid var(--border2); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.claude-perm-title { font-weight: 700; color: var(--text); }
+.claude-perm-detail { margin: 0; padding: 6px 8px; background: rgba(0,0,0,0.22); font: inherit; color: var(--text2); white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow: auto; }
 .claude-perm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.claude-perm-actions button { border: 1px solid var(--border2); border-radius: 7px; padding: 5px 14px; font: 600 12px var(--sans); cursor: pointer; background: var(--surface); color: var(--text); }
-.claude-perm-actions .claude-perm-allow { background: var(--accent); border-color: var(--accent); color: #fff; }
-.claude-perm-result { font-size: 11.5px; color: var(--text3); }
+.claude-perm-actions button { border: 1px solid var(--border2); border-radius: 5px; padding: 3px 12px; font: 600 11px var(--term); cursor: pointer; background: transparent; color: var(--text); }
+.claude-perm-actions .claude-perm-allow { background: var(--accent); border-color: var(--accent); color: #0b0c0e; }
+.claude-perm-result { color: var(--text2); }
 .claude-perm-result.allow { color: var(--accent); }
 .claude-perm-result.deny { color: var(--red); }
 
-/* Composer pinned to the bottom */
-.claude-composer { flex-shrink: 0; display: flex; align-items: flex-end; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+/* Status line while Claude works: ✻ Thinking… (12s · esc to interrupt) */
+.claude-status { flex-shrink: 0; display: flex; align-items: baseline; gap: 8px; padding: 4px 14px 6px; color: #e8906a; white-space: nowrap; overflow: hidden; }
+.claude-status[hidden] { display: none; }
+.claude-spin { width: 1ch; flex-shrink: 0; text-align: center; }
+.claude-status-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.claude-status-hint { color: var(--text2); flex-shrink: 0; }
+.claude-status-stop { background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.claude-status-stop:hover { color: var(--text); text-decoration: underline; }
+
+/* The prompt: a > and a bare line to type on — Enter sends, Shift+Enter adds a line. */
+.claude-composer { flex-shrink: 0; display: flex; align-items: flex-start; gap: 8px; padding: 9px 14px 12px; border-top: 1px solid var(--border); }
+/* Sized to the first line of the prompt (11.5px × 1.5) so the two stay aligned. */
+.claude-caret { color: #fff; font-size: 15px; font-weight: 700; line-height: 17px; }
 .claude-composer textarea {
-  flex: 1; resize: none; min-height: 20px; max-height: 120px;
-  background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px;
-  color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.4;
-  padding: 8px 10px; outline: none;
+  flex: 1; resize: none; min-height: 20px; max-height: 160px; padding: 0; margin: 0;
+  background: transparent; border: none; outline: none; box-shadow: none;
+  color: var(--text); font: inherit; caret-color: var(--text);
 }
-.claude-composer textarea:focus { border-color: var(--accent); }
-.claude-send {
-  flex-shrink: 0; width: 34px; height: 34px; border: none; border-radius: 9px; cursor: pointer;
-  background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
-}
-.claude-send:hover { background: var(--accent2); }
-.claude-send:disabled { opacity: 0.5; cursor: default; }
-.claude-send svg { width: 16px; height: 16px; }
-/* While Claude works the send button stops the turn: a square in place of the arrow. */
-.claude-send.stop svg { display: none; }
-.claude-send.stop::before { content: ''; width: 11px; height: 11px; border-radius: 2px; background: currentColor; }
+.claude-composer textarea::placeholder { color: var(--text2); opacity: 0.7; }
 
 #profile-card, #actions-card, #theme-switch {
   flex-shrink: 0; pointer-events: auto;
@@ -399,7 +454,9 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 .export-item:hover { background: var(--surface2); }
 .export-item input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
 .export-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
-.export-item-path { margin-left: auto; font-size: 11px; color: var(--text3); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+/* One line per file (the theme item is several files under one checkbox). */
+.export-item-path { margin-left: auto; font-size: 11px; color: var(--text3); font-family: var(--mono); max-width: 55%; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.export-item-path > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Icon picker (Iconify) */
 .icon-modal { max-width: 540px; }

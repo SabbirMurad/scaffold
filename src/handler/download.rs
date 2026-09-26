@@ -8,8 +8,9 @@ use std::path::PathBuf;
 
 // Where the desktop installers live (uploaded to the server by hand).
 const DIR: &str = "downloads";
-// What may be downloaded: the installers, nothing else in the folder.
-const ALLOWED: [&str; 6] = ["msi", "exe", "dmg", "appimage", "deb", "zip"];
+// What may be downloaded: the installers, nothing else in the folder. (.gz is
+// the macOS in-app update, Scaffold-<arch>.app.tar.gz.)
+const ALLOWED: [&str; 7] = ["msi", "exe", "dmg", "appimage", "deb", "zip", "gz"];
 
 // GET/HEAD /downloads/{file} — a desktop installer, sent in parts.
 //
@@ -21,6 +22,12 @@ const ALLOWED: [&str; 6] = ["msi", "exe", "dmg", "appimage", "deb", "zip"];
 // installers barely compress anyway).
 pub async fn task(req: HttpRequest, path: web::Path<String>) -> Result<HttpResponse, Error> {
     let name = path.into_inner();
+
+    // The desktop app's update check: the newest release's version, notes and
+    // per-platform installer + signature (written by desktop/release.mjs).
+    if name == LATEST {
+        return Ok(latest().await);
+    }
 
     // A plain file name with an installer extension — no paths, no dotfiles.
     let plain = !name.is_empty()
@@ -81,6 +88,29 @@ pub async fn task(req: HttpRequest, path: web::Path<String>) -> Result<HttpRespo
     // Installers are replaced in place on a new release: always revalidate.
     res.headers_mut().insert(CACHE_CONTROL, "no-cache".parse().unwrap());
     Ok(res)
+}
+
+const LATEST: &str = "latest.json";
+
+// Sent as JSON (not as a download) and never cached, so a new release is seen
+// at once. No release yet → 204, which the updater reads as "up to date".
+async fn latest() -> HttpResponse {
+    let file_path: PathBuf = [DIR, LATEST].iter().collect();
+    match web::block(move || std::fs::read(file_path)).await {
+        Ok(Ok(bytes)) => HttpResponse::Ok()
+            .insert_header((CONTENT_TYPE, "application/json"))
+            .insert_header((CACHE_CONTROL, "no-cache"))
+            .body(bytes),
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => HttpResponse::NoContent().finish(),
+        Ok(Err(error)) => {
+            log::error!("download {}: {:?}", LATEST, error);
+            HttpResponse::InternalServerError().finish()
+        }
+        Err(error) => {
+            log::error!("download {}: {:?}", LATEST, error);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
 }
 
 fn disposition(name: &str) -> ContentDisposition {

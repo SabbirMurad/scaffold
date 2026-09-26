@@ -208,11 +208,16 @@
     <!-- Chat view — shown when Claude Code is found -->
     <div id="claude-chat" class="claude-chat" hidden>
       <div id="claude-messages" class="claude-messages"></div>
+      <!-- While Claude works: spinner, what it's doing, elapsed time -->
+      <div id="claude-status" class="claude-status" hidden aria-live="polite">
+        <span class="claude-spin" aria-hidden="true"></span>
+        <span class="claude-status-text"></span>
+        <span class="claude-status-hint"><span class="claude-status-time"></span><button type="button" class="claude-status-stop">esc to interrupt</button>)</span>
+      </div>
+      <!-- Terminal-style prompt: Enter sends, Shift+Enter adds a line -->
       <div class="claude-composer">
-        <textarea id="ai-prompt" rows="1" placeholder="Describe a screen or a change…"></textarea>
-        <button type="button" id="ai-send" class="claude-send" aria-label="Send">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-        </button>
+        <span class="claude-caret" aria-hidden="true">&gt;</span>
+        <textarea id="ai-prompt" rows="1" spellcheck="false" aria-label="Message Claude" placeholder="Describe a screen or a change…"></textarea>
       </div>
     </div>
   </div>

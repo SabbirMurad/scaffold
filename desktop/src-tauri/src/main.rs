@@ -5,6 +5,8 @@ mod agent;
 mod bridge;
 mod mcp;
 mod oauth;
+mod python;
+mod updater;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -42,10 +44,12 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let bridge = bridge::start(app.handle().clone())?;
             app.manage(bridge);
             app.manage(agent::Running::default());
+            app.manage(updater::Pending::default());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -68,6 +72,9 @@ fn main() {
             agent::claude_ask,
             agent::claude_stop,
             bridge::tool_reply,
+            updater::app_version,
+            updater::update_check,
+            updater::update_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Scaffold");

@@ -140,6 +140,9 @@ export function scopeFor(node) {
 export function pathType(scope, path) {
   const parts = String(path || '').split('.').filter(Boolean);
   if (!parts.length) return { error: 'empty path' };
+  if (/[[\]]/.test(path)) {
+    return { error: `paths can't index into a list ("${path}") — repeat over the list, or make a single-item mock set for the one item` };
+  }
   const root = scope[parts[0]];
   if (!root) {
     const names = Object.keys(scope);

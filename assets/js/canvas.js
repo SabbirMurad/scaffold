@@ -559,10 +559,39 @@ export function attachNodeEvents(el, node) {
           return;
         }
         if (deeper) { state.selected.clear(); beginNodeDrag(deeper, e); return; }
+        // Double-clicking into row 2, 3, … of a repeat can't go deeper: those rows
+        // are read-only copies. Say so, and point at the first row, which can.
+        if (node.repeat && overRepeatCopy(el, e)) hintRepeatCopy(node);
       }
       beginNodeDrag(clickTarget(node, e), e);
     }
   });
+}
+
+// Whether a press on a repeating container landed on one of its copied items.
+// Copies ignore the pointer (pointer-events: none), so they're found by position.
+function overRepeatCopy(el, e) {
+  return [...el.querySelectorAll(':scope > .repeat-copy')].some(c => {
+    const r = c.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  });
+}
+
+// Explain why a copied row can't be edited, and flash the first row (the real,
+// editable item). The flash is a separate overlay, so the re-render the press
+// causes doesn't wipe it.
+function hintRepeatCopy(node) {
+  showToast('Rows after the first are copies drawn from data — double-click into the first row to edit them all');
+  const els = (node.children || []).map(id => document.getElementById('node-' + id)).filter(Boolean);
+  if (!els.length) return;
+  const rects = els.map(x => x.getBoundingClientRect());
+  const left = Math.min(...rects.map(r => r.left)), top = Math.min(...rects.map(r => r.top));
+  const right = Math.max(...rects.map(r => r.right)), bottom = Math.max(...rects.map(r => r.bottom));
+  const flash = document.createElement('div');
+  flash.className = 'repeat-hint';
+  Object.assign(flash.style, { left: left + 'px', top: top + 'px', width: (right - left) + 'px', height: (bottom - top) + 'px' });
+  document.body.appendChild(flash);
+  flash.addEventListener('animationend', () => flash.remove());
 }
 
 // Select a node and arm the shared drag state for the mouse press `e`. Used by

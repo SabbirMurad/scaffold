@@ -27,7 +27,7 @@
     <nav class="home-nav">
       <button class="home-nav-item active" data-page="projects"><img src="/assets/icons/projects.svg" alt="">Projects</button>
       <button class="home-nav-item" data-page="requests"><img src="/assets/icons/requests.svg" alt="">Requests<span class="home-nav-badge" id="requests-badge"></span></button>
-      <button class="home-nav-item" data-page="settings"><img src="/assets/icons/settings.svg" alt="">Settings</button>
+      <button class="home-nav-item" data-page="settings"><img src="/assets/icons/settings.svg" alt="">Settings<span class="home-nav-badge" id="update-badge" title="An update is available"></span></button>
       <button class="home-nav-item" data-page="account"><img src="/assets/icons/account.svg" alt="">Account</button>
       <button class="home-nav-item" data-page="billing"><img src="/assets/icons/billing.svg" alt="">Billing</button>
       <button class="home-nav-item" data-page="feedback"><img src="/assets/icons/feedback.svg" alt="">Feedback</button>
@@ -150,6 +150,24 @@
             <label class="switch"><input type="checkbox" data-setting="notifInApp"><span class="switch-track"></span></label>
           </div>
         </div>
+
+        <!-- App updates (desktop app only — see updater.rs) -->
+        <div class="acct-card" id="update-card" hidden>
+          <div class="acct-card-head"><h2>App updates</h2></div>
+          <div class="acct-row">
+            <div>
+              <div class="acct-row-label">Scaffold <span id="app-version"></span></div>
+              <div class="acct-row-sub" id="update-status">Checks for a new version when the app starts</div>
+            </div>
+            <button type="button" class="acct-btn-ghost" id="update-check">Check for updates</button>
+          </div>
+          <div class="update-available" id="update-available" hidden>
+            <div class="acct-row-label" id="update-title"></div>
+            <div class="update-notes" id="update-notes" hidden></div>
+            <div class="update-progress" id="update-progress" hidden><div class="update-progress-bar" id="update-progress-bar"></div></div>
+            <div class="acct-actions"><button type="button" class="acct-btn" id="update-install">Update &amp; restart</button></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -164,18 +182,15 @@
           <img class="acct-avatar" id="acct-avatar" src="/assets/icons/avatar.svg" alt="Avatar">
           <div>
             <button type="button" class="acct-btn-ghost" id="avatar-change">Change photo</button>
-            <div class="acct-hint">JPG or PNG, up to 2MB.</div>
+            <button type="button" class="acct-btn-ghost" id="avatar-remove" hidden>Remove</button>
+            <div class="acct-hint">JPG, PNG, GIF or WebP, up to 2MB.</div>
           </div>
-          <input type="file" id="avatar-input" accept="image/png,image/jpeg" hidden>
+          <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
         </div>
         <form class="acct-form" id="profile-form">
-          <div class="acct-field"><label>Full name</label><input type="text" id="acct-fullname" value=""></div>
-          <div class="acct-field"><label>Display name</label><input type="text" value="sabbir"></div>
-          <div class="acct-field"><label>Role</label><input type="text" placeholder="e.g. Product Designer"></div>
-          <div class="acct-field"><label>Timezone</label>
-            <div id="tz-field"></div>
-          </div>
-          <div class="acct-actions"><button type="submit" class="acct-btn">Save changes</button></div>
+          <div class="acct-field full"><label for="acct-fullname">Full name</label><input type="text" id="acct-fullname" autocomplete="name" minlength="6" maxlength="128" required></div>
+          <div class="acct-field full"><label for="acct-bio">Bio</label><textarea id="acct-bio" rows="3" maxlength="500" placeholder="A line or two about you"></textarea></div>
+          <div class="acct-actions"><button type="submit" class="acct-btn" id="profile-save">Save changes</button></div>
         </form>
       </div>
 
@@ -185,7 +200,7 @@
         <div class="acct-row">
           <div>
             <div class="acct-row-label">Email address</div>
-            <div class="acct-row-val">sbbir0087@gmail.com <span class="badge-verified">Verified</span></div>
+            <div class="acct-row-val"><span class="home-profile-email"></span> <span class="badge-verified">Verified</span></div>
           </div>
         </div>
         <div class="acct-row">

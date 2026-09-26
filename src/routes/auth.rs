@@ -49,6 +49,17 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             web::get().to(Handler::Auth::Me::task)   // signed-in user's profile (from token)
         )
         .route(
+            "/me",
+            web::patch().to(Handler::Auth::UpdateProfile::task)   // edit own name / bio
+        )
+        // Profile picture — raw image bytes as the body, so it needs a bigger limit.
+        .service(
+            web::resource("/me/avatar")
+                .app_data(web::PayloadConfig::new(Handler::Auth::Avatar::MAX_BYTES))
+                .route(web::put().to(Handler::Auth::Avatar::upload))
+                .route(web::delete().to(Handler::Auth::Avatar::remove))
+        )
+        .route(
             "/user/{email_or_username}",
             web::get().to(Handler::Auth::Get::task)
         )

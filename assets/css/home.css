@@ -207,12 +207,13 @@
 .acct-field { display: flex; flex-direction: column; gap: 6px; }
 .acct-field.full { grid-column: 1 / -1; }
 .acct-field label { font-size: 12px; color: var(--text2); font-weight: 500; }
-.acct-field input, .acct-field select {
+.acct-field input, .acct-field select, .acct-field textarea {
   width: 100%; padding: 9px 11px; background: var(--surface2); border: 1px solid var(--border);
   border-radius: 8px; color: var(--text); font-family: var(--sans); font-size: 13px; outline: none;
   transition: border-color 0.1s, background 0.1s;
 }
-.acct-field input:focus, .acct-field select:focus { border-color: var(--accent); background: var(--surface3); }
+.acct-field textarea { resize: vertical; line-height: 1.45; }
+.acct-field input:focus, .acct-field select:focus, .acct-field textarea:focus { border-color: var(--accent); background: var(--surface3); }
 .acct-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; margin-top: 2px; }
 /* In the billing plan card the actions follow the usage bars directly (no grid
    row-gap above), so give them breathing room. */
@@ -390,3 +391,15 @@
   transition: opacity 0.2s, transform 0.2s; z-index: 300;
 }
 #home-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* App updates card (Settings) */
+#update-card[hidden], .update-available[hidden], .update-notes[hidden], .update-progress[hidden] { display: none; }
+#update-status.error { color: var(--red); }
+#update-status.available { color: var(--accent); }
+.update-available { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+.update-notes { font-size: 12.5px; line-height: 1.5; color: var(--text2); white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
+.update-progress { height: 6px; border-radius: 3px; background: var(--surface3); overflow: hidden; }
+.update-progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+/* Size unknown: a sliding stripe instead of a filling bar. */
+.update-progress.indeterminate .update-progress-bar { width: 30%; animation: update-slide 1.2s ease-in-out infinite; }
+@keyframes update-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }

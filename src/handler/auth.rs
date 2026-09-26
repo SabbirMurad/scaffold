@@ -43,6 +43,12 @@ pub use me as Me;
 pub mod social_login;
 pub use social_login as SocialLogin;
 
+pub mod update_profile;
+pub use update_profile as UpdateProfile;
+
+pub mod avatar;
+pub use avatar as Avatar;
+
 
 pub async fn delete_account(
     db: &Database,

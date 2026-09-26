@@ -690,22 +690,22 @@ export function collectExportables() {
   return { models, enums, providers, screens, hasTheme, hasTypography };
 }
 
-// The Dart file an exported item lands at (shown in the export picker). Each
+// The Dart files an exported item lands at (shown in the export picker). Each
 // screen has its own view file (plus a shared lib/route.dart wiring them up);
-// the theme unit produces two shared files.
-export function dartPath(kind, name) {
+// the theme unit is several files that import each other, so they export together.
+export function dartPaths(kind, name) {
   if (kind === 'screens') {
     const fr = state.nodes.find(n => n.type === 'frame' && n.name === name);
     const parent = fr && fr.parentId ? getNode(fr.parentId) : null;
     const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
-    return `lib/view/${folder}${snake(name)}.dart`;
+    return [`lib/view/${folder}${snake(name)}.dart`];
   }
   if (kind === 'theme') {
     return state.typography.length
-      ? 'lib/constants/colors.dart + typography.dart + lib/themes.dart'
-      : 'lib/constants/colors.dart + lib/themes.dart';
+      ? ['lib/constants/colors.dart', 'lib/constants/typography.dart', 'lib/themes.dart']
+      : ['lib/constants/colors.dart', 'lib/themes.dart'];
   }
-  return `lib/${kind === 'providers' ? 'provider' : 'model'}/${snake(name)}.dart`;
+  return [`lib/${kind === 'providers' ? 'provider' : 'model'}/${snake(name)}.dart`];
 }
 
 // Generate a .dart file per model (+ any enum a model uses) under lib/model/, and
