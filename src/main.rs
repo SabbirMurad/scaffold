@@ -161,31 +161,45 @@ async fn main() -> io::Result<()> {
                 }
             })
             .wrap_fn(move |req, srv| {
-                /* 301 - Moved Permanently | URL Canonicalization */
-                srv.call(req).map(|res| {
-                    let app_http = env::var("APP_HTTP").expect("APP_HTTP must be set on .env file");
-                    if app_http.to_owned() == "allow" {
-                        return res;
-                    }
+                /*
+                  301 - Moved Permanently | URL Canonicalization
 
-                    if let Ok(response) = &res {
-                        let request = response.request();
+                  www and the apex are one site, and a search engine that can
+                  reach both has to guess which is canonical, splitting
+                  whatever authority the domain has earned between two hosts.
 
-                        let uri = request.uri().to_string();
-                        let sub_domain = "https://www.";
+                  This used to run on the response and test
+                  request.uri().to_string() for the substring "https://www.",
+                  which never matched: a server-side URI is origin-form —
+                  "/about" — with no scheme and no host in it at all. The
+                  check silently passed everything through, so both hosts
+                  answered 200 and this code had never once fired.
 
-                        if uri.contains(sub_domain) {
-                            let new_location = uri.replace(sub_domain, "https://");
-                            return Ok(dev::ServiceResponse::new(
-                                request.clone(),
-                                HttpResponse::MovedPermanently()
-                                    .insert_header(("Location", new_location))
-                                    .finish(),
-                            ));
-                        }
-                    }
-                    res
-                })
+                  The host now comes from connection_info, which prefers a
+                  proxy's X-Forwarded-Host over the socket, and the redirect
+                  happens before the handler runs rather than after rendering
+                  a response and throwing it away.
+                */
+                let app_http = env::var("APP_HTTP").expect("APP_HTTP must be set on .env file");
+                let host = req.connection_info().host().to_owned();
+
+                if app_http.to_owned() == "allow" || !host.starts_with("www.") {
+                    return Either::Left(srv.call(req).map(|res| res));
+                }
+
+                let apex = host.trim_start_matches("www.").to_owned();
+                let path = req
+                    .uri()
+                    .path_and_query()
+                    .map(|p| p.as_str().to_owned())
+                    .unwrap_or_else(|| "/".to_owned());
+                let url = format!("{}{}", canonical_origin(&apex), path);
+
+                Either::Right(future::ready(Ok(req.into_response(
+                    HttpResponse::MovedPermanently()
+                        .append_header((http::header::LOCATION, url))
+                        .finish(),
+                ))))
             })
             .app_data(web::Data::new(Tera::new("pages/**/*").unwrap()))
             .wrap_fn(move |req, srv| {
