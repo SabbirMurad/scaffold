@@ -38,6 +38,26 @@ mod markup;
 use markup as Markup;
 
 // Hi how are you
+/// The public origin a redirect should point at, built from the host the
+/// request arrived with.
+///
+/// No port, ever. Behind nginx this app binds a private port (445) that the
+/// outside world is not supposed to see, and a redirect that named it sent
+/// visitors to `https://scaffold.sabbirhassan.com:445/` — the app's own bind
+/// address wearing the public hostname. `connection_info().host()` is the
+/// right source because it prefers a proxy's `X-Forwarded-Host` over the
+/// socket, but it still carries whatever port came with it, so the port is
+/// dropped here rather than trusted.
+///
+/// Dropping it resolves to 443, which is the only port a canonical https URL
+/// should name. Serving https on some other port without a proxy in front is
+/// therefore not supported by this redirect — that is what `APP_HTTP=allow`
+/// is for in development, and it short-circuits the whole thing.
+fn canonical_origin(host: &str) -> String {
+    let host = host.split(':').next().unwrap_or(host);
+    format!("https://{}", host)
+}
+
 #[actix_web::main]
 async fn main() -> io::Result<()> {
     // The single, shared collaboration Lobby actor. Its Addr is cheap to clone and
@@ -112,19 +132,26 @@ async fn main() -> io::Result<()> {
             .wrap_fn(|sreq, srv| {
                 let app_http = env::var("APP_HTTP").expect("APP_HTTP must be set on .env file");
 
-                /* Redirects request from HTTP to HTTPS */
+                /*
+                  Redirects request from HTTP to HTTPS.
+
+                  The scheme comes from connection_info, which reads
+                  X-Forwarded-Proto ahead of the socket — so behind nginx this
+                  fires on what the *visitor* used, not on the TLS hop between
+                  nginx and this process.
+
+                  It used to build the target as host + APP_HTTPS_PORT, which
+                  is this process's own bind port. Served directly that was
+                  right; behind a reverse proxy it published the private port,
+                  and every plain-http visitor was answered with
+                  https://scaffold.sabbirhassan.com:445/. See canonical_origin.
+                */
                 if app_http.to_owned() == "allow" || sreq.connection_info().scheme() == "https" {
                     Either::Left(srv.call(sreq).map(|res| res))
                 } else {
                     let host = sreq.connection_info().host().to_owned();
-                    let host: Vec<&str> = host.split(":").collect();
                     let uri = sreq.uri().to_owned();
-                    let url = format!(
-                        "https://{}:{}{}",
-                        host[0],
-                        env::var("APP_HTTPS_PORT").unwrap(),
-                        uri
-                    );
+                    let url = format!("{}{}", canonical_origin(&host), uri);
 
                     return Either::Right(future::ready(Ok(sreq.into_response(
                         HttpResponse::MovedPermanently()
@@ -321,4 +348,40 @@ async fn main() -> io::Result<()> {
     };
 
     http_server.run().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_origin;
+
+    #[test]
+    fn drops_the_apps_own_bind_port() {
+        // The bug this function exists for: behind nginx the redirect named
+        // the private port the app binds, not the address visitors use.
+        assert_eq!(
+            canonical_origin("scaffold.sabbirhassan.com:445"),
+            "https://scaffold.sabbirhassan.com"
+        );
+    }
+
+    #[test]
+    fn leaves_a_portless_host_alone() {
+        assert_eq!(
+            canonical_origin("scaffold.sabbirhassan.com"),
+            "https://scaffold.sabbirhassan.com"
+        );
+    }
+
+    #[test]
+    fn upgrades_the_scheme_not_just_the_port() {
+        // The caller passes a bare host; the https is this function's doing.
+        assert!(canonical_origin("example.test:80").starts_with("https://"));
+    }
+
+    #[test]
+    fn handles_a_host_that_is_only_a_port_or_empty() {
+        // Nothing should panic on a malformed Host header.
+        assert_eq!(canonical_origin(""), "https://");
+        assert_eq!(canonical_origin(":445"), "https://");
+    }
 }
