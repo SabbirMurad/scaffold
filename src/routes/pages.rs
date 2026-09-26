@@ -1,5 +1,6 @@
 use actix_web::web;
 use crate::Markup;
+use crate::Handler;
 use crate::handler::seo::{ sitemap, robots };
 
 pub fn router(cfg: &mut web::ServiceConfig) {
@@ -24,6 +25,14 @@ pub fn router(cfg: &mut web::ServiceConfig) {
         .route(
             "/authentication",
             web::get().to(Markup::desktop_only)
+        )
+        .route(
+            "/downloads/{file}",
+            web::get().to(Handler::Download::task)   // desktop installers, resumable (Range)
+        )
+        .route(
+            "/downloads/{file}",
+            web::head().to(Handler::Download::task)
         )
         .route(
             "/auth/social",

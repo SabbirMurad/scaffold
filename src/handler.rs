@@ -19,4 +19,7 @@ pub use image as Image;
 pub mod public;
 pub use public as Public;
 
+pub mod download;
+pub use download as Download;
+
 pub mod seo;
