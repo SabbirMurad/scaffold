@@ -130,6 +130,9 @@ body.signup .auth-forgot { display: none; }
   cursor: pointer; transition: background 0.1s, border-color 0.1s;
 }
 .auth-social-btn:hover { background: var(--surface3); border-color: var(--text3); }
+/* Waiting for the browser to finish Google / GitHub sign-in. */
+.auth-social-btn.waiting { border-color: var(--accent); animation: auth-wait 1.4s ease-in-out infinite; }
+@keyframes auth-wait { 50% { box-shadow: 0 0 0 3px rgba(30, 204, 122, 0.22); } }
 .auth-social-btn:active { transform: translateY(1px); }
 .auth-social-btn img { width: 18px; height: 18px; display: block; }
 

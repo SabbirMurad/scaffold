@@ -18,9 +18,11 @@ pub struct ReqBody {
 
 #[derive(Debug, Deserialize)]
 struct FirebaseUser {
-    #[serde(rename = "localId")]
-    local_id: String,
     email: Option<String>,
+    #[serde(rename = "emailVerified", default)]
+    email_verified: bool,
+    #[serde(default)]
+    disabled: bool,
     #[serde(rename = "displayName")]
     display_name: Option<String>,
 }
@@ -30,6 +32,9 @@ struct FirebaseLookupResponse {
     users: Option<Vec<FirebaseUser>>,
 }
 
+// Sign in (or sign up) with a Firebase ID token from Google / GitHub sign-in —
+// see the desktop app's oauth.rs and pages/social-auth.html. The token is checked
+// with Firebase; the account is the one with its email, created on first use.
 pub async fn task(
     body: web::Json<ReqBody>,
     session: Session,
@@ -79,10 +84,18 @@ pub async fn task(
         None => return Ok(Response::unauthorized("User not found in Firebase")),
     };
 
+    if fb_user.disabled {
+        return Ok(Response::forbidden("This sign-in account is disabled"));
+    }
     let email = match fb_user.email {
-        Some(e) => e.to_lowercase(),
+        Some(e) => e.trim().to_lowercase(),
         None => return Ok(Response::bad_request("No email associated with this account")),
     };
+    // The email is what ties the sign-in to a Scaffold account, so it must be one
+    // the provider has verified — otherwise anyone could claim someone else's.
+    if !fb_user.email_verified {
+        return Ok(Response::forbidden("Your email with this provider isn’t verified — verify it there first, then try again"));
+    }
 
     let db = MongoDB.connect();
     let now = Utc::now().timestamp_millis();
@@ -95,8 +108,13 @@ pub async fn task(
         return Ok(Response::internal_server_error(&error.to_string()));
     }
 
-    let user_id = match existing.unwrap() {
-        Some(account) => account.uuid,
+    let (user_id, role) = match existing.unwrap() {
+        Some(account) => {
+            if account.suspended_at.is_some() {
+                return Ok(Response::forbidden("This account is suspended"));
+            }
+            (account.uuid, account.role)
+        }
         None => {
             // Create a new account for first-time social login
             let new_id = Uuid::now_v7().to_string();
@@ -135,13 +153,13 @@ pub async fn task(
             let _ = db.collection::<Account::AccountProfile>("account_profile")
                 .insert_one(&profile).await;
 
-            new_id
+            (new_id, Account::AccountRole::User)
         }
     };
 
     let (access_token, valid_minutes) = jwt::access_token::generate_default(
         &user_id,
-        Account::AccountRole::User,
+        role.clone(),
     );
     let access_token_valid_till = now + (valid_minutes as i64 * 60 * 1000);
 
@@ -153,13 +171,16 @@ pub async fn task(
         }
     };
 
+    // The same session as a password sign-in.
+    session.insert("refresh_token", &refresh_token).ok();
     session.insert("user_id", &user_id).ok();
+    session.insert("role", role.to_string()).ok();
 
     Ok(HttpResponse::Ok().content_type("application/json").json(json!({
         "access_token": access_token,
         "access_token_valid_till": access_token_valid_till,
         "refresh_token": refresh_token,
         "user_id": user_id,
-        "role": "User",
+        "role": role,
     })))
 }

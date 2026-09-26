@@ -26,6 +26,10 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             web::get().to(Markup::desktop_only)
         )
         .route(
+            "/auth/social",
+            web::get().to(Markup::social_auth)   // Google / GitHub sign-in for the desktop app
+        )
+        .route(
             "/view/{token}",
             web::get().to(Markup::public_view)
         )

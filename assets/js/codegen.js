@@ -210,24 +210,32 @@ function provBuildType(p) {
 }
 
 // Endpoint path (version + route), base URL is assumed configured in CustomHttp.
+// The request path: just the route ("/workouts"). CustomHttp puts the API prefix
+// and version ("/api/v1") in front itself.
 function endpointPath(api) {
-  return [api.version, api.route]
-    .map(s => (s || '').trim().replace(/^\/+|\/+$/g, ''))
-    .filter(Boolean)
-    .join('/');
+  return '/' + (api.route || '').trim().replace(/^\/+|\/+$/g, '');
+}
+// The endpoint's API version as CustomHttp's `version` number ("v2" → 2), or null
+// for v1 (its default) / none.
+function endpointVersion(api) {
+  const m = /^v?(\d+)$/i.exec((api.version || '').trim());
+  return m && Number(m[1]) !== 1 ? Number(m[1]) : null;
 }
 
-// One async method per endpoint. Header/query values are emitted as written (so
-// they can be Dart expressions or quoted literals); the body is emitted raw.
+// One async method per endpoint, calling the app's CustomHttp (lib/utils.dart).
+// Header / query values are strings unless written as a Dart literal; the body is
+// the endpoint's JSON as a map literal.
 function generateApiMethod(api) {
   const L = [];
   L.push(`  Future<${apiReturnType(api)}> ${api.name}() async {`);
   L.push(`    final response = await utils.CustomHttp.${api.method.toLowerCase()}(`);
   L.push(`      endpoint: '${endpointPath(api)}',`);
+  const version = endpointVersion(api);
+  if (version != null) L.push(`      version: ${version},`);
 
   const headers = api.headers.filter(h => h.key.trim());
   if (headers.length) {
-    L.push(`      header: {`);
+    L.push(`      headers: {`);
     headers.forEach(h => L.push(`        '${dartStr(h.key.trim())}': ${dartValueLit(h.value)},`));
     L.push(`      },`);
   }

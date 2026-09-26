@@ -4,6 +4,7 @@
 mod agent;
 mod bridge;
 mod mcp;
+mod oauth;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -61,6 +62,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             close_window,
+            oauth::social_sign_in,
+            oauth::social_sign_in_cancel,
             agent::claude_status,
             agent::claude_ask,
             agent::claude_stop,

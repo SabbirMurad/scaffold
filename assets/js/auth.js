@@ -235,26 +235,34 @@ document.getElementById('otp-form')?.addEventListener('submit', async (e) => {
   }
 });
 
-// Social sign-in. Real OAuth needs a Firebase ID token (see social_login.rs);
-// when a provider integration exposes `window.ffSocialToken(provider)`, use it,
-// otherwise tell the user it isn't configured rather than faking a login.
-document.querySelectorAll('.auth-social-btn').forEach((btn) => {
+// Social sign-in (Google / GitHub). Google won't sign in inside an embedded web
+// view, so the desktop app opens the sign-in in the user's browser and waits for
+// the Firebase ID token to come back (desktop/src-tauri/src/oauth.rs), then
+// exchanges it for a Scaffold session like any other sign-in (social_login.rs).
+// Clicking a button while one is waiting starts over.
+const socialBtns = [...document.querySelectorAll('.auth-social-btn')];
+let socialAttempt = 0;
+socialBtns.forEach((btn) => {
   btn.addEventListener('click', async () => {
     const provider = btn.dataset.provider;
+    const tauri = window.__TAURI__ && window.__TAURI__.core;
     clearFlash();
-    if (typeof window.ffSocialToken !== 'function') {
-      flash(`${provider} sign-in isn’t configured yet.`, 'info');
-      return;
-    }
-    busy(btn, true, 'Connecting…');
+    if (!tauri) { flash(`${provider} sign-in works in the Scaffold desktop app.`, 'info'); return; }
+    const attempt = ++socialAttempt;
+    await tauri.invoke('social_sign_in_cancel').catch(() => {}); // stop any earlier wait
+    socialBtns.forEach(b => b.classList.toggle('waiting', b === btn));
+    flash(`Finish signing in with ${provider} in your browser…`, 'info');
     try {
-      const token = await window.ffSocialToken(provider);
-      const res = await api('/social-login', { provider, token });
-      completeAuth(res);
+      const token = await tauri.invoke('social_sign_in', { provider, domain: window.projectDomain || location.origin });
+      if (attempt !== socialAttempt) return;
+      flash('Signing you in…', 'info');
+      completeAuth(await api('/social-login', { provider, token }));
     } catch (err) {
-      flash(err.message);
+      if (attempt !== socialAttempt) return; // replaced by a newer attempt
+      const message = String((err && err.message) || err);
+      if (message === 'cancelled') clearFlash(); else flash(message);
     } finally {
-      busy(btn, false);
+      if (attempt === socialAttempt) socialBtns.forEach(b => b.classList.remove('waiting'));
     }
   });
 });

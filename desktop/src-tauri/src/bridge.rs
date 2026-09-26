@@ -109,7 +109,7 @@ pub fn failure(summary: &str) -> Value {
 
 /// A per-launch secret. `RandomState` is seeded from the OS, so two hashes of
 /// the clock give 128 unguessable bits without another dependency.
-fn token() -> String {
+pub(crate) fn token() -> String {
     use std::hash::{BuildHasher, Hasher};
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

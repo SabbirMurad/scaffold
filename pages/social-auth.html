@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Sign in to Scaffold</title>
+  <link rel="icon" href="/assets/icons/logo.svg">
+  <style>
+    :root { --bg: #111215; --card: #1a1b20; --border: #2a2c33; --text: #e8e9ec; --muted: #9a9da6; --accent: #1ecc7a; --red: #f55b5b; }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) { --bg: #f4f5f7; --card: #ffffff; --border: #e2e4e9; --text: #16171a; --muted: #62656e; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .card { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 32px 28px; text-align: center; }
+    h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+    p { color: var(--muted); margin: 0 0 22px; }
+    button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 16px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: 0.6; cursor: default; }
+    button img { width: 18px; height: 18px; }
+    .cancel { margin-top: 10px; background: none; border: none; color: var(--muted); font-weight: 500; }
+    .msg { min-height: 22px; margin-top: 16px; font-size: 13.5px; color: var(--muted); }
+    .msg.error { color: var(--red); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Sign in to Scaffold</h1>
+    <p>Continue with {{ provider_label }} — you’ll then be taken back to the app.</p>
+    <button id="go" type="button"{% if not configured %} disabled{% endif %}>
+      <img src="/assets/icons/{{ provider }}.svg" alt=""> Continue with {{ provider_label }}
+    </button>
+    <button id="cancel" class="cancel" type="button">Cancel</button>
+    <div id="msg" class="msg{% if not configured %} error{% endif %}">{% if not configured %}{{ provider_label }} sign-in isn’t set up on this server yet.{% endif %}</div>
+  </main>
+
+  <!-- The token goes back to the Scaffold app listening on this computer only. -->
+  <form id="back" method="post" action="http://127.0.0.1:{{ port }}/callback" hidden>
+    <input type="hidden" name="state" value="{{ state }}">
+    <input type="hidden" name="token" value="">
+    <input type="hidden" name="error" value="" disabled>
+  </form>
+
+  <script type="module">
+    const provider = {{ provider | json_encode() | safe }};
+    const configured = {{ configured }};
+    const config = {{ firebase | json_encode() | safe }};
+    const go = document.getElementById('go');
+    const msg = document.getElementById('msg');
+    const back = document.getElementById('back');
+
+    const say = (text, error = false) => { msg.textContent = text; msg.classList.toggle('error', error); };
+    const send = (fields) => {
+      for (const [k, v] of Object.entries(fields)) { const f = back.elements[k]; f.disabled = false; f.value = v; }
+      back.submit();
+    };
+
+    document.getElementById('cancel').addEventListener('click', () => send({ error: 'cancelled' }));
+
+    if (configured) {
+      const { initializeApp } = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js');
+      const { getAuth, signInWithPopup, GoogleAuthProvider, GithubAuthProvider } =
+        await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js');
+      const auth = getAuth(initializeApp(config));
+
+      go.addEventListener('click', async () => {
+        go.disabled = true;
+        say('Waiting for ' + (provider === 'github' ? 'GitHub' : 'Google') + '…');
+        try {
+          let p;
+          if (provider === 'github') { p = new GithubAuthProvider(); p.addScope('user:email'); }
+          else { p = new GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account' }); }
+          const result = await signInWithPopup(auth, p);
+          const token = await result.user.getIdToken();
+          say('Signed in — returning to Scaffold…');
+          send({ token });
+        } catch (err) {
+          go.disabled = false;
+          const code = err && err.code;
+          if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') say('');
+          else if (code === 'auth/popup-blocked') say('Your browser blocked the sign-in window — allow pop-ups for this page and try again.', true);
+          else if (code === 'auth/account-exists-with-different-credential') say('This email already signs in another way — use that option instead.', true);
+          else if (code === 'auth/unauthorized-domain') say('This server isn’t an authorized domain in Firebase yet.', true);
+          else say((err && err.message) || 'Sign-in failed — try again.', true);
+        }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -77,12 +77,14 @@ function colorLiteral(hex, alpha = 1) {
   return `Color(0x${argb(hex, alpha)})`;
 }
 
-// A solid colour expression: the referenced VColors constant if the node points at
-// a colour variable, else a raw Color literal, else null (no colour).
+// A solid colour expression: the colour variable from the current theme if the
+// node points at one (VColors.of(context), so light / dark both work — the static
+// VColors constants are the first theme's only), else a raw Color literal, else
+// null (no colour). Every widget is built inside build(), where context exists.
 function solidColor(ctx, colorId, fallbackHex, alpha = 1) {
   if (colorId) {
     const c = state.colors.find(x => x.id === colorId);
-    if (c) { ctx.colors = true; return `VColors.${c.name}`; }
+    if (c) { ctx.colors = true; return `VColors.of(context).${c.name}`; }
   }
   if (fallbackHex && fallbackHex !== 'transparent') return colorLiteral(fallbackHex, alpha);
   return null;
@@ -208,7 +210,9 @@ function textStyleExpr(ctx, node) {
       const over = {};
       if (node.fontSizeOverride != null) over.fontSize = ssp(ctx, node.fontSizeOverride);
       if (node.fontWeightOverride) over.fontWeight = `FontWeight.w${node.fontWeightOverride}`;
-      const col = bound || solidColor(ctx, node.colorId, null);
+      // The text's colour, else the style's own colour — from the current theme
+      // (VTextStyle's built-in colour is the first theme's).
+      const col = bound || solidColor(ctx, node.colorId, null) || solidColor(ctx, t.colorId, null);
       if (col) over.color = col;
       return Object.keys(over).length ? W(`VTextStyle.${t.name}.copyWith`, over) : `VTextStyle.${t.name}`;
     }
