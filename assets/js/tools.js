@@ -1,4 +1,5 @@
 import { state, getNode, makeNode } from './state.js';
+import { isFlex, flexKind } from './nodes.js';
 import { canvasWrap, showToast } from './utils.js';
 import { render, updateNodeEl, zoomAt, fitView } from './render.js';
 import { renderProps } from './props.js';
@@ -73,9 +74,14 @@ export function initToolEvents() {
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') { e.preventDefault(); copySelected(); return; }
     // Ctrl+V is handled by the 'paste' event below (a keydown can't read the
     // system clipboard, and we want Figma/image/SVG pastes to just work).
-    if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); state.nodes.forEach(n => state.selected.add(n.id)); render(); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); selectAllAtLevel(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); return; }
-    if (e.key === 'Escape') { state.selected.clear(); setTool('select'); render(); return; }
+    // Esc / Shift+Enter: up to the parent. Enter: down to the children. (Figma)
+    if (e.key === 'Escape' || (e.key === 'Enter' && e.shiftKey)) {
+      if (state.tool !== 'select') { setTool('select'); return; }
+      selectParent(); return;
+    }
+    if (e.key === 'Enter' && tag !== 'BUTTON') { e.preventDefault(); selectChildren(); return; }
     if (e.key === 'v' || e.key === 'V') setTool('select');
     if (e.key === 'h' || e.key === 'H') setTool('hand');
     if ((e.key === 'f' || e.key === 'F') && !state.readonly) { e.preventDefault(); document.getElementById('tool-frame').click(); }
@@ -87,21 +93,17 @@ export function initToolEvents() {
     if (e.key === '+' || e.key === '=') zoomAt(1.25);
     if (e.key === '-') zoomAt(0.8);
 
-    // Arrow nudge
+    // Arrows: nudge free items; in a row / column, move the item one place
+    // along it. Saved as one undo step when the key is let go.
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       if (state.readonly) return; // viewers can't move nodes
-      const d = e.shiftKey ? 10 : 1;
-      state.selected.forEach(id => {
-        const n = getNode(id);
-        if (!n || n.locked) return;
-        if (e.key === 'ArrowUp') n.y -= d;
-        if (e.key === 'ArrowDown') n.y += d;
-        if (e.key === 'ArrowLeft') n.x -= d;
-        if (e.key === 'ArrowRight') n.x += d;
-        updateNodeEl(n);
-      });
-      renderProps();
+      e.preventDefault();
+      if (arrowKey(e)) nudged = true;
     }
+  });
+
+  document.addEventListener('keyup', e => {
+    if (nudged && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) { nudged = false; saveHistory(); }
   });
 
   // Release space → restore the tool that was active before space-panning
@@ -131,6 +133,64 @@ export function initToolEvents() {
     e.preventDefault();
     handleSystemPaste(e.clipboardData).then(handled => { if (!handled) pasteClipboard(); });
   });
+}
+
+let nudged = false; // arrows moved something since the last save
+
+// Returns whether anything moved.
+function arrowKey(e) {
+  const d = e.shiftKey ? 10 : 1;
+  const back = e.key === 'ArrowUp' || e.key === 'ArrowLeft';
+  const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+  let moved = false, reordered = false;
+  state.selected.forEach(id => {
+    const n = getNode(id);
+    if (!n || n.locked) return;
+    const parent = n.parentId ? getNode(n.parentId) : null;
+    if (parent && isFlex(parent)) {
+      // Only the arrows along the layout's direction reorder (both, in a wrap).
+      const kind = flexKind(parent);
+      if ((kind === 'column' && !vertical) || (kind === 'row' && vertical)) return;
+      const kids = parent.children, i = kids.indexOf(n.id), j = back ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= kids.length) return;
+      [kids[i], kids[j]] = [kids[j], kids[i]];
+      moved = reordered = true;
+      return;
+    }
+    if (e.key === 'ArrowUp') n.y -= d;
+    if (e.key === 'ArrowDown') n.y += d;
+    if (e.key === 'ArrowLeft') n.x -= d;
+    if (e.key === 'ArrowRight') n.x += d;
+    updateNodeEl(n);
+    moved = true;
+  });
+  if (reordered) render(); else renderProps();
+  return moved;
+}
+
+// Ctrl+A: everything at the selection's level (its siblings), or every
+// top-level item when nothing is selected.
+function selectAllAtLevel() {
+  const first = getNode([...state.selected][0]);
+  const parentId = first ? first.parentId : null;
+  const pool = parentId ? (getNode(parentId).children || []).map(getNode) : state.nodes.filter(n => !n.parentId);
+  state.selected = new Set(pool.filter(n => n && n.visible !== false && !n.locked).map(n => n.id));
+  render();
+}
+
+function selectParent() {
+  const parents = new Set([...state.selected].map(id => getNode(id)).filter(n => n && n.parentId).map(n => n.parentId));
+  // Up from a screen's top level lands on the screen; up from a screen clears.
+  state.selected = parents.size ? new Set([...parents].filter(id => getNode(id).type !== 'section')) : new Set();
+  render();
+}
+
+function selectChildren() {
+  const kids = [...state.selected].flatMap(id => (getNode(id) || {}).children || []).map(getNode)
+    .filter(n => n && n.visible !== false && !n.locked);
+  if (!kids.length) return;
+  state.selected = new Set(kids.map(n => n.id));
+  render();
 }
 
 // The world-space point pastes land at: the centre of the current viewport.

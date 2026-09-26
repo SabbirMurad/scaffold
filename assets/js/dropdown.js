@@ -25,7 +25,9 @@ export function closeDropdown() {
 
 // Build a dropdown trigger.
 //   value        — currently selected value
-//   options      — [{ value, label, group?, cls? }]
+//   options      — [{ value, label, group?, cls?, meta?, font? }]
+//                  meta: secondary text shown on the right (e.g. "24 · 700");
+//                  font: CSS font declarations to preview the label in (menu only)
 //   data         — { key: val } mirrored onto the trigger as data-key attributes
 //   triggerClass — extra classes on the trigger (sizing/colour variants)
 //   labelCls     — extra classes on the label span (e.g. method colour)
@@ -34,11 +36,12 @@ export function ddTrigger({ value, options, data = {}, triggerClass = '', labelC
   const sel = options.find(o => String(o.value) === v);
   const label = sel ? sel.label : v;
   const cls = sel ? (sel.cls || '') : '';
+  const meta = sel && sel.meta ? `<span class="dd-meta">${esc(sel.meta)}</span>` : '';
   const dataAttrs = Object.entries(data)
     .map(([k, val]) => `data-${k}="${esc(String(val))}"`).join(' ');
   const optJson = esc(JSON.stringify(options));
   return `<button type="button" class="dd-trigger ${triggerClass}" data-dd-value="${esc(v)}" data-dd-options="${optJson}" ${dataAttrs}>` +
-    `<span class="dd-label ${cls} ${labelCls}">${esc(label)}</span><img class="dd-caret" src="/assets/icons/arrow-down.svg" alt=""></button>`;
+    `<span class="dd-label ${cls} ${labelCls}">${esc(label)}</span>${meta}<img class="dd-caret" src="/assets/icons/arrow-down.svg" alt=""></button>`;
 }
 
 function openFor(trigger) {
@@ -57,7 +60,9 @@ function openFor(trigger) {
     const active = String(o.value) === String(cur) ? ' active' : '';
     const dis = o.disabled ? ' disabled' : '';
     const titleAttr = o.title ? ` title="${esc(o.title)}"` : '';
-    html += `<div class="dd-item ${o.cls || ''}${active}${dis}" data-val="${esc(String(o.value))}"${titleAttr}>${esc(o.label)}</div>`;
+    const label = o.font ? `<span class="dd-item-label" style="${esc(o.font)}">${esc(o.label)}</span>` : esc(o.label);
+    const meta = o.meta ? `<span class="dd-meta">${esc(o.meta)}</span>` : '';
+    html += `<div class="dd-item ${o.cls || ''}${o.meta ? ' has-meta' : ''}${active}${dis}" data-val="${esc(String(o.value))}"${titleAttr}>${label}${meta}</div>`;
   });
   menu.innerHTML = html;
 

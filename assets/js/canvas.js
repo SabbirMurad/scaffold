@@ -1,6 +1,7 @@
 import { state, getNode, makeNode } from './state.js';
 import { canvasWrap, selBox, closeMenus, ctxMenu, showToast } from './utils.js';
-import { canvasToWorld, getWorldPos, findFrameAt, reparentNode, clearDropTargets, highlightDropTarget, isDescendant, isSingleChild, isStack } from './nodes.js';
+import { canvasToWorld, getWorldPos, findFrameAt, reparentNode, clearDropTargets, highlightDropTarget, isDescendant, isSingleChild, isStack,
+  isFlex, flexKind, canAcceptChild, isScreenFrame } from './nodes.js';
 import { saveHistory } from './history.js';
 import { render, updateNodeEl, applyTransform, positionRadiusHandles, applyDragTransform } from './render.js';
 import { renderProps } from './props.js';
@@ -90,8 +91,7 @@ function flushDragMove() {
     del?.classList.add('drag-source');
     // Layout children ignore x/y, so translate them so the preview follows the cursor.
     if (del && !isFreeNode(dragging.node)) applyDragTransform(del, dragging.node, dx, dy);
-    const wp = getWorldPos(dragging.node);
-    highlightDropTarget(wp.x + dragging.node.w / 2, wp.y + dragging.node.h / 2, dragging.node.id);
+    showDrop(dropAt(e, dragging.node));
   }
   updateDragProps(); // cheap live X/Y update instead of rebuilding the whole panel each frame
 }
@@ -109,10 +109,178 @@ function updateDragProps() {
 let panStart = null;
 let drawStart = null;
 let selStart = null;
-// Tracks the last text-node click so a quick second click re-opens inline editing.
-// (The native dblclick event is unreliable here because selection re-renders the
-// node element between clicks, breaking the browser's same-target requirement.)
-let lastTextClick = null;
+// The last click on a node (the element actually under the pointer), so a quick
+// second click counts as a double-click. (The native dblclick event is unreliable
+// here: selection re-renders the node element between clicks, breaking the
+// browser's same-target requirement.)
+let lastClick = null;
+const DOUBLE_CLICK_MS = 350;
+
+// ───────── Which element a click selects (Figma-style) ─────────
+// A click selects the outermost element inside the screen; once something is
+// selected, a click selects at that same level (a sibling of it, or of one of its
+// ancestors); a double-click goes one level deeper; Ctrl/Cmd+click selects the
+// innermost element straight away.
+
+// The clicked element's ancestors, outermost first, from just inside its screen
+// (or canvas root / section) down to the element itself.
+function clickPath(node) {
+  const path = [];
+  for (let n = node; n; n = n.parentId ? getNode(n.parentId) : null) {
+    if (n !== node && (isScreenFrame(n) || n.type === 'section')) break;
+    path.unshift(n);
+  }
+  return path;
+}
+
+function clickTarget(node, e) {
+  if (e.ctrlKey || e.metaKey) return node;
+  const path = clickPath(node);
+  const sel = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
+  if (sel) {
+    // Clicking the selection or something inside it keeps it (so it can be dragged).
+    if (path.includes(sel)) return sel;
+    // Otherwise stay at the selection's level: the deepest element of the path
+    // whose parent also holds the selection.
+    for (let i = path.length - 1; i >= 0; i--) {
+      const p = path[i].parentId;
+      if (p && (sel.parentId === p || isDescendant(sel.id, p))) return path[i];
+    }
+  }
+  return path[0];
+}
+
+// A double-click: one level deeper than the selection, toward the clicked element.
+function drillTarget(node) {
+  const sel = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
+  const path = clickPath(node);
+  const i = sel ? path.indexOf(sel) : -1;
+  return i >= 0 && i < path.length - 1 ? path[i + 1] : null;
+}
+
+// ───────── Where a dragged element lands ─────────
+// Hit-tested against what's actually on screen (a row's or column's children are
+// placed by the layout, not by their stored x/y). Inside a row / column / wrap
+// the element goes between the children nearest the pointer, shown by a line.
+function dropAt(e, dragged, fixed = null) {
+  let target = fixed;
+  if (!target) for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const nel = el.closest && el.closest('.node');
+    const n = nel && getNode(nel.dataset.id);
+    if (!n || n.id === dragged.id || isDescendant(n.id, dragged.id)) continue;
+    // The innermost container under the pointer that can take the element.
+    for (let c = n; c; c = c.parentId ? getNode(c.parentId) : null) {
+      if (c.id !== dragged.id && !isDescendant(c.id, dragged.id) && canAcceptChild(c, dragged.id)) { target = c; break; }
+    }
+    break;
+  }
+  if (!target) return { parent: null };
+
+  // Near the edge of a container that sits in a row/column: go beside it (into
+  // the row/column) rather than inside it — that's how items are reordered.
+  const outer = !fixed && target.parentId && getNode(target.parentId);
+  if (outer && isFlex(outer) && canAcceptChild(outer, dragged.id)) {
+    const r = document.getElementById('node-' + target.id)?.getBoundingClientRect();
+    if (r) {
+      const col = flexKind(outer) === 'column';
+      const lo = col ? r.top : r.left, hi = col ? r.bottom : r.right, at = col ? e.clientY : e.clientX;
+      const edge = Math.max(6, (hi - lo) * 0.25);
+      if (at < lo + edge || at > hi - edge) target = outer;
+    }
+  }
+  if (!isFlex(target)) return { parent: target };
+
+  // Insert before the first child whose middle is past the pointer.
+  const kind = flexKind(target);
+  const order = (target.children || []).filter(id => id !== dragged.id);
+  const kids = order
+    .map(id => ({ id, el: document.getElementById('node-' + id) }))
+    .filter(k => k.el && k.el.offsetParent !== null)
+    .map(k => ({ id: k.id, r: k.el.getBoundingClientRect() }));
+  const before = (r) => kind === 'column' ? e.clientY < (r.top + r.bottom) / 2
+    : kind === 'row' ? e.clientX < (r.left + r.right) / 2
+    : e.clientY < r.top || (e.clientY <= r.bottom && e.clientX < (r.left + r.right) / 2); // wrap: by line, then x
+  let pos = kids.findIndex(k => before(k.r));
+  if (pos < 0) pos = kids.length;
+  const index = pos < kids.length ? order.indexOf(kids[pos].id) : order.length;
+  return { parent: target, index, line: dropLine(target, kind, kids, pos) };
+}
+
+// Screen coordinates of the insertion line: between the neighbours at `pos`.
+function dropLine(target, kind, kids, pos) {
+  const tr = document.getElementById('node-' + target.id).getBoundingClientRect();
+  const prev = kids[pos - 1] && kids[pos - 1].r, next = kids[pos] && kids[pos].r;
+  const ref = next || prev;
+  if (kind === 'column') {
+    const y = prev && next ? (prev.bottom + next.top) / 2 : next ? next.top - 2 : prev ? prev.bottom + 2 : tr.top + 4;
+    return { x: ref ? ref.left : tr.left + 4, y, w: ref ? ref.width : tr.width - 8, h: 0 };
+  }
+  const x = prev && next && (kind === 'row' || prev.top === next.top) ? (prev.right + next.left) / 2
+    : next ? next.left - 2 : prev ? prev.right + 2 : tr.left + 4;
+  return { x, y: ref ? ref.top : tr.top + 4, w: 0, h: ref ? ref.height : tr.height - 8 };
+}
+
+// Where things are on screen, in world units — measured from the DOM, because a
+// row's or column's children (and everything inside them) are placed by the
+// layout, so their stored x/y are stale.
+function pointerWorld(e) {
+  const wr = canvasWrap.getBoundingClientRect();
+  return canvasToWorld(e.clientX - wr.left, e.clientY - wr.top);
+}
+function centerWorld(n) {
+  const r = nodeWorldRect(n);
+  return { x: (r.L + r.R) / 2, y: (r.T + r.B) / 2 };
+}
+// The point a child's x/y count from: the parent's padding box.
+function worldOrigin(parent) {
+  const el = document.getElementById('node-' + parent.id);
+  if (!el) return getWorldPos(parent);
+  const r = nodeWorldRect(parent);
+  return { x: r.L + el.clientLeft - el.scrollLeft, y: r.T + el.clientTop - el.scrollTop };
+}
+// Give `n` x/y so its centre sits at world point `at` in its (new) parent.
+function placeCenter(n, at) {
+  const parent = n.parentId ? getNode(n.parentId) : null;
+  if (parent && isSingleChild(parent)) { n.x = 0; n.y = 0; return; }
+  if (parent && isFlex(parent)) return; // the layout places it
+  const el = document.getElementById('node-' + n.id);
+  const w = el ? el.offsetWidth : n.w, h = el ? el.offsetHeight : n.h;
+  const o = parent ? worldOrigin(parent) : { x: 0, y: 0 };
+  n.x = Math.round(at.x - w / 2 - o.x);
+  n.y = Math.round(at.y - h / 2 - o.y);
+}
+
+// Where a new element drawn at a screen point goes: the outermost container
+// under it that can take it (so drawing over nested boxes lands in the screen
+// or section, not whatever sits on top), and — in a row / column — the index
+// nearest the point.
+function drawTargetAt(clientX, clientY, type) {
+  let best = null, bestDepth = Infinity;
+  const depth = (n) => { let d = 0; for (let c = n; c && c.parentId; c = getNode(c.parentId)) d++; return d; };
+  for (const el of document.elementsFromPoint(clientX, clientY)) {
+    const nel = el.closest && el.closest('.node');
+    const n = nel && getNode(nel.dataset.id);
+    if (!n) continue;
+    for (let c = n; c; c = c.parentId ? getNode(c.parentId) : null) {
+      if (canAcceptChild(c, null, type) && depth(c) < bestDepth) { best = c; bestDepth = depth(c); }
+    }
+  }
+  if (!best || !isFlex(best)) return { parent: best };
+  return dropAt({ clientX, clientY }, { id: null }, best);
+}
+
+function showDrop(drop) {
+  clearDropTargets();
+  let line = document.getElementById('drop-line');
+  if (drop && drop.parent) document.getElementById('node-' + drop.parent.id)?.classList.add('drop-target');
+  if (!drop || !drop.line) { if (line) line.style.display = 'none'; return; }
+  if (!line) { line = document.createElement('div'); line.id = 'drop-line'; document.body.appendChild(line); }
+  const { x, y, w, h } = drop.line;
+  Object.assign(line.style, {
+    display: 'block', left: x + 'px', top: y + 'px', width: Math.max(w, 2) + 'px', height: Math.max(h, 2) + 'px',
+    transform: w ? 'translateY(-1px)' : 'translateX(-1px)',
+  });
+}
 
 // ───────── Snapping / smart guides ─────────
 const SNAP_PX = 6; // snap distance in screen pixels
@@ -122,18 +290,6 @@ function isFreeNode(n) {
   if (!n.parentId) return true;
   const p = getNode(n.parentId);
   return isStack(p);
-}
-
-// A node's true on-screen centre in world coords. Flex/stack layout children are
-// positioned by the layout, not their stored x/y, so getWorldPos() reports a stale
-// point; the live DOM rect (which includes any drag transform) is authoritative for
-// the drop hit-test. Falls back to x/y accumulation if the element isn't mounted.
-function nodeCenterWorld(node) {
-  const el = document.getElementById('node-' + node.id);
-  if (!el) { const wp = getWorldPos(node); return { x: wp.x + node.w / 2, y: wp.y + node.h / 2 }; }
-  const wr = canvasWrap.getBoundingClientRect();
-  const r = el.getBoundingClientRect();
-  return canvasToWorld((r.left + r.right) / 2 - wr.left, (r.top + r.bottom) / 2 - wr.top);
 }
 
 // Capture other nodes' world rects once at drag start (they don't move while dragging one).
@@ -374,20 +530,37 @@ export function attachNodeEvents(el, node) {
     if (node.locked) return;
     e.stopPropagation();
 
+    // Pressing the empty background of a screen that isn't selected starts a
+    // selection box over its contents (a plain click still selects the screen);
+    // a selected screen drags as usual.
+    if (state.tool === 'select' && e.target === el && isScreenFrame(node) && !state.selected.has(node.id)
+        && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const wr = canvasWrap.getBoundingClientRect();
+      startMarquee(e.clientX - wr.left, e.clientY - wr.top, node.id);
+      return;
+    }
+
     if (state.tool === 'select') {
-      // Double-click a text node → re-enter inline editing (manual detection,
-      // since render() between clicks defeats the native dblclick event).
-      if (node.type === 'text') {
-        const now = Date.now();
-        if (lastTextClick && lastTextClick.id === node.id && now - lastTextClick.t < 350) {
-          lastTextClick = null;
-          startTextEdit(node, el, false, e);
+      const now = Date.now();
+      const double = lastClick && lastClick.id === node.id && now - lastClick.t < DOUBLE_CLICK_MS;
+      lastClick = double ? null : { id: node.id, t: now };
+      if (double) {
+        // A selected text starts editing; otherwise go one level deeper — and
+        // straight into editing when that lands on the clicked text.
+        if (node.type === 'text' && state.selected.has(node.id)) { startTextEdit(node, el, false, e); return; }
+        const deeper = drillTarget(node);
+        if (deeper === node && node.type === 'text' && !state.readonly) {
+          // The pressed element is re-rendered away; stop the press's default
+          // focus change, which would land on the page and end the edit at once.
+          e.preventDefault();
+          state.selected.clear(); state.selected.add(node.id); render();
+          const fresh = document.getElementById('node-' + node.id);
+          if (fresh) startTextEdit(node, fresh, false, e);
           return;
         }
-        lastTextClick = { id: node.id, t: now };
+        if (deeper) { state.selected.clear(); beginNodeDrag(deeper, e); return; }
       }
-
-      beginNodeDrag(node, e);
+      beginNodeDrag(clickTarget(node, e), e);
     }
   });
 }
@@ -432,7 +605,22 @@ export function beginNodeDrag(node, e) {
   };
   // Single free-node drags snap to other elements' edges/centers (deferred for Alt-clone)
   if (!dragging.multi && !dragging.altClone && isFreeNode(node)) dragging.snapTargets = captureSnapTargets(node);
+  // Where in the element it was grabbed, so a drop can put it under the pointer
+  // the same way.
+  const p = pointerWorld(e), c = centerWorld(node);
+  dragging.grab = { x: p.x - c.x, y: p.y - c.y };
   saveHistory();
+}
+
+// Start a selection box at canvas-wrap point (x, y); `frameId` scopes it to one
+// screen's contents.
+function startMarquee(x, y, frameId) {
+  selStart = { x, y, frameId };
+  selBox.style.display = 'block';
+  selBox.style.left = x + 'px';
+  selBox.style.top = y + 'px';
+  selBox.style.width = '0';
+  selBox.style.height = '0';
 }
 
 function onWrapMouseDown(e) {
@@ -466,12 +654,7 @@ function onWrapMouseDown(e) {
     if (!clickedNode) {
       state.selected.clear();
       render();
-      selStart = { x: cx, y: cy };
-      selBox.style.display = 'block';
-      selBox.style.left = cx + 'px';
-      selBox.style.top = cy + 'px';
-      selBox.style.width = '0';
-      selBox.style.height = '0';
+      startMarquee(cx, cy, null);
     }
   }
 }
@@ -587,7 +770,10 @@ function onWrapMouseMove(e) {
     const wy = e.clientY - rect.top;
     const world = canvasToWorld(wx, wy);
     // Frames and sections are top-level, so they never highlight a drop target.
-    if (!['frame', 'section'].includes(state.tool)) highlightDropTarget(world.x, world.y, null, state.tool);
+    if (!['frame', 'section'].includes(state.tool)) {
+      const at = state.tool === 'text' ? { x: drawStart.cx, y: drawStart.cy } : { x: (drawStart.cx + wx) / 2, y: (drawStart.cy + wy) / 2 };
+      showDrop(drawTargetAt(rect.left + at.x, rect.top + at.y, state.tool));
+    }
     // Live preview of the rectangle being drawn (container/section) so it's visible
     // before the mouse is released. Text is auto-sized, so it gets no preview box.
     if (state.tool === 'container' || state.tool === 'section') {
@@ -636,13 +822,29 @@ function onWrapMouseUp(e) {
     // it is. Without this, releasing a click on a flex-row child re-runs the drop
     // test against its stale x/y and wrongly ejects it from the row.
     const moved = Math.hypot(e.clientX - dragging.startX, e.clientY - dragging.startY) > 4;
+    showDrop(null);
+    let landed = null;
     if (!dragging.multi && moved) {
       const n = dragging.node;
-      const c = nodeCenterWorld(n); // real rendered centre, correct for flex children
-      const targetFrame = findFrameAt(c.x, c.y, n.id);
+      const drop = dropAt(e, n);
+      const targetFrame = drop.parent;
       const targetId = targetFrame ? targetFrame.id : null;
-      if (targetId !== n.parentId) {
+      const p = pointerWorld(e);
+      const at = { x: p.x - dragging.grab.x, y: p.y - dragging.grab.y }; // where its centre should land
+      if (targetFrame && isFlex(targetFrame)) {
+        // Into a row / column / wrap: at the spot the line showed. The layout
+        // places it, so its stored x/y go back to what they were.
+        const moving = targetId !== n.parentId;
+        if (moving) reparentNode(n, targetId);
+        const kids = targetFrame.children.filter(id => id !== n.id);
+        kids.splice(drop.index, 0, n.id);
+        targetFrame.children = kids;
+        if (!moving) { n.x = dragging.origX; n.y = dragging.origY; }
+        if (moving) showToast(`Moved into "${targetFrame.name}"`);
+      } else if (targetId !== n.parentId) {
         reparentNode(n, targetId);
+        placeCenter(n, at); // exactly where it was dropped
+        landed = { n, at };
         showToast(targetFrame ? `Moved into "${targetFrame.name}"` : 'Moved to canvas');
       } else if (n.parentId) {
         // Stayed in the same parent: a single-child wrapper keeps its child pinned top-left
@@ -650,12 +852,24 @@ function onWrapMouseUp(e) {
         if (isSingleChild(parent)) { n.x = 0; n.y = 0; }
       }
     }
+    // Several items dragged together only move the free ones; items in a row /
+    // column snap back, so their stored x/y go back too.
+    if (dragging.multi) dragging.multi.forEach(({ node: m, ox, oy }) => { if (!isFreeNode(m)) { m.x = ox; m.y = oy; } });
     dragging = null;
     cancelDragFrame();
     restoreDragAncestors();
     document.body.classList.remove('dragging-node');
-    saveHistory();
     render();
+    // Out of a row / column its size can change (it was stretched there), so
+    // re-centre it on the drop point now that it's drawn at its real size.
+    if (landed) {
+      const c = centerWorld(landed.n);
+      landed.n.x = Math.round(landed.n.x + landed.at.x - c.x);
+      landed.n.y = Math.round(landed.n.y + landed.at.y - c.y);
+      updateNodeEl(landed.n);
+      renderProps();
+    }
+    saveHistory();
     return;
   }
 
@@ -668,15 +882,25 @@ function onWrapMouseUp(e) {
     const sy = Math.min(selStart.y, cy);
     const sw = Math.abs(cx - selStart.x);
     const sh = Math.abs(cy - selStart.y);
+    const inside = selStart.frameId ? getNode(selStart.frameId) : null;
     if (sw > 4 && sh > 4) {
-      const w1 = canvasToWorld(sx, sy);
-      const w2 = canvasToWorld(sx + sw, sy + sh);
-      state.nodes.forEach(n => {
+      // One level at a time, like Figma: from empty canvas the top-level items;
+      // from inside a screen, that screen's own children. Compared on screen, so
+      // it's right for laid-out children too.
+      const box = { L: rect.left + sx, T: rect.top + sy, R: rect.left + sx + sw, B: rect.top + sy + sh };
+      const pool = inside ? (inside.children || []).map(getNode).filter(Boolean) : state.nodes.filter(n => !n.parentId);
+      if (inside) state.selected.clear();
+      pool.forEach(n => {
         if (n.locked || !n.visible) return; // locked/hidden layers aren't marquee-selectable
-        if (n.x < w2.x && n.x + n.w > w1.x && n.y < w2.y && n.y + n.h > w1.y) {
-          state.selected.add(n.id);
-        }
+        const el = document.getElementById('node-' + n.id);
+        const r = el && el.getBoundingClientRect();
+        if (r && r.left < box.R && r.right > box.L && r.top < box.B && r.bottom > box.T) state.selected.add(n.id);
       });
+      render();
+    } else if (inside) {
+      // A click (no drag) on a screen's background selects the screen.
+      state.selected.clear();
+      state.selected.add(inside.id);
       render();
     }
     selStart = null;
@@ -704,8 +928,12 @@ function onWrapMouseUp(e) {
     const midX = (drawStart.x + world.x) / 2;
     const midY = (drawStart.y + world.y) / 2;
     // Frames and sections are top-level; everything else can nest into a frame.
-    const parentFrame = !['frame', 'section'].includes(state.tool)
-      ? findFrameAt(isText ? drawStart.x : midX, isText ? drawStart.y : midY, null, state.tool, true) : null;
+    showDrop(null);
+    const target = !['frame', 'section'].includes(state.tool)
+      ? drawTargetAt(rect.left + (isText ? drawStart.cx : (drawStart.cx + wx) / 2),
+          rect.top + (isText ? drawStart.cy : (drawStart.cy + wy) / 2), state.tool)
+      : { parent: null };
+    const parentFrame = target.parent;
 
     let localX = anchorX, localY = anchorY;
     if (parentFrame) {
@@ -714,7 +942,7 @@ function onWrapMouseUp(e) {
         localX = 0;
         localY = 0;
       } else {
-        const pp = getWorldPos(parentFrame);
+        const pp = worldOrigin(parentFrame);
         localX = anchorX - pp.x;
         localY = anchorY - pp.y;
       }
@@ -723,7 +951,9 @@ function onWrapMouseUp(e) {
     const isSection = state.tool === 'section';
     const node = makeNode(state.tool, localX, localY, w, h, parentFrame ? parentFrame.id : null);
     if (parentFrame) {
-      parentFrame.children.push(node.id);
+      // In a row / column it goes where it was drawn, not at the end.
+      if (target.index != null) parentFrame.children.splice(target.index, 0, node.id);
+      else parentFrame.children.push(node.id);
     }
     state.nodes.push(node);
     // Drawing a Section over existing root frames adopts them (Figma-style), so
@@ -824,7 +1054,7 @@ function onDblClick(e) {
   const nodeEl = e.target.closest('.node');
   if (!nodeEl) return;
   const node = getNode(nodeEl.dataset.id);
-  if (!node || node.type !== 'text') return;
+  if (!node || node.type !== 'text' || !state.selected.has(node.id)) return;
   startTextEdit(node, nodeEl, false, e);
 }
 

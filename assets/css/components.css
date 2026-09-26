@@ -803,6 +803,11 @@ input[type=number] {
 }
 .dd-item:hover { background: var(--surface3); }
 .dd-item.active { color: var(--accent); }
+/* Items with secondary text on the right (e.g. a text style's size · weight). */
+.dd-item.has-meta { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.dd-item-label { overflow: hidden; text-overflow: ellipsis; }
+.dd-meta { flex-shrink: 0; margin-left: auto; font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--text3); }
+.dd-trigger .dd-meta { padding-left: 4px; }
 .dd-item.disabled { color: var(--text3); opacity: 0.5; cursor: not-allowed; }
 .dd-item.disabled:hover { background: transparent; }
 .dd-item.method-GET.active, .dd-item.method-POST.active, .dd-item.method-PUT.active,
@@ -1048,16 +1053,6 @@ body.sidebar-collapsed #typo-board { padding-left: 20px; }
   background: linear-gradient(to top right, transparent calc(50% - 1px), var(--red) calc(50% - 1px), var(--red) calc(50% + 1px), transparent calc(50% + 1px));
 }
 
-/* Typography style picker in the properties panel (text nodes) */
-.typo-pick-list { display: flex; flex-direction: column; gap: 4px; }
-.typo-pick {
-  width: 100%; text-align: left; padding: 7px 10px; border-radius: 7px;
-  border: 1px solid var(--border2); background: var(--surface2); color: var(--text2);
-  cursor: pointer; font-family: var(--sans); font-size: 12px; transition: all 0.1s;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.typo-pick:hover { border-color: var(--border3, var(--border2)); background: var(--surface3); color: var(--text); }
-.typo-pick.selected { border-color: var(--accent); color: var(--accent); background: var(--surface3); }
 
 /* ───────── Model board (Model tab) ───────── */
 #model-board, #mock-board {

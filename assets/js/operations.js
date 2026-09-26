@@ -2,7 +2,7 @@ import { state, getNode, getComponent, getMasterNode, isMaster, isInstance, next
 import { showToast, canvasWrap } from './utils.js';
 import { saveHistory } from './history.js';
 import { render, applyTransform } from './render.js';
-import { canAcceptChild, getWorldPos, canBeComponent, isStack, canvasToWorld } from './nodes.js';
+import { canAcceptChild, getWorldPos, canBeComponent, isStack, isSingleChild, canvasToWorld } from './nodes.js';
 
 // ───────── Components ─────────
 // The component a node stamps as an instance when duplicated/pasted: a master (or an
@@ -160,9 +160,9 @@ export function copySelected() {
   clipboard = [...state.selected].map(id => {
     const n = getNode(id);
     const ref = componentRefOf(n);
-    if (ref) { const wp = getWorldPos(n); return { _componentId: ref, x: n.x, y: n.y, parentId: n.parentId, _world: { x: wp.x, y: wp.y } }; }
+    if (ref) { const wp = getWorldPos(n); return { _componentId: ref, _src: n.id, type: 'instance', x: n.x, y: n.y, parentId: n.parentId, _world: { x: wp.x, y: wp.y } }; }
     const t = serializeSubtree(id);
-    if (t) { const wp = getWorldPos(n); t._world = { x: wp.x, y: wp.y }; }
+    if (t) { const wp = getWorldPos(n); t._world = { x: wp.x, y: wp.y }; t._src = n.id; }
     return t;
   }).filter(Boolean);
   pasteCount = 0;
@@ -178,6 +178,7 @@ function instantiate(tree, parentId, x, y) {
   const node = JSON.parse(JSON.stringify(tree));
   delete node._children;
   delete node._world;
+  delete node._src;
   // A deep copy is a plain node, never a component master — but an instance
   // inside it stays an instance of its component.
   if (node.type !== 'instance') delete node.componentId;
@@ -204,10 +205,29 @@ function instantiate(tree, parentId, x, y) {
 export function cloneNodeInPlace(node) {
   if (!node || state.readonly) return null;
   const ref = componentRefOf(node);
-  if (ref) return makeInstance(ref, node.x, node.y, node.parentId); // stamp an instance
+  if (ref) { const inst = makeInstance(ref, node.x, node.y, node.parentId); placeAfter(inst.id, node.id); return inst; } // stamp an instance
   const tree = serializeSubtree(node.id);
   const id = instantiate(tree, node.parentId, node.x, node.y);
+  placeAfter(id, node.id);
   return getNode(id);
+}
+
+// Move `id` to just after `afterId` among its parent's children (in a row /
+// column that's the next spot; in a stack, just above it). Root nodes likewise
+// in the canvas list.
+function placeAfter(id, afterId) {
+  const n = getNode(id);
+  if (!n) return;
+  const list = n.parentId ? (getNode(n.parentId) || {}).children : null;
+  if (list) {
+    list.splice(list.indexOf(id), 1);
+    list.splice(list.indexOf(afterId) + 1, 0, id);
+  } else {
+    const i = state.nodes.indexOf(n), a = state.nodes.findIndex(x => x.id === afterId);
+    if (i < 0 || a < 0) return;
+    state.nodes.splice(i, 1);
+    state.nodes.splice(state.nodes.findIndex(x => x.id === afterId) + 1, 0, n);
+  }
 }
 
 export function pasteClipboard() {
@@ -215,19 +235,36 @@ export function pasteClipboard() {
   pasteCount++;
   const off = 20 * pasteCount;
   const newSel = new Set();
+  // With one element selected, paste goes where it is (Figma): into it when it's
+  // a container that can take the copy (and isn't the copied element itself),
+  // otherwise right after it in its parent.
+  const sel = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
+  const copiedIt = sel && clipboard.some(t => t._src === sel.id);
+  let after = null;
   clipboard.forEach(tree => {
     let parentId = tree.parentId || null;
-    const parent = parentId ? getNode(parentId) : null;
     let x, y;
-    if (parent && canAcceptChild(parent)) {
-      x = tree.x + off; y = tree.y + off;           // same parent, local offset
+    if (sel && !copiedIt && canAcceptChild(sel, null, tree.type) && !isSingleChild(sel)) {
+      parentId = sel.id;                            // into the selected container
+      x = 20 * pasteCount; y = 20 * pasteCount;
+    } else if (sel && sel.parentId && canAcceptChild(getNode(sel.parentId), null, tree.type)) {
+      parentId = sel.parentId;                      // beside the selection
+      after = after || sel.id;
+      x = sel.x + (copiedIt ? off : 0); y = sel.y + (copiedIt ? off : 0);
+      if (!copiedIt) { x += 20; y += 20; }
     } else {
-      parentId = null;                              // can't nest → drop on the canvas
-      const w = tree._world || { x: tree.x, y: tree.y };
-      x = w.x + off; y = w.y + off;
+      const parent = parentId ? getNode(parentId) : null;
+      if (parent && canAcceptChild(parent, null, tree.type)) {
+        x = tree.x + off; y = tree.y + off;         // same parent, local offset
+      } else {
+        parentId = null;                            // can't nest → drop on the canvas
+        const w = tree._world || { x: tree.x, y: tree.y };
+        x = w.x + off; y = w.y + off;
+      }
     }
-    if (tree._componentId) { newSel.add(makeInstance(tree._componentId, x, y, parentId).id); return; }
-    newSel.add(instantiate(tree, parentId, x, y));
+    const id = tree._componentId ? makeInstance(tree._componentId, x, y, parentId).id : instantiate(tree, parentId, x, y);
+    if (after) { placeAfter(id, after); after = id; } // keep several pasted items in order
+    newSel.add(id);
   });
   state.selected = newSel;
   saveHistory();

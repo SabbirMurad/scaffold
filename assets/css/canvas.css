@@ -118,6 +118,11 @@ body.comment-mode #design-view { display: none; }
 .node.drop-target { outline: 2px dashed var(--accent) !important; outline-offset: -2px; }
 /* The element being dragged is dimmed so the drop-target outline beneath stays visible */
 .node.drag-source { opacity: 0.45 !important; }
+/* Pressing and dragging elements moves them — never highlights their text
+   (text being edited stays selectable). */
+#canvas .node:not(.editing) { -webkit-user-select: none; user-select: none; }
+/* Where a dragged element will land inside a row / column. */
+#drop-line { position: fixed; display: none; z-index: 900; pointer-events: none; background: var(--accent); border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
 .node.container { background: var(--accent); }
 .node.text-node { background: transparent; cursor: text; white-space: pre-wrap; word-break: break-word; }
 .node.text-node.editing { outline: 1px solid var(--accent); outline-offset: 1px; min-width: 8px; cursor: text; }

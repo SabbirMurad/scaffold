@@ -5,6 +5,7 @@ import { swatchBg } from './colors.js';
 import { updateNodeEl, render } from './render.js';
 import { renderLayers } from './layers.js';
 import { ddTrigger } from './dropdown.js';
+import { ensureFontLoaded } from './google-fonts.js';
 import { saveHistory } from './history.js';
 import { scopeFor, pathOptions, pathType, canRepeat, aliasOf, OPS, isUnary } from './data.js';
 
@@ -207,6 +208,7 @@ propsFields.addEventListener('dd:change', e => {
     case 'tweight':
       if (node.typoId) node.fontWeightOverride = v || null; else node.fontWeight = v;
       updateNodeEl(node); renderProps(); saveHistory(); break;
+    case 'typo': node.typoId = v || null; updateNodeEl(node); renderProps(); saveHistory(); break;
     case 'tcolor': node.colorId = v || null; updateNodeEl(node); renderProps(); saveHistory(); break;
   }
 });
@@ -861,10 +863,7 @@ export function renderProps() {
       ${state.typography.length === 0 ? `
       <div class="api-hint" style="margin-bottom:8px">No text styles yet.</div>
       <button class="goto-colors-btn" id="p-goto-typo">+ Create a style</button>` : `
-      <div class="typo-pick-list">
-        <button class="typo-pick ${!node.typoId ? 'selected' : ''}" data-picktypo="">None</button>
-        ${state.typography.map(t => `<button class="typo-pick ${node.typoId === t.id ? 'selected' : ''}" data-picktypo="${t.id}" title="${esc(t.name)}">${esc(t.name)}</button>`).join('')}
-      </div>`}
+      <div class="prop-row">${typoPicker(node)}</div>`}
       ${textOverrides(node)}
     </div>` : ''}
     ${node.type !== 'frame' && node.type !== 'section' ? interactionsSection(node) : ''}
@@ -1063,9 +1062,6 @@ export function renderProps() {
   } else {
     const ta = document.getElementById('p-text');
     if (ta) ta.addEventListener('input', () => { node.text = ta.value; updateNodeEl(node); });
-    document.querySelectorAll('[data-picktypo]').forEach(btn => {
-      btn.addEventListener('click', () => { node.typoId = btn.dataset.picktypo || null; updateNodeEl(node); renderProps(); });
-    });
     const sizeEl = document.getElementById('p-tsize');
     if (sizeEl) {
       sizeEl.addEventListener('input', () => {
@@ -1140,6 +1136,20 @@ function textOverrides(node) {
         <span class="prop-label-wide" style="width:auto">Color</span>
         ${ddTrigger({ value: node.colorId || '', options: colorOpts, data: { pp: 'tcolor' }, triggerClass: 'dd-block' })}
       </div>`;
+}
+
+// The text style, as one dropdown: each style previewed in its own font, with its
+// size · weight alongside.
+function typoPicker(node) {
+  const cap = (n) => Math.min(Number(n) || 13, 18); // keep big headings list-sized
+  const options = [
+    { value: '', label: 'None', meta: 'own size' },
+    ...state.typography.map(t => (ensureFontLoaded(t.fontFamily), {
+      value: t.id, label: t.name, meta: `${t.fontSize} · ${t.fontWeight}`,
+      font: `font-family:'${String(t.fontFamily).replace(/'/g, '')}',sans-serif;font-size:${cap(t.fontSize)}px;font-weight:${t.fontWeight}`,
+    })),
+  ];
+  return ddTrigger({ value: node.typoId || '', options, data: { pp: 'typo' }, triggerClass: 'dd-block' });
 }
 
 function styleDropdown(node) {
