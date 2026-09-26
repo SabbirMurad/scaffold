@@ -706,17 +706,6 @@ input[type=number] {
 .shape-btn { display: flex; align-items: center; justify-content: center; padding: 7px 8px; }
 .shape-btn svg { display: block; width: 18px; height: 18px; }
 
-/* Two-way icon toggle (e.g. text auto/fixed width): each button fills half the
-   width with a gap between them. */
-.seg-toggle { display: flex; gap: 10px; }
-.seg-btn {
-  flex: 0 0 48px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
-  border-radius: 10px; border: 1px solid var(--border); background: var(--surface2);
-  color: var(--text2); cursor: pointer; transition: all 0.1s;
-}
-.seg-btn:hover { border-color: var(--border2); color: var(--text); }
-.seg-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
-.seg-btn svg { display: block; width: 26px; height: 26px; }
 
 /* Gradient on-canvas control — line/circle handles drawn on the color swatch */
 .grad-ov { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }

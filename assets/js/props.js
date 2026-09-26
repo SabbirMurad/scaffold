@@ -29,8 +29,10 @@ const SIDES_ICON = `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" 
 const PLUS_ICON = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>`;
 // Text sizing: auto-width = text lines with outward horizontal arrows (grows
 // sideways); fixed-width = wrapped lines inside a fixed box.
-const AUTOWIDTH_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9 3 12l3 3M18 9l3 3-3 3"/><path d="M9 8.5h6M9 12h6M9 15.5h6"/></svg>`;
-const FIXEDWIDTH_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M7.5 9h9M7.5 12h9M7.5 15h5"/></svg>`;
+// Figma's text resizing icons: Auto width (↔ between two bars) and Auto height
+// (↕ between two bars — fixed width, the height grows as the text wraps).
+const AUTOWIDTH_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7v10M20 7v10"/><path d="M7.5 12h9"/><path d="M10 9.5 7.5 12l2.5 2.5M14 9.5l2.5 2.5-2.5 2.5"/></svg>`;
+const FIXEDWIDTH_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10M7 20h10"/><path d="M12 7.5v9"/><path d="M9.5 10 12 7.5l2.5 2.5M9.5 14l2.5 2.5 2.5-2.5"/></svg>`;
 
 // Figma-style spacing icons: a faint box with the relevant inner edge(s)
 // emphasised (h = left+right, v = top+bottom, and each single side).
@@ -851,10 +853,8 @@ export function renderProps() {
         <textarea class="prop-input" id="p-text" rows="3" style="resize:vertical">${esc(node.text)}</textarea>
       </div>
       <div class="prop-row" style="margin-top:10px">
-        <div class="seg-toggle">
-          <button class="seg-btn ${node.autoSize ? 'active' : ''}" data-textwidth="auto" title="Auto width — grows with the text, no wrapping">${AUTOWIDTH_ICON}</button>
-          <button class="seg-btn ${!node.autoSize ? 'active' : ''}" data-textwidth="fixed" title="Fixed width — text wraps onto multiple lines">${FIXEDWIDTH_ICON}</button>
-        </div>
+        <button type="button" class="flip-btn ${node.autoSize ? 'active' : ''}" data-textwidth="auto" title="Auto width — grows with the text, no wrapping">${AUTOWIDTH_ICON}</button>
+        <button type="button" class="flip-btn ${!node.autoSize ? 'active' : ''}" data-textwidth="fixed" title="Auto height — fixed width, the text wraps and the height grows">${FIXEDWIDTH_ICON}</button>
       </div>
       ${!node.autoSize ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">Drag the side handles to change the wrap width.</div>` : ''}
     </div>

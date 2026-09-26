@@ -1,23 +1,11 @@
 # To do
 
-## Google / GitHub sign-in: Firebase setup
+## Google / GitHub sign-in
 
-The code is done (desktop app, sign-in page, backend). It needs a Firebase project to run.
+Set up and working (Firebase project `scaffold-c724e`; both providers tested in the app).
 
-- [ ] **Create the Firebase project.** In the Firebase console: create a project, then Add app → Web.
-- [ ] **Fill in the config.** Copy the web app's `apiKey`, `authDomain`, `projectId` and `appId` into the empty keys at the end of `.env`, `.env.dev` and `.env.release`, then restart the server:
-  - `FIREBASE_WEB_API_KEY`
-  - `FIREBASE_AUTH_DOMAIN`
-  - `FIREBASE_PROJECT_ID`
-  - `FIREBASE_APP_ID`
-- [ ] **Turn on Google.** Authentication → Sign-in method → Google → Enable.
-- [ ] **Turn on GitHub.**
-  - On GitHub: Settings → Developer settings → OAuth Apps → New OAuth App.
-  - Set the callback URL to `https://<your-project>.firebaseapp.com/__/auth/handler` (Firebase shows the exact URL when you enable GitHub).
-  - Paste the app's Client ID and Client Secret into Authentication → Sign-in method → GitHub.
-- [ ] **Authorize the release domain.** Authentication → Settings → Authorized domains: add `sabbirhassan.com` (`localhost` is already there for development).
-- [ ] **Try both buttons** on the app's sign-in page.
-  - A GitHub account whose email isn't verified on GitHub is refused. That's intended: it prevents account takeover.
+- [ ] **Before shipping:** copy the four `FIREBASE_*` values from `.env` into `.env.release`.
+- [ ] **Release domain:** check that `sabbirhassan.com` is in Firebase → Authentication → Settings → Authorized domains.
 
 ## Decisions pending
 
@@ -26,15 +14,6 @@ The code is done (desktop app, sign-in page, backend). It needs a Firebase proje
 - [ ] **2FA for social sign-in.** Google / GitHub sign-in skips the email 2FA code that password sign-in uses. Require it there too?
 - [ ] **Export check in the repo.** Move the Flutter export-check scripts (export → host project → `flutter analyze` → screenshots) into the repo, e.g. `tools/export-check/`, so they can be rerun after codegen changes?
 - [ ] **Mock Data tab.** Set names aren't validated (spaces, duplicates, Dart keywords go straight into the generated code), and the tab hasn't had a bug sweep yet.
-
-## Not committed yet
-
-- [ ] Export fixes: `headers:`, endpoints as just the route, theme-aware colours (`codegen.js`, `widgetgen.js`).
-- [ ] Google / GitHub sign-in:
-  - `desktop/src-tauri/src/oauth.rs`
-  - `pages/social-auth.html`
-  - `src/handler/auth/social_login.rs`
-  - `src/markup.rs`
-  - `src/routes/pages.rs`
-  - `assets/js/auth.js`
-  - `assets/css/auth.css`
+- [ ] **Serving `/assets/`.** Everything in `assets/` is public. That's fine for the app's code (no secrets in it; public view links need the editor JS), but:
+  - anything dropped into the folder by mistake is served too; consider serving only allowed file types;
+  - production caches `/assets/` for 24h with unversioned URLs, so public links can run stale or mixed JS after a deploy; consider versioned URLs or a shorter cache.

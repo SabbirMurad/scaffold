@@ -122,7 +122,8 @@ body.comment-mode #design-view { display: none; }
 .node.drag-source { opacity: 0.45 !important; }
 /* Pressing and dragging elements moves them — never highlights their text
    (text being edited stays selectable). */
-#canvas .node:not(.editing) { -webkit-user-select: none; user-select: none; }
+#canvas-wrap { -webkit-user-select: none; user-select: none; }
+#canvas .node.editing { -webkit-user-select: text; user-select: text; }
 /* Where a dragged element will land inside a row / column. */
 #drop-line { position: fixed; display: none; z-index: 900; pointer-events: none; background: var(--accent); border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
 .node.container { background: var(--accent); }

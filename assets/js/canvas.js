@@ -536,7 +536,7 @@ export function attachNodeEvents(el, node) {
     if (state.tool === 'select' && e.target === el && isScreenFrame(node) && !state.selected.has(node.id)
         && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const wr = canvasWrap.getBoundingClientRect();
-      startMarquee(e.clientX - wr.left, e.clientY - wr.top, node.id);
+      startMarquee(e.clientX - wr.left, e.clientY - wr.top, node.id, e);
       return;
     }
 
@@ -614,7 +614,16 @@ export function beginNodeDrag(node, e) {
 
 // Start a selection box at canvas-wrap point (x, y); `frameId` scopes it to one
 // screen's contents.
-function startMarquee(x, y, frameId) {
+function startMarquee(x, y, frameId, e) {
+  // Keep the press from selecting text or starting a browser drag (either takes
+  // the mouse away from the box). That also keeps focus where it is, so commit
+  // a field being edited in a panel by blurring it.
+  if (e) {
+    e.preventDefault();
+    const a = document.activeElement;
+    if (a && a !== document.body && a.blur) a.blur();
+    window.getSelection()?.removeAllRanges();
+  }
   selStart = { x, y, frameId };
   selBox.style.display = 'block';
   selBox.style.left = x + 'px';
@@ -654,7 +663,7 @@ function onWrapMouseDown(e) {
     if (!clickedNode) {
       state.selected.clear();
       render();
-      startMarquee(cx, cy, null);
+      startMarquee(cx, cy, null, e);
     }
   }
 }
@@ -1215,8 +1224,13 @@ export function initCanvasEvents() {
   // the model board shares #canvas-wrap, so skip these in other modes.
   const designOnly = (fn) => (e) => { if (document.body.classList.contains('design-mode')) fn(e); };
   canvasWrap.addEventListener('mousedown', designOnly(onWrapMouseDown), true);
-  canvasWrap.addEventListener('mousemove', designOnly(onWrapMouseMove));
-  canvasWrap.addEventListener('mouseup', designOnly(onWrapMouseUp));
+  // Moves and the release are taken from the whole window: a selection box,
+  // drag or resize keeps following the pointer over the floating panels (and
+  // ends wherever the button is let go) instead of freezing or getting stuck.
+  window.addEventListener('mousemove', designOnly(onWrapMouseMove));
+  window.addEventListener('mouseup', designOnly(onWrapMouseUp));
+  // Nothing on the canvas is dragged by the browser itself (text being edited aside).
+  canvasWrap.addEventListener('dragstart', e => { if (!e.target.closest?.('.node.editing')) e.preventDefault(); });
   canvasWrap.addEventListener('wheel', designOnly(onWheel), { passive: false });
   // Kill the browser's ctrl/⌘ + wheel page zoom everywhere — the canvas does its
   // own zoom (onWheel above); over any other panel we still never want the browser
