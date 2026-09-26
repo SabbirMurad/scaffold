@@ -228,13 +228,13 @@ function generateApiMethod(api) {
   const headers = api.headers.filter(h => h.key.trim());
   if (headers.length) {
     L.push(`      header: {`);
-    headers.forEach(h => L.push(`        '${h.key.trim()}': ${h.value.trim()},`));
+    headers.forEach(h => L.push(`        '${dartStr(h.key.trim())}': ${dartValueLit(h.value)},`));
     L.push(`      },`);
   }
   const params = (api.params || []).filter(p => p.key.trim());
   if (params.length) {
     L.push(`      queries: {`);
-    params.forEach(p => L.push(`        '${p.key.trim()}': ${p.value.trim()},`));
+    params.forEach(p => L.push(`        '${dartStr(p.key.trim())}': ${dartValueLit(p.value)},`));
     L.push(`      },`);
   }
   if (BODY_METHODS.includes(api.method) && api.body.trim()) {
@@ -253,7 +253,17 @@ function generateApiMethod(api) {
   return L.join('\n');
 }
 
-function generateProviderFile(p) {
+// A header / query value as Dart: kept as written when it's already a Dart
+// literal (a quoted string, number, true/false/null), otherwise a string.
+const dartStr = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\$/g, '\\$');
+function dartValueLit(v) {
+  const s = String(v || '').trim();
+  if (/^'(?:[^'\\]|\\.)*'$/.test(s) || /^"(?:[^"\\]|\\.)*"$/.test(s)) return s;
+  if (/^-?\d+(\.\d+)?$/.test(s) || s === 'true' || s === 'false' || s === 'null') return s;
+  return `'${dartStr(s)}'`;
+}
+
+export function generateProviderFile(p) {
   const pkg = pkgName();
   const cls = pascal(p.name) + 'Notifier';
 

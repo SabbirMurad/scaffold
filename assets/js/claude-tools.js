@@ -22,7 +22,7 @@ import { saveHistory, undo, redo, rerenderActive, fieldApplies, captureState, re
 import { cloneNodeInPlace, componentName, instancesOf, detachInstance, detachInstancesOf, renameComponent } from './operations.js';
 import { applyTheme, colorError, anyColorError } from './colors.js';
 import { typoError, anyTypoError } from './typography.js';
-import { modelError, enumError, propError, enumValError, typeToString, anyModelError, anyEnumError } from './models.js';
+import { modelError, enumError, propError, enumValError, typeToString, anyModelError, anyEnumError, renameTypeRefs } from './models.js';
 import { generate as generateMock, defaultName as mockName } from './mock.js';
 import { provNameError, apiNameError, anyProviderError } from './api.js';
 import { frameNameError, routeError, anyFrameError } from './props.js';
@@ -1448,15 +1448,6 @@ function editModel(args) {
   return { ok: true, summary: `Updated model "${m.name}"` };
 }
 
-// Field types and API outputs name models/enums; follow a rename through them.
-function renameTypeRefs(from, to) {
-  const walk = (t) => { if (!t) return; if (t.base === from) t.base = to; (t.args || []).forEach(walk); };
-  state.models.forEach(m => m.properties.forEach(p => walk(p.type)));
-  state.providers.forEach(p => {
-    if (p.output.model === from) p.output.model = to;
-    p.apis.forEach(a => { if (a.output.model === from) a.output.model = to; });
-  });
-}
 
 function editEnum(args) {
   const setValues = (en) => {

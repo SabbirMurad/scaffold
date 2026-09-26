@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { scopeFor, pathType } from './data.js';
 import { esc } from './utils.js';
 import { ddTrigger } from './dropdown.js';
 import { saveHistory } from './history.js';
@@ -29,6 +30,22 @@ export function typeToString(t) {
 const getModel = (id) => state.models.find(m => m.id === id);
 const getEnum = (id) => state.enums.find(e => e.id === id);
 
+// Dart's reserved words: never usable as a field, value or variable name.
+export const DART_KEYWORDS = new Set(['assert', 'async', 'await', 'break', 'case', 'catch', 'class', 'const',
+  'continue', 'default', 'do', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'for', 'if', 'in', 'is',
+  'new', 'null', 'rethrow', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'var', 'void', 'while',
+  'with', 'yield']);
+// Type names the generated code already uses (Dart core, Flutter): a model or enum
+// with one of these names would shadow it and break the app.
+const TAKEN_TYPES = new Set(['String', 'int', 'double', 'bool', 'num', 'List', 'Set', 'Map', 'Object', 'Iterable',
+  'Future', 'Stream', 'DateTime', 'Duration', 'Function', 'Type', 'Null', 'Never', 'Record', 'Enum', 'Symbol',
+  'Uri', 'Error', 'Exception', 'Color', 'Colors', 'Widget', 'State', 'Key', 'Icon', 'Icons', 'Text', 'Image',
+  'Theme', 'ThemeData', 'Size', 'Offset', 'Route', 'Material', 'Scaffold', 'Container', 'Row', 'Column']);
+// Members every generated model class has (plus Object's), so no field may use them.
+const MODEL_MEMBERS = new Set(['copyWith', 'toJson', 'fromJson', 'fromJsonList', 'hashCode', 'runtimeType', 'toString', 'noSuchMethod']);
+// Members every Dart enum has.
+const ENUM_MEMBERS = new Set(['values', 'index', 'name', 'hashCode', 'runtimeType', 'toString', 'noSuchMethod']);
+
 // Validate a model name against Dart class-name rules (PascalCase identifier).
 // Returns a human-readable issue, or null when the name is valid.
 function nameError(name) {
@@ -37,6 +54,7 @@ function nameError(name) {
   if (/\s/.test(name)) return 'No spaces allowed';
   if (/[^A-Za-z0-9]/.test(name)) return 'Only letters and numbers allowed';
   if (!/^[A-Z]/.test(name)) return 'Must be PascalCase (start with a capital letter)';
+  if (TAKEN_TYPES.has(name)) return `“${name}” is already a Dart / Flutter type`;
   return null;
 }
 
@@ -47,18 +65,120 @@ function fieldNameError(name) {
   if (/\s/.test(name)) return 'No spaces allowed';
   if (/[A-Z]/.test(name)) return 'Must be snake_case (use lowercase)';
   if (/[^a-z0-9_]/.test(name)) return 'Only lowercase letters, numbers and underscores';
+  if (DART_KEYWORDS.has(name)) return `“${name}” is a Dart keyword`;
+  if (MODEL_MEMBERS.has(name)) return `“${name}” is used by the generated class`;
   return null;
 }
 
-// Full validation for a field: name format, then uniqueness within its model.
+// A field's type must name things that exist: a primitive, a collection, or a
+// current model / enum (a deleted or renamed one would export broken code).
+function typeError(t) {
+  if (!t) return 'No type';
+  const known = [...PRIMITIVES, ...COLLECTIONS];
+  if (!known.includes(t.base) && !state.models.some(m => m.name === t.base) && !state.enums.some(e => e.name === t.base)) {
+    return `Type “${t.base}” doesn’t exist (deleted or renamed?)`;
+  }
+  for (const a of t.args || []) { const e = typeError(a); if (e) return e; }
+  return null;
+}
+
+// Full validation for a field: name format, uniqueness within its model, type.
 export function propError(model, prop) {
   const fmt = fieldNameError(prop.name);
   if (fmt) return fmt;
   if (model.properties.some(o => o !== prop && o.name.trim() === prop.name.trim())) {
     return 'Duplicate field name';
   }
-  return null;
+  return typeError(prop.type);
 }
+
+// ───────── Following a rename ─────────
+// Types, API outputs and mock data refer to models, enums, fields and enum values
+// by name, as do the design's data bindings — so a rename is carried through all
+// of them, or they'd silently break.
+
+// Field types and API outputs name models/enums.
+export function renameTypeRefs(from, to) {
+  if (!from || from === to) return;
+  const walk = (t) => { if (!t) return; if (t.base === from) t.base = to; (t.args || []).forEach(walk); };
+  state.models.forEach(m => m.properties.forEach(p => walk(p.type)));
+  state.providers.forEach(p => {
+    if (p.output.model === from) p.output.model = to;
+    p.apis.forEach(a => { if (a.output.model === from) a.output.model = to; });
+  });
+}
+
+// Visit every value of a type in the mock data: fn(value, type, setValue).
+function walkMockValues(fn) {
+  const visit = (v, t, set, depth) => {
+    if (!t || depth > 12) return;
+    fn(v, t, set);
+    if (v == null) return;
+    if ((t.base === 'List' || t.base === 'Set') && Array.isArray(v)) v.forEach((x, i) => visit(x, t.args[0], nv => { v[i] = nv; }, depth + 1));
+    else if (t.base === 'Map' && typeof v === 'object') Object.keys(v).forEach(k => visit(v[k], t.args[1], nv => { v[k] = nv; }, depth + 1));
+    else {
+      const m = state.models.find(mm => mm.name === t.base);
+      if (m && typeof v === 'object') m.properties.forEach(p => visit(v[p.name], p.type, nv => { v[p.name] = nv; }, depth + 1));
+    }
+  };
+  (state.mockSets || []).forEach(s => {
+    const m = state.models.find(mm => mm.id === s.modelId);
+    if (!m || s.data == null) return;
+    const t = { base: m.name, args: [] };
+    if (s.kind === 'list' && Array.isArray(s.data)) s.data.forEach((x, i) => visit(x, t, nv => { s.data[i] = nv; }, 0));
+    else visit(s.data, t, nv => { s.data = nv; }, 0);
+  });
+}
+
+// Every data path on the canvas, with where it's used: bindings, conditions,
+// repeat sources, conditional routes. fn(path, node, setPath).
+function forEachDataPath(fn) {
+  state.nodes.forEach(n => {
+    if (n.bind) Object.keys(n.bind).forEach(k => fn(n.bind[k], n, p => { n.bind[k] = p; }));
+    if (n.showIf && n.showIf.path) fn(n.showIf.path, n, p => { n.showIf.path = p; }, n.showIf);
+    if (n.repeat && n.repeat.source) fn(n.repeat.source, n, p => { n.repeat.source = p; });
+    ((n.action && n.action.routes) || []).forEach(r => { if (r && r.when && r.when.path) fn(r.when.path, n, p => { r.when.path = p; }, r.when); });
+  });
+}
+
+// A field of `model` renamed `from` → `to` (already renamed on the model).
+function renameFieldRefs(model, from, to) {
+  if (!from || from === to) return;
+  walkMockValues((v, t) => {
+    if (t.base === model.name && v && typeof v === 'object' && !Array.isArray(v) && Object.prototype.hasOwnProperty.call(v, from)) {
+      v[to] = v[from];
+      delete v[from];
+    }
+  });
+  forEachDataPath((path, node, setPath) => {
+    const parts = String(path).split('.');
+    const scope = scopeFor(node);
+    if (!scope[parts[0]]) return;
+    let type = scope[parts[0]].type, changed = false;
+    for (let i = 1; i < parts.length && type; i++) {
+      const m = state.models.find(mm => mm.name === type.base);
+      if (!m) return;
+      if (m.id === model.id && parts[i] === from) { parts[i] = to; changed = true; }
+      const f = m.properties.find(p => p.name === parts[i]);
+      type = f && f.type;
+    }
+    if (changed) setPath(parts.join('.'));
+  });
+}
+
+// A value of enum `en` renamed `from` → `to`.
+function renameEnumValueRefs(en, from, to) {
+  if (!from || from === to) return;
+  walkMockValues((v, t, set) => { if (t.base === en.name && v === from) set(to); });
+  forEachDataPath((path, node, _set, cond) => {
+    if (!cond || cond.value !== from) return;
+    const t = pathType(scopeFor(node), path).type;
+    if (t && t.base === en.name) cond.value = to;
+  });
+}
+
+// Names as they were when their input got focus, so a commit knows what changed.
+const nameAtFocus = new Map();
 
 // Sync a model's field warning icons + input outlines (no re-render). Renaming
 // one field can change another's duplicate status, so refresh them all.
@@ -109,6 +229,8 @@ function enumValNameError(name) {
   if (/\s/.test(name)) return 'No spaces allowed';
   if (/[^A-Za-z0-9]/.test(name)) return 'Only letters and numbers allowed';
   if (!/^[a-z]/.test(name)) return 'Must be camelCase (start with a lowercase letter)';
+  if (DART_KEYWORDS.has(name)) return `“${name}” is a Dart keyword`;
+  if (ENUM_MEMBERS.has(name)) return `“${name}” is used by every Dart enum`;
   return null;
 }
 export function enumValError(en, v) {
@@ -207,7 +329,7 @@ function deleteModel(id) {
 // unused number, e.g. "User" → "User2", "User2" → "User3".
 function uniqueName(name) {
   const base = name.replace(/\d+$/, '') || name;
-  const taken = new Set(state.models.map(m => m.name));
+  const taken = new Set([...state.models.map(m => m.name), ...state.enums.map(e => e.name)]);
   let n = 2;
   while (taken.has(base + n)) n++;
   return base + n;
@@ -408,11 +530,38 @@ export function initModels() {
     renderModels();
   });
 
-  // Name commit (blur/enter): record history; re-render model names so other
-  // cards' type dropdowns pick up renames.
+  // Remember each name as it was when editing began…
+  board.addEventListener('focusin', e => {
+    const t = e.target;
+    if (t.tagName === 'INPUT') nameAtFocus.set(t, t.value);
+  });
+
+  // …and on commit (blur/enter) carry a rename through everything that uses the
+  // name, record history, and re-render so type dropdowns pick it up.
   board.addEventListener('change', e => {
     const t = e.target;
-    if (t.classList.contains('model-name-input')) { saveHistory(); renderModels(); }
-    else if (t.classList.contains('prop-name-input')) saveHistory();
+    const from = nameAtFocus.has(t) ? nameAtFocus.get(t) : null;
+    nameAtFocus.set(t, t.value);
+    const to = t.value;
+    // Only a name that's valid and free is carried through — never merged into
+    // another model's or enum's references.
+    const free = (n) => !state.models.some(m => m.name === n && m.id !== t.dataset.model) && !state.enums.some(x => x.name === n && x.id !== t.dataset.ename);
+    if (t.dataset.ename != null) {
+      const en = getEnum(t.dataset.ename);
+      if (en && from && !enumError(en) && free(to)) renameTypeRefs(from, to);
+    } else if (t.dataset.evid != null) {
+      const en = getEnum(t.dataset.eid);
+      const v = en && en.values.find(x => x.id === t.dataset.evid);
+      if (v && from && !enumValError(en, v)) renameEnumValueRefs(en, from, to);
+    } else if (t.classList.contains('model-name-input')) {
+      const m = getModel(t.dataset.model);
+      if (m && from && !modelError(m) && free(to)) renameTypeRefs(from, to);
+    } else if (t.classList.contains('prop-name-input')) {
+      const m = getModel(t.dataset.model);
+      const p = m && m.properties.find(x => x.id === t.dataset.prop);
+      if (p && from && !propError(m, p)) renameFieldRefs(m, from, to);
+    } else return;
+    saveHistory();
+    renderModels();
   });
 }

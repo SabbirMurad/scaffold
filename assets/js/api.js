@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { esc } from './utils.js';
-import { validModelNames } from './models.js';
+import { validModelNames, DART_KEYWORDS } from './models.js';
 import { providerPreview, previewCandidates } from './data.js';
 import { ddTrigger } from './dropdown.js';
 import { saveHistory } from './history.js';
@@ -34,6 +34,7 @@ function nameError(name) {
   if (/\s/.test(name)) return 'No spaces allowed';
   if (/[^A-Za-z0-9]/.test(name)) return 'Only letters and numbers allowed';
   if (!/^[a-z]/.test(name)) return 'Must be camelCase (start with a lowercase letter)';
+  if (DART_KEYWORDS.has(name)) return `“${name}” is a Dart keyword`;
   return null;
 }
 
@@ -41,8 +42,19 @@ export function provNameError(p) {
   const fmt = nameError(p.name);
   if (fmt) return fmt;
   if (state.providers.some(o => o !== p && o.name.trim() === p.name.trim())) return 'Another provider has this name';
+  // Providers and mock data sets share one namespace in the design tab's data.
+  if ((state.mockSets || []).some(s => (s.name || '').trim() === p.name.trim())) return 'A mock data set has this name';
   return null;
 }
+
+// A request body is written into the code as a map literal, so it must be JSON.
+export function bodyError(api) {
+  if (!BODY_METHODS.includes(api.method) || !(api.body || '').trim()) return null;
+  try { JSON.parse(api.body); return null; } catch { return 'Body isn’t valid JSON'; }
+}
+
+// The provider's "Loads with" endpoint, if it still exists and still fits.
+const loadOf = (p) => p.load && loadCandidates(p).some(a => a.id === p.load) ? p.load : null;
 
 export function apiNameError(provider, api) {
   const fmt = nameError(api.name);
@@ -68,6 +80,7 @@ export function anyProviderError() {
     for (const a of p.apis) {
       if (apiNameError(p, a)) return true;
       if (outputRefBad(a.output, true, models)) return true;
+      if (bodyError(a)) return true;
     }
   }
   return false;
@@ -125,6 +138,7 @@ function delApi(id) {
   const f = findApi(id);
   if (!f) return;
   f.provider.apis = f.provider.apis.filter(a => a.id !== id);
+  if (f.provider.load === id) f.provider.load = null;
   saveHistory();
   renderApi();
 }
@@ -235,7 +249,7 @@ function renderEndpointCard(provider, api) {
 
     ${hasBody ? `
     <div class="api-sec">
-      <div class="api-sec-title">Body</div>
+      <div class="api-sec-title">Body <span class="model-warn" data-bodywarn="${api.id}" title="${esc(bodyError(api) || '')}"${bodyError(api) ? '' : ' style="display:none"'}>&#9888;</span></div>
       <textarea class="api-body" data-api="${api.id}" data-field="body" rows="3" spellcheck="false" placeholder="{ }">${esc(api.body)}</textarea>
     </div>` : ''}
 
@@ -298,7 +312,7 @@ function providerSourceRow(p) {
   if (!p.output.model) return '';
   const loads = loadCandidates(p);
   const loadDD = ddTrigger({
-    value: p.load || '',
+    value: loadOf(p) || '',
     options: [{ value: '', label: '— none —' }, ...loads.map(a => ({ value: a.id, label: a.name }))],
     data: { prov: p.id, field: 'provLoad' },
   });
@@ -371,7 +385,11 @@ export function initApi() {
     if (!api) return;
     if (t.dataset.field === 'version') { api.version = t.value; updateUrl(api); }
     else if (t.dataset.field === 'route') { api.route = t.value; updateUrl(api); }
-    else if (t.dataset.field === 'body') { api.body = t.value; }
+    else if (t.dataset.field === 'body') {
+      api.body = t.value;
+      const err = bodyError(api), w = document.querySelector(`[data-bodywarn="${api.id}"]`);
+      if (w) { w.title = err || ''; w.style.display = err ? '' : 'none'; }
+    }
     else if (t.classList.contains('api-h-key')) { const h = getHeader(api, t.dataset.h); if (h) h.key = t.value; }
     else if (t.classList.contains('api-h-val')) { const h = getHeader(api, t.dataset.h); if (h) h.value = t.value; }
     else if (t.classList.contains('api-p-key')) { const p = getParam(api, t.dataset.p); if (p) { p.key = t.value; updateUrl(api); } }
@@ -393,6 +411,7 @@ export function initApi() {
       else if (t.dataset.field === 'provLoad') p.load = v || null;
       else if (t.dataset.field === 'provPreview') p.preview = v || null;
       else return;
+      p.load = loadOf(p);
       saveHistory();
       return renderApi();
     }
@@ -402,6 +421,7 @@ export function initApi() {
     else if (t.dataset.field === 'outType') api.output.type = v;
     else if (t.dataset.field === 'outModel') api.output.model = v;
     else return;
+    state.providers.forEach(p => { p.load = loadOf(p); }); // it may no longer fit
     saveHistory();
     renderApi();
   });
