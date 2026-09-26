@@ -7,7 +7,7 @@
 // canvas.fig plus the referenced image bytes under images/<hash>).
 //
 // This module is deliberately pure (no DOM, no app imports) so it can be unit
-// tested in Node; the mapping into FrameForge nodes lives in figpaste.js.
+// tested in Node; the mapping into Scaffold nodes lives in figpaste.js.
 
 // ── bytes / base64 ──
 

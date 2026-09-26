@@ -1,7 +1,7 @@
 import { state, makeNode, makeColorValue } from './state.js';
 import { parseFigBuffer, figTree, guidKey } from './figkiwi.js';
 
-// Maps a decoded Figma clipboard tree (figkiwi.js) onto FrameForge nodes:
+// Maps a decoded Figma clipboard tree (figkiwi.js) onto Scaffold nodes:
 //   • root FRAMEs → screen frames (snake_case name + unique route)
 //   • nested frames/groups/instances → containers; auto-layout → row/column/wrap,
 //     no auto-layout → free-positioned (stack), grow/stretch → fill, fit → hug
@@ -54,7 +54,7 @@ function topPaint(paints) {
 // ── Figma variables → colour variables ──
 // A paint bound to a Figma colour variable carries `colorVar` (an alias to a
 // VARIABLE node, shipped on the internal canvas) besides its resolved `color`.
-// The variable's per-mode values map straight onto FrameForge's per-theme model:
+// The variable's per-mode values map straight onto Scaffold's per-theme model:
 // its "Dark"/"Light" modes (matched by name against each theme's brightness)
 // become that colour's per-theme values, and the variable's own name becomes the
 // colour name ("Labels/Primary" → labelsPrimary).
@@ -441,7 +441,7 @@ function vectorToIcon(ctx, fig) {
 
 // ── node mapping ──
 
-// Figma types that become FrameForge boxes. Vector-ish ones (right column) keep
+// Figma types that become Scaffold boxes. Vector-ish ones (right column) keep
 // their box + fill but lose their path geometry — counted so the toast can say so.
 const BOX_TYPES = new Set(['FRAME', 'GROUP', 'INSTANCE', 'SYMBOL', 'SECTION',
   'ROUNDED_RECTANGLE', 'RECTANGLE', 'ELLIPSE', 'HIGHLIGHT', 'SHAPE_WITH_TEXT']);
@@ -498,7 +498,7 @@ function applyFill(ctx, node, fig, w, h) {
   }
 }
 
-// Auto-layout → FrameForge layout. Returns the parent's flex axis ('row'|'column'|
+// Auto-layout → Scaffold layout. Returns the parent's flex axis ('row'|'column'|
 // null) so children can translate grow/stretch into fill on the right axis.
 function applyLayout(node, fig, childCount) {
   const mode = fig.stackMode;

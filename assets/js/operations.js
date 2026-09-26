@@ -168,7 +168,7 @@ export function copySelected() {
   pasteCount = 0;
   // Overwrite the system clipboard too, so a stale external copy (e.g. from
   // Figma) doesn't shadow this internal one on the next Ctrl+V.
-  navigator.clipboard?.writeText('frameforge:elements').catch(() => {});
+  navigator.clipboard?.writeText('scaffold:elements').catch(() => {});
   showToast(clipboard.length + (clipboard.length === 1 ? ' element copied' : ' elements copied'));
 }
 

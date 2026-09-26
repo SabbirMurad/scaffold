@@ -1386,48 +1386,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "frame_forge"
-version = "0.1.0"
-dependencies = [
- "actix",
- "actix-cors",
- "actix-files",
- "actix-multipart",
- "actix-session",
- "actix-web",
- "actix-web-actors",
- "chrono",
- "dotenv",
- "flexi_logger",
- "futures",
- "futures-util",
- "google-api-auth",
- "image 0.24.9",
- "imagesize",
- "imghdr",
- "jsonwebtoken 8.3.0",
- "lettre",
- "listenfd",
- "log",
- "mongodb",
- "rand 0.9.4",
- "regex",
- "reqwest 0.12.28",
- "resend",
- "resend-rs",
- "rusqlite",
- "rustls 0.20.9",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tera",
- "tokio",
- "uuid 1.23.4",
- "webp",
- "zip",
-]
-
-[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3697,6 +3655,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "scaffold"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "actix-cors",
+ "actix-files",
+ "actix-multipart",
+ "actix-session",
+ "actix-web",
+ "actix-web-actors",
+ "chrono",
+ "dotenv",
+ "flexi_logger",
+ "futures",
+ "futures-util",
+ "google-api-auth",
+ "image 0.24.9",
+ "imagesize",
+ "imghdr",
+ "jsonwebtoken 8.3.0",
+ "lettre",
+ "listenfd",
+ "log",
+ "mongodb",
+ "rand 0.9.4",
+ "regex",
+ "reqwest 0.12.28",
+ "resend",
+ "resend-rs",
+ "rusqlite",
+ "rustls 0.20.9",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "tera",
+ "tokio",
+ "uuid 1.23.4",
+ "webp",
+ "zip",
 ]
 
 [[package]]
