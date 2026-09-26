@@ -9,7 +9,7 @@
 use std::{env, fs, io, path::Path};
 
 const DEV_API_URL: &str = "http://localhost:8080";
-const PROD_API_URL: &str = "https://sabbirhassan.com:444";
+const PROD_API_URL: &str = "https://scaffold.sabbirhassan.com";
 
 fn main() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));

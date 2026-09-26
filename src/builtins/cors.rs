@@ -25,6 +25,7 @@ pub fn get_policy() -> Cors {
         // You can also add more constraints if needed
         Cors::default()
             // .allowed_origin("https://example.com")
+            .allowed_origin("https://scaffold.sabbirhassan.com")
             .allowed_origin("https://sabbirhassan.com:444")
             .allowed_origin("https://www.sabbirhassan.com:444")
             // The desktop (Tauri) app's webview origins: macOS/Linux, then Windows.
