@@ -5,11 +5,12 @@
 // It reuses the already-rendered canvas DOM: the frame's element is deep-cloned
 // and stripped of editor chrome, so what plays is exactly what's on the canvas.
 
-import { state, getNode } from './state.js';
+import { state, getNode, getMasterNode } from './state.js';
 import { showToast } from './utils.js';
 import { routeTarget, scopeOfElement } from './data.js';
+import { isFlex } from './nodes.js';
 
-let overlay, stage, device, screen, titleEl, backBtn, restartBtn;
+let overlay, stage, device, screen, titleEl, backBtn, restartBtn, statusBar, homeInd;
 let stack = [];       // frame ids to return to (Back pops this)
 let startId = null;   // the frame Play launched on (Restart returns here)
 let currentId = null; // the frame on screen now
@@ -41,6 +42,9 @@ function buildClone(frameId) {
   // Selection handles and the design-only "screen end" fold never play.
   // …nor do elements whose data condition doesn't hold (dimmed on the canvas).
   clone.querySelectorAll('.sel-handles, .screen-fold, .cond-hidden').forEach(n => n.remove());
+  // A list with nothing to repeat over is empty in the app — its template (drawn
+  // dimmed on the canvas so it stays editable) doesn't play.
+  clone.querySelectorAll('.repeat-empty').forEach(el => el.querySelectorAll(':scope > .node').forEach(n => n.remove()));
   // `data-id` is kept (it maps a tap back to its node); everything editor-specific
   // — the element id and chrome classes — is dropped.
   const scrub = el => {
@@ -52,11 +56,14 @@ function buildClone(frameId) {
   clone.querySelectorAll('.node').forEach(scrub);
   // Re-add has-action (a tap cursor hint) after the blanket scrub above.
   if (nodeAction(getNode(frameId))) clone.classList.add('has-action');
-  clone.querySelectorAll('[data-id]').forEach(el => {
-    if (nodeAction(getNode(el.dataset.id))) el.classList.add('has-action');
+  clone.querySelectorAll('[data-id], [data-play-id]').forEach(el => {
+    if (tapAction(el)) el.classList.add('has-action');
   });
   // The frame was absolutely positioned at its canvas x/y; sit it at the top-left
   // of the scroll viewport instead so below-the-fold content scrolls naturally.
+  // A screen hidden on the canvas still plays when something navigates to it.
+  const frame = getNode(frameId);
+  if (frame && frame.visible === false) clone.style.display = isFlex(frame) ? 'flex' : '';
   clone.style.position = 'relative';
   clone.style.left = '0';
   clone.style.top = '0';
@@ -74,6 +81,15 @@ function nodeAction(n) {
   if (a.type !== 'navigate') return null;
   const targets = [a.targetFrameId, ...(a.routes || []).map(r => r && r.target)];
   return targets.some(id => id && getNode(id)) ? a : null;
+}
+
+// The tap action of a drawn element: its node's own; for a component instance
+// without one, its component's (the master's root); for an element drawn inside
+// an instance, that element's in the master.
+function tapAction(el) {
+  const n = getNode(el.dataset.id || el.dataset.playId);
+  if (!n) return null;
+  return nodeAction(n) || (n.type === 'instance' ? nodeAction(getMasterNode(n.componentId)) : null);
 }
 
 // Show `frameId`. `anim` picks the entrance; `isBack` reverses the slide.
@@ -94,7 +110,38 @@ function show(frameId, anim, isBack) {
   titleEl.textContent = frame.name || 'Screen';
   backBtn.disabled = stack.length === 0;
   fit(frame.w, screenH);
+  updateChrome();
 }
+
+// ── Status bar + home indicator colour ──
+// Like iOS, each is black over light content and white over dark, going by what
+// is actually under it — so it follows scrolling and each screen's colours.
+function updateChrome() {
+  if (!statusBar || overlay.hidden) return;
+  const sr = screen.getBoundingClientRect();
+  if (!sr.width) return;
+  const k = deviceScale;
+  statusBar.classList.toggle('on-dark', isDarkAt(sr.left + 30 * k, sr.top + 24 * k));
+  homeInd.classList.toggle('on-dark', isDarkAt(sr.left + sr.width / 2, sr.bottom - 10 * k));
+}
+
+// Whether what's painted at a point is dark: the first element there with a
+// real background colour (a picture counts as dark); the screen's white if none.
+function isDarkAt(x, y) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    if (!screen.contains(el) && el !== screen) continue;
+    const cs = getComputedStyle(el);
+    if (cs.backgroundImage && cs.backgroundImage !== 'none' && !cs.backgroundImage.startsWith('linear-gradient') && !cs.backgroundImage.startsWith('radial-gradient')) return true;
+    const m = cs.backgroundColor.match(/rgba?\(([^)]+)\)/);
+    if (!m) continue;
+    const [r, g, b, a = 1] = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    if (a < 0.5) continue;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.55;
+  }
+  return false;
+}
+let chromeRaf = null;
+const updateChromeSoon = () => { if (chromeRaf == null) chromeRaf = requestAnimationFrame(() => { chromeRaf = null; updateChrome(); }); };
 
 // The device screen's height: the frame's screen height, never taller than the frame.
 const screenHeight = (f) => Math.min(f.screenH != null ? f.screenH : f.h, f.h);
@@ -132,8 +179,15 @@ function scrollerFor(el, axis) {
 }
 
 function onDragStart(e) {
-  if (e.button !== 0 || e.pointerType === 'touch') return; // touch already scrolls natively
-  drag = { x: e.clientX, y: e.clientY, target: e.target, moved: false };
+  if (e.button !== 0 || swiping) return;
+  // A press near either side edge can become the back gesture (for touch too —
+  // the one gesture touch doesn't already have).
+  const r = screen.getBoundingClientRect();
+  const edge = (e.clientX - r.left) / deviceScale <= EDGE ? 'left'
+    : (r.right - e.clientX) / deviceScale <= EDGE ? 'right' : null;
+  if (e.pointerType === 'touch' && !edge) return; // touch already scrolls natively
+  drag = { x: e.clientX, y: e.clientY, target: e.target, moved: false, edge };
+  if (edge && e.pointerType === 'touch') screen.setPointerCapture?.(e.pointerId);
 }
 
 function onDragMove(e) {
@@ -142,6 +196,13 @@ function onDragMove(e) {
   if (!drag.moved) {
     if (Math.hypot(dx, dy) < DRAG_START) return;
     drag.moved = true;
+    // From an edge, inward: the back gesture. Anything else scrolls as usual.
+    const inward = drag.edge === 'left' ? dx > 0 : drag.edge === 'right' ? dx < 0 : false;
+    if (inward && Math.abs(dx) > Math.abs(dy)) beginSwipe(drag.edge);
+    else if (e.pointerType === 'touch') { drag = null; return; }
+  }
+  if (drag.swipe) { moveSwipe(Math.abs(dx) / deviceScale, e.clientY, e.timeStamp); return; }
+  if (!drag.axis) {
     drag.axis = Math.abs(dy) >= Math.abs(dx) ? 'y' : 'x';
     drag.el = scrollerFor(drag.target, drag.axis);
     drag.start = drag.axis === 'y' ? drag.el.scrollTop : drag.el.scrollLeft;
@@ -153,12 +214,112 @@ function onDragMove(e) {
 }
 
 function onDragEnd() {
+  if (drag && drag.swipe) endSwipe();
   if (drag && drag.moved) {
     suppressClick = true;
     setTimeout(() => { suppressClick = false; }, 0); // only the click this release produces
   }
   drag = null;
   screen.classList.remove('dragging');
+}
+
+// ── Back gesture (Android predictive back) ──
+// Drag inward from either side edge: a back arrow slides out of that edge at the
+// pointer, and the screen shrinks back to reveal the one before it. Once the
+// arrow fills in (far enough, or a flick) letting go goes back; otherwise it all
+// springs back. On the first screen the arrow still shows, but there's no back.
+const EDGE = 40;         // px (device) from a side edge where the gesture can start
+const ARM = 90;          // px (device) of travel that arms it
+let swiping = false;     // the release animation is running
+let under = null;        // the previous screen, shown beneath during the gesture
+let arrow = null;        // the back arrow bubble
+
+function beginSwipe(side) {
+  drag.swipe = { side, dist: 0, samples: [], armed: false };
+  const prev = stack[stack.length - 1];
+  const clone = prev && buildClone(prev);
+  if (clone) {
+    under = document.createElement('div');
+    under.className = 'play-under';
+    Object.assign(under.style, { left: screen.offsetLeft + 'px', top: screen.offsetTop + 'px', width: screen.offsetWidth + 'px', height: screen.offsetHeight + 'px' });
+    const shade = document.createElement('div');
+    shade.className = 'play-under-shade';
+    under.append(clone, shade);
+    device.insertBefore(under, screen);
+  }
+  arrow = document.createElement('div');
+  arrow.className = 'play-back-arrow ' + side;
+  arrow.innerHTML = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
+  device.appendChild(arrow);
+  screen.classList.add('swiping');
+}
+
+// Paint the gesture `dist` px in, with the arrow at client y `clientY`.
+function paintSwipe(sw, dist, clientY) {
+  const p = Math.min(1, dist / ARM), dir = sw.side === 'left' ? 1 : -1;
+  const content = screen.firstElementChild;
+  if (content) {
+    content.style.transform = `translateX(${dir * 18 * p}px) scale(${1 - 0.08 * p})`;
+    content.style.borderRadius = (30 * p) + 'px';
+  }
+  if (under) {
+    under.firstChild.style.transform = `scale(${0.94 + 0.06 * p})`;
+    under.lastChild.style.opacity = String(0.4 * (1 - p));
+  }
+  if (arrow) {
+    if (clientY != null) {
+      const dr = device.getBoundingClientRect();
+      const y = (clientY - dr.top) / deviceScale;
+      const lo = screen.offsetTop + 40, hi = screen.offsetTop + screen.offsetHeight - 40;
+      arrow.style.top = Math.max(lo, Math.min(hi, y)) + 'px';
+    }
+    // It grows out of the edge, staying inside the screen.
+    const edgeX = sw.side === 'left' ? screen.offsetLeft : device.clientWidth - screen.offsetLeft - screen.offsetWidth;
+    arrow.style[sw.side] = (edgeX + 4 + 12 * p) + 'px';
+    arrow.style.setProperty('--s', String(0.55 + 0.45 * p));
+    arrow.style.opacity = String(Math.min(1, p * 1.6));
+    arrow.classList.toggle('armed', sw.armed);
+  }
+}
+
+function moveSwipe(dist, clientY, t) {
+  const sw = drag.swipe;
+  sw.dist = Math.max(0, dist);
+  sw.samples.push({ d: sw.dist, t });
+  if (sw.samples.length > 5) sw.samples.shift();
+  sw.armed = sw.dist >= ARM;
+  paintSwipe(sw, sw.dist, clientY);
+}
+
+function endSwipe() {
+  const sw = drag.swipe, first = sw.samples[0], last = sw.samples[sw.samples.length - 1];
+  const speed = first && last && last.t > first.t ? (last.d - first.d) / (last.t - first.t) : 0; // px/ms, inward
+  const back = (sw.armed || speed > 0.6) && stack.length > 0;
+  swiping = true;
+  screen.classList.add('swipe-settle');
+  under?.classList.add('swipe-settle');
+  arrow?.classList.add('swipe-settle');
+  if (back) arrow?.classList.add('armed');
+  requestAnimationFrame(() => {
+    if (back) {
+      // Committed: the screen falls away to the side, the previous one comes up.
+      const content = screen.firstElementChild, dir = sw.side === 'left' ? 1 : -1;
+      if (content) { content.style.transform = `translateX(${dir * 60}px) scale(0.86)`; content.style.opacity = '0'; }
+      if (under) { under.firstChild.style.transform = 'scale(1)'; under.lastChild.style.opacity = '0'; }
+      if (arrow) arrow.style.opacity = '0';
+    } else {
+      paintSwipe(sw, 0, null);
+    }
+  });
+  setTimeout(() => {
+    screen.classList.remove('swiping', 'swipe-settle');
+    const content = screen.firstElementChild;
+    if (content) { content.style.transform = ''; content.style.borderRadius = ''; content.style.opacity = ''; }
+    under?.remove(); under = null;
+    arrow?.remove(); arrow = null;
+    swiping = false;
+    if (back) show(stack.pop(), 'none', true);
+  }, 230);
 }
 
 // Follow a node's action, honoring its stack mode. A conditional route picks its
@@ -212,11 +373,12 @@ function launch() {
 // with a navigate action wins (mirrors how an onTap bubbles in Flutter).
 function onScreenClick(e) {
   if (suppressClick) { suppressClick = false; return; }
-  let el = e.target.closest('[data-id]');
+  const TAPPABLE = '[data-id], [data-play-id]';
+  let el = e.target.closest(TAPPABLE);
   while (el) {
-    const action = nodeAction(getNode(el.dataset.id));
+    const action = tapAction(el);
     if (action) { navigate(action, el); return; }
-    el = el.parentElement ? el.parentElement.closest('[data-id]') : null;
+    el = el.parentElement ? el.parentElement.closest(TAPPABLE) : null;
   }
 }
 
@@ -229,6 +391,9 @@ export function initPlay() {
   titleEl = document.getElementById('play-title');
   backBtn = document.getElementById('play-back');
   restartBtn = document.getElementById('play-restart');
+  statusBar = document.getElementById('play-statusbar');
+  homeInd = document.getElementById('play-home-ind');
+  screen?.addEventListener('scroll', updateChromeSoon, true); // the screen or any list in it
 
   document.getElementById('tool-play')?.addEventListener('click', launch);
   document.getElementById('play-close')?.addEventListener('click', close);
@@ -247,9 +412,14 @@ export function initPlay() {
     if (f) fit(f.w, screenHeight(f));
   });
 
+  // While playing, keys belong to Play — none reach the editor's shortcuts, which
+  // would otherwise act on the design behind it (Backspace deleting the selection,
+  // arrows moving it, Ctrl+Z undoing).
   document.addEventListener('keydown', e => {
     if (overlay.hidden) return;
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    e.stopPropagation();
+    if (e.key === 'Escape') close();
     else if (e.key === 'ArrowLeft' || e.key === 'Backspace') { e.preventDefault(); goBack(); }
+    else if (e.key === ' ' || e.key.startsWith('Arrow') || e.key === 'Tab') e.preventDefault();
   }, true);
 }

@@ -133,7 +133,7 @@ function clickPath(node) {
   return path;
 }
 
-function clickTarget(node, e) {
+export function clickTarget(node, e) {
   if (e.ctrlKey || e.metaKey) return node;
   const path = clickPath(node);
   const sel = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
@@ -151,7 +151,7 @@ function clickTarget(node, e) {
 }
 
 // A double-click: one level deeper than the selection, toward the clicked element.
-function drillTarget(node) {
+export function drillTarget(node) {
   const sel = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
   const path = clickPath(node);
   const i = sel ? path.indexOf(sel) : -1;
@@ -232,7 +232,7 @@ function centerWorld(n) {
   return { x: (r.L + r.R) / 2, y: (r.T + r.B) / 2 };
 }
 // The point a child's x/y count from: the parent's padding box.
-function worldOrigin(parent) {
+export function worldOrigin(parent) {
   const el = document.getElementById('node-' + parent.id);
   if (!el) return getWorldPos(parent);
   const r = nodeWorldRect(parent);
@@ -254,7 +254,7 @@ function placeCenter(n, at) {
 // under it that can take it (so drawing over nested boxes lands in the screen
 // or section, not whatever sits on top), and — in a row / column — the index
 // nearest the point.
-function drawTargetAt(clientX, clientY, type) {
+export function drawTargetAt(clientX, clientY, type) {
   let best = null, bestDepth = Infinity;
   const depth = (n) => { let d = 0; for (let c = n; c && c.parentId; c = getNode(c.parentId)) d++; return d; };
   for (const el of document.elementsFromPoint(clientX, clientY)) {
@@ -269,7 +269,7 @@ function drawTargetAt(clientX, clientY, type) {
   return dropAt({ clientX, clientY }, { id: null }, best);
 }
 
-function showDrop(drop) {
+export function showDrop(drop) {
   clearDropTargets();
   let line = document.getElementById('drop-line');
   if (drop && drop.parent) document.getElementById('node-' + drop.parent.id)?.classList.add('drop-target');

@@ -509,6 +509,7 @@ function renderGhost(node, parentEl, depth, scope = rootScope(), copy = false) {
   const el = document.createElement('div');
   el.className = 'node ghost ' + (node.type === 'text' ? 'text-node' : node.type);
   if (copy) { el.classList.add('repeat-copy'); el.dataset.id = node.id; el.dataset.scope = registerScope(scope); }
+  else el.dataset.playId = node.id; // Play follows its taps; the canvas never targets it
   applyPosition(el, node);
   applySize(el, node);
   applyNodeTransform(el, node);

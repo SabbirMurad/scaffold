@@ -10,6 +10,7 @@ import { saveHistory } from './history.js';
 import { render } from './render.js';
 import { renderProps } from './props.js';
 import { ddTrigger } from './dropdown.js';
+import { clickTarget, drillTarget } from './canvas.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const OFF = 10000; // the overlay spans a large box offset by OFF so world coords (incl. negatives) are hit-testable
@@ -29,6 +30,11 @@ let moved = false;         // has the pointer moved past the threshold this gest
 let tempPath = null;       // the dashed <path> shown during a drag
 let selectedSrc = null;    // source node id of the currently-selected connection
 let pop, popTarget, popMode, popTrans, popDel;
+let lastPress = null;      // {id, t} of the last press on a layer, to spot a double-click
+
+// Where a node's link(s) go: its default target, else its first conditional route's.
+const linkTarget = (n) => n && n.action && n.action.type === 'navigate'
+  && (n.action.targetFrameId || ((n.action.routes || []).find(r => r && r.target) || {}).target) || null;
 
 // ── coordinate helpers (in #canvas-local / "world" units) ──
 function localOf(clientX, clientY) {
@@ -137,9 +143,25 @@ function onDown(e) {
   const wire = e.target.closest && e.target.closest('.flow-line, .flow-dot');
   if (wire) { e.stopPropagation(); e.preventDefault(); selectConn(wire.dataset.src); return; }
   const nodeEl = e.target.closest && e.target.closest('.node');
-  const n = nodeEl && getNode(nodeEl.dataset.id);
-  if (n && n.type !== 'frame' && n.type !== 'section') {
+  const hit = nodeEl && getNode(nodeEl.dataset.id);
+  // Which layer a press picks follows the same rules as a click in Design: the
+  // outermost element first, the selection's level after that, a double-click
+  // one level deeper, Ctrl/Cmd for the innermost. The picked layer is selected,
+  // so it's clear which one the link starts from.
+  let n = null;
+  if (hit && hit.type !== 'frame' && hit.type !== 'section') {
+    const now = Date.now();
+    const double = lastPress && lastPress.id === hit.id && now - lastPress.t < 350;
+    lastPress = double ? null : { id: hit.id, t: now };
+    n = (double && drillTarget(hit)) || clickTarget(hit, e);
+    if (n && (n.type === 'frame' || n.type === 'section')) n = null;
+  }
+  if (n) {
     e.stopPropagation(); e.preventDefault();
+    if (!(state.selected.size === 1 && state.selected.has(n.id))) {
+      state.selected = new Set([n.id]);
+      render();
+    }
     dragFrom = n.id;
     dragStart = centerOf(nodeRect(n.id));
     downClient = { x: e.clientX, y: e.clientY };
@@ -174,7 +196,7 @@ function onUp(e) {
 
   // A plain click never changes a link — it just selects an existing one (or clears).
   if (!wasDrag) {
-    if (src && src.action && src.action.type === 'navigate' && src.action.targetFrameId) selectConn(src.id);
+    if (linkTarget(src)) selectConn(src.id);
     else deselectConn();
     return;
   }
@@ -201,8 +223,8 @@ function selectConn(id) {
   const n = getNode(id);
   if (!n || !n.action || n.action.type !== 'navigate') { deselectConn(); return; }
   selectedSrc = id;
-  const tgt = getNode(n.action.targetFrameId);
-  popTarget.textContent = '→ ' + (tgt ? tgt.name : 'screen');
+  const tgt = getNode(linkTarget(n));
+  popTarget.textContent = '→ ' + (tgt ? tgt.name : 'screen') + (n.action.targetFrameId ? '' : ' (conditional)');
   popMode.innerHTML = ddTrigger({ value: n.action.mode || 'push', options: NAV_MODES, data: { fp: 'mode' }, triggerClass: 'dd-block' });
   popTrans.innerHTML = ddTrigger({ value: n.action.transition || 'platform', options: TRANSITIONS, data: { fp: 'trans' }, triggerClass: 'dd-block' });
   pop.hidden = false;
@@ -214,7 +236,7 @@ function positionPopover() {
   if (!pop || pop.hidden || selectedSrc == null) return;
   const n = getNode(selectedSrc);
   const srEl = n && document.getElementById('node-' + selectedSrc);
-  const tgEl = n && n.action && document.getElementById('node-' + n.action.targetFrameId);
+  const tgEl = n && document.getElementById('node-' + linkTarget(n));
   if (!srEl || !tgEl) { pop.hidden = true; return; }
   const a = srEl.getBoundingClientRect(), b = tgEl.getBoundingClientRect();
   pop.style.left = ((a.left + a.width / 2 + b.left + b.width / 2) / 2) + 'px';

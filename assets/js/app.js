@@ -5,7 +5,7 @@ import { saveHistory, serializeDocument, loadDocument, commitCurrent } from './h
 import { finalizeImages, imagesPending, resolveRefsForExport } from './images.js';
 import { render, applyTransform } from './render.js';
 import { initCanvasEvents } from './canvas.js';
-import { initToolEvents, setTool } from './tools.js';
+import { initToolEvents, setTool, initFileDrop } from './tools.js';
 import { findFrameAt, getWorldPos } from './nodes.js';
 import { initModels, renderModels } from './models.js';
 import { initApi, renderApi } from './api.js';
@@ -39,6 +39,7 @@ import { restoreViewport, saveViewport } from './viewport.js';
 // Initialize event systems
 initCanvasEvents();
 initToolEvents();
+initFileDrop();
 initModels();
 initApi();
 initColors();

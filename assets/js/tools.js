@@ -8,6 +8,8 @@ import { deleteSelected, duplicateSelected, copySelected, pasteClipboard } from 
 import { extractFigmaHtml } from './figkiwi.js';
 import { importFigma } from './figpaste.js';
 import { finalizeImages } from './images.js';
+import { canvasToWorld, isSingleChild } from './nodes.js';
+import { drawTargetAt, worldOrigin, showDrop } from './canvas.js';
 
 // Tool to restore after a temporary space-bar pan (null = not space-panning)
 let spacePanPrev = null;
@@ -240,21 +242,10 @@ async function handleSystemPaste(cb) {
   if (imgItem) {
     const file = imgItem.getAsFile();
     if (file) {
-      const src = await new Promise(res => {
-        const rd = new FileReader();
-        rd.onload = () => res(rd.result);
-        rd.readAsDataURL(file);
-      });
-      const dim = await new Promise(res => {
-        const im = new Image();
-        im.onload = () => res({ w: im.naturalWidth || 200, h: im.naturalHeight || 200 });
-        im.onerror = () => res({ w: 200, h: 200 });
-        im.src = src;
-      });
-      const scale = Math.min(1, 480 / Math.max(dim.w, dim.h)); // keep huge shots manageable
       const at = pasteWorldPoint();
-      const node = makeNode('image', at.x, at.y, Math.round(dim.w * scale), Math.round(dim.h * scale));
-      node.src = src;
+      const part = await imagePart(file);
+      const node = makeNode('image', at.x, at.y, part.w, part.h);
+      node.src = part.src;
       state.nodes.push(node);
       finishPaste([node.id]);
       showToast('Pasted image');
@@ -264,15 +255,11 @@ async function handleSystemPaste(cb) {
 
   // 3) SVG markup (Figma "Copy as SVG") → an icon node rendered inline.
   const text = cb.getData('text/plain') || '';
-  if (/^\s*<svg[\s>]/i.test(text)) {
-    const vb = /viewBox\s*=\s*"[\d.\s-]*?([\d.]+)\s+([\d.]+)"/.exec(text);
-    const wAttr = /\bwidth\s*=\s*"([\d.]+)/.exec(text);
-    const hAttr = /\bheight\s*=\s*"([\d.]+)/.exec(text);
-    const w = Math.round(+((wAttr && wAttr[1]) || (vb && vb[1]) || 100)) || 100;
-    const h = Math.round(+((hAttr && hAttr[1]) || (vb && vb[2]) || 100)) || 100;
+  if (isSvg(text)) {
     const at = pasteWorldPoint();
-    const node = makeNode('icon', at.x, at.y, Math.min(w, 512), Math.min(h, 512));
-    node.svg = text.trim();
+    const part = svgPart(text);
+    const node = makeNode('icon', at.x, at.y, part.w, part.h);
+    node.svg = part.svg;
     node.colorId = null; // pasted SVGs carry their own colours — don't tint
     state.nodes.push(node);
     finishPaste([node.id]);
@@ -281,4 +268,130 @@ async function handleSystemPaste(cb) {
   }
 
   return false; // not an external paste → internal element clipboard
+}
+
+// ── Images / SVGs: shared by paste and drop ──
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']; // what the image store accepts
+const isSvg = (text) => /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg[\s>]/i.test(text || '');
+
+const readFile = (file, as) => new Promise((res, rej) => {
+  const rd = new FileReader();
+  rd.onload = () => res(rd.result);
+  rd.onerror = () => rej(rd.error);
+  if (as === 'text') rd.readAsText(file); else rd.readAsDataURL(file);
+});
+
+// An image file → its data URI and a manageable size (huge shots are scaled down).
+async function imagePart(file) {
+  const src = await readFile(file, 'url');
+  const dim = await new Promise(res => {
+    const im = new Image();
+    im.onload = () => res({ w: im.naturalWidth || 200, h: im.naturalHeight || 200 });
+    im.onerror = () => res({ w: 200, h: 200 });
+    im.src = src;
+  });
+  const scale = Math.min(1, 480 / Math.max(dim.w, dim.h));
+  return { src, w: Math.round(dim.w * scale), h: Math.round(dim.h * scale) };
+}
+
+// SVG markup → the markup (declarations and comments before <svg> dropped) and its size.
+function svgPart(text) {
+  const svg = text.slice(text.search(/<svg[\s>]/i)).trim();
+  const vb = /viewBox\s*=\s*["'][\d.\s,-]*?([\d.]+)[\s,]+([\d.]+)["']/.exec(svg);
+  const wAttr = /\bwidth\s*=\s*["']([\d.]+)/.exec(svg);
+  const hAttr = /\bheight\s*=\s*["']([\d.]+)/.exec(svg);
+  const w = Math.round(+((wAttr && wAttr[1]) || (vb && vb[1]) || 100)) || 100;
+  const h = Math.round(+((hAttr && hAttr[1]) || (vb && vb[2]) || 100)) || 100;
+  const k = Math.min(1, 512 / Math.max(w, h));
+  return { svg, w: Math.round(w * k), h: Math.round(h * k) };
+}
+
+// ── Drag & drop from the computer ──
+// PNG / JPG / GIF / WebP files become image layers, SVG files icon layers (keeping
+// their own colours), placed where they're dropped: inside the screen or container
+// under the pointer (at the pointer; in a row / column, at the spot the line
+// shows), or on the canvas.
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+const canDropHere = () => document.body.classList.contains('design-mode') && !state.readonly;
+
+export function initFileDrop() {
+  // Anywhere else in the window a dropped file would make the page open it and
+  // leave the editor — so files are only ever taken by the canvas.
+  window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('drop', e => { if (hasFiles(e)) e.preventDefault(); });
+
+  canvasWrap.addEventListener('dragover', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (!canDropHere()) { e.dataTransfer.dropEffect = 'none'; return; }
+    e.dataTransfer.dropEffect = 'copy';
+    showDrop(drawTargetAt(e.clientX, e.clientY, 'image'));
+  });
+  canvasWrap.addEventListener('dragleave', e => {
+    if (!canvasWrap.contains(e.relatedTarget)) showDrop(null);
+  });
+  canvasWrap.addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    showDrop(null);
+    if (canDropHere()) dropFiles([...e.dataTransfer.files], e.clientX, e.clientY);
+  });
+}
+
+async function dropFiles(files, clientX, clientY) {
+  const ids = [];
+  let skipped = 0;
+  for (const file of files) {
+    const svg = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name);
+    if (!svg && !IMAGE_TYPES.includes(file.type)) { skipped++; continue; }
+    let node;
+    try {
+      if (svg) {
+        const text = await readFile(file, 'text');
+        if (!isSvg(text)) { skipped++; continue; }
+        const part = svgPart(text);
+        node = makeNode('icon', 0, 0, part.w, part.h);
+        node.svg = part.svg;
+        node.colorId = null; // an SVG file keeps its own colours
+      } else {
+        const part = await imagePart(file);
+        node = makeNode('image', 0, 0, part.w, part.h);
+        node.src = part.src;
+      }
+    } catch { skipped++; continue; }
+    node.name = file.name.replace(/\.[^.]+$/, '') || node.name;
+    placeDropped(node, clientX, clientY, ids.length);
+    ids.push(node.id);
+  }
+  if (ids.length) {
+    finishPaste(ids);
+    showToast(`Added ${ids.length} ${ids.length === 1 ? 'file' : 'files'}` + (skipped ? ` — ${skipped} skipped (PNG, JPG, GIF, WebP or SVG only)` : ''));
+  } else if (skipped) {
+    showToast('Only PNG, JPG, GIF, WebP and SVG files can be added');
+  }
+}
+
+// Put a new node where it was dropped. Several files fan out a little.
+function placeDropped(node, clientX, clientY, i) {
+  const target = drawTargetAt(clientX, clientY, node.type);
+  const parent = target.parent;
+  const wr = canvasWrap.getBoundingClientRect();
+  const at = canvasToWorld(clientX - wr.left, clientY - wr.top);
+  if (parent) {
+    // No wider than the container it lands in.
+    const pel = document.getElementById('node-' + parent.id);
+    const cs = pel && getComputedStyle(pel);
+    const room = pel ? pel.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) : 0;
+    if (room && node.w > room) { node.h = Math.round(node.h * room / node.w); node.w = room; }
+  }
+  let x = at.x - node.w / 2 + i * 20, y = at.y - node.h / 2 + i * 20;
+  if (parent) {
+    if (isSingleChild(parent)) { x = 0; y = 0; }
+    else { const o = worldOrigin(parent); x -= o.x; y -= o.y; }
+    node.parentId = parent.id;
+    if (target.index != null) parent.children.splice(target.index + i, 0, node.id);
+    else parent.children.push(node.id);
+  }
+  node.x = Math.round(x); node.y = Math.round(y);
+  state.nodes.push(node);
 }
