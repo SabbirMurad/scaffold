@@ -1,5 +1,5 @@
-use std::env;
 use actix_cors::Cors;
+use std::env;
 
 /*
   Cross-Origin Resource Sharing (CORS)
@@ -16,18 +16,18 @@ use actix_cors::Cors;
 */
 
 pub fn get_policy() -> Cors {
-    let mode = env::var("APP_STAGE")
-        .expect("APP_STAGE must be set on .env file");
+    let mode = env::var("APP_STAGE").expect("APP_STAGE must be set on .env file");
 
-    if mode == "development" { Cors::permissive() }
-    else {
+    if mode == "development" {
+        Cors::permissive()
+    } else {
         // Replace the Origin names with targeted FQDN
         // You can also add more constraints if needed
         Cors::default()
             // .allowed_origin("https://example.com")
             .allowed_origin("https://scaffold.sabbirhassan.com")
-            .allowed_origin("https://sabbirhassan.com:444")
-            .allowed_origin("https://www.sabbirhassan.com:444")
+            .allowed_origin("https://sabbirhassan.com:445")
+            .allowed_origin("https://www.sabbirhassan.com:445")
             // The desktop (Tauri) app's webview origins: macOS/Linux, then Windows.
             .allowed_origin("tauri://localhost")
             .allowed_origin("http://tauri.localhost")
