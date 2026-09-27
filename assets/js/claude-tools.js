@@ -30,6 +30,7 @@ import { finalizeImages, resolveRefsForExport } from './images.js';
 import { exportModelsCode } from './codegen.js';
 import { scopeFor, pathError, condError, canRepeat, OP_VALUES, providerPreview, previewCandidates } from './data.js';
 import { loadComments } from './comments.js';
+import { PROJECT_TOOLS, isProjectTool, runProjectTool } from './project-tools.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
 
 const ICON_API = 'https://api.iconify.design';
@@ -313,6 +314,9 @@ const TOOLS = [
     description: 'Generate the Flutter/Dart code (screens, routes, models, enums, providers, theme, typography) and download it as a zip, as the Export button does. Refuses while anything has a validation error, and says what.',
     inputSchema: obj({}),
   },
+
+  // ── Projects (project-tools.js; the dashboard answers these too) ──
+  ...PROJECT_TOOLS,
 ];
 
 // ═════════════════════════════ Shared helpers ═══════════════════════════════
@@ -1870,7 +1874,15 @@ const HANDLERS = {
 };
 const READ_ONLY = new Set(TOOLS.filter(t => t.annotations.readOnlyHint).map(t => t.name));
 
+// Runs `fn` once the current Claude turn has ended (opening another project
+// loads a new page, which would cut the turn off). Set by the chat panel.
+let afterTurn = (fn) => setTimeout(fn, 300);
+
 export async function run(name, args) {
+  // The person's project list, not the open design: no view-only check, no rollback.
+  if (isProjectTool(name)) {
+    return runProjectTool(name, args || {}, { openId: state.projectId || null, later: afterTurn, changed: () => {} });
+  }
   const handler = HANDLERS[name];
   if (!handler) return { ok: false, summary: `Unknown tool "${name}"` };
   if (state.readonly && !READ_ONLY.has(name) && !(name === 'comments' && (args || {}).action === 'list')) {
@@ -1892,10 +1904,12 @@ export async function run(name, args) {
 // Answer the app's relayed MCP requests: `list`, `call`, and `permission` —
 // Claude Code asking the person to approve something, which `onPermission`
 // (the chat panel) puts in front of them; it resolves to
-// { behavior: 'allow' } or { behavior: 'deny', message }.
-export function initClaudeTools({ onPermission } = {}) {
+// { behavior: 'allow' } or { behavior: 'deny', message }. `onTurnEnd(fn)` runs
+// fn once the current Claude turn (if any) has ended.
+export function initClaudeTools({ onPermission, onTurnEnd } = {}) {
   const tauri = window.__TAURI__;
   if (!tauri) return;
+  if (onTurnEnd) afterTurn = onTurnEnd;
   tauri.event.listen('scaffold-tool', async ({ payload }) => {
     const { id, method, name, arguments: args } = payload || {};
     const result = method === 'list' ? { ok: true, tools: TOOLS }

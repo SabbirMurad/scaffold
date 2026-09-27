@@ -47,6 +47,13 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let bridge = bridge::start(app.handle().clone())?;
+            // This launch's MCP config, for connecting any Claude Code session to
+            // the open app: `claude --mcp-config <app data>/claude/mcp.json`. (The
+            // Claude panel writes its own per project each turn — agent.rs.)
+            if let Ok(dir) = app.path().app_data_dir().map(|d| d.join("claude")) {
+                let _ = std::fs::create_dir_all(&dir)
+                    .and_then(|_| agent::mcp_config(&dir, bridge.port, &bridge.token));
+            }
             app.manage(bridge);
             app.manage(agent::Running::default());
             app.manage(updater::Pending::default());

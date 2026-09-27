@@ -8,6 +8,9 @@ import { listProjects, createProject, updateProject, pinProject, deleteProject, 
 import { listFeedback, sendFeedback } from './feedback.js';
 import { confirmModal } from './confirm.js';
 import { initUpdates } from './updates.js';
+import { watchServer } from './server-status.js';
+import { exportDesign, importDesign } from './design-file.js';
+import { answerProjectTools } from './project-tools.js';
 
 const navItems = document.querySelectorAll('.home-nav-item');
 const pages = document.querySelectorAll('.home-page');
@@ -106,6 +109,7 @@ function makeCard(p) {
   card.innerHTML = `
     <button type="button" class="project-pin" title="${p.pinned ? 'Unpin' : 'Pin'}" aria-label="${p.pinned ? 'Unpin project' : 'Pin project'}"></button>
     <button type="button" class="project-del" title="Delete project" aria-label="Delete project">&times;</button>
+    ${p.owned ? '<button type="button" class="project-export" title="Export design file" aria-label="Export design file"></button>' : ''}
     <div class="project-preview"><span>${escHtml((p.name || '?').charAt(0))}</span></div>
     <div class="project-meta">
       <div class="project-name">${escHtml(p.name || 'Untitled')}</div>
@@ -115,7 +119,7 @@ function makeCard(p) {
   showPreview(card, p);
 
   const open = () => { window.location.href = `/editor.html?id=${encodeURIComponent(p.uuid)}`; };
-  card.addEventListener('click', e => { if (!e.target.closest('.project-pin, .project-del')) open(); });
+  card.addEventListener('click', e => { if (!e.target.closest('.project-pin, .project-del, .project-export')) open(); });
   card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
 
   // Pin toggles optimistically, reverting if the request fails.
@@ -139,6 +143,16 @@ function makeCard(p) {
     const res = await deleteProject(p.uuid);
     if (res.ok) { projects = projects.filter(x => x.uuid !== p.uuid); renderProjects(); toast('Project deleted'); }
     else toast(res.error || 'Couldn’t delete project');
+  });
+  // Export: download the design as a .scaffold file anyone can import as their own.
+  card.querySelector('.project-export')?.addEventListener('click', async e => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    toast('Exporting…');
+    try { toast(`Exported ${await exportDesign(p.uuid)}`); }
+    catch (error) { toast(error.message || 'Couldn’t export the design'); }
+    finally { btn.disabled = false; }
   });
   return card;
 }
@@ -180,6 +194,28 @@ async function loadProjects() {
 
 projectSearch?.addEventListener('input', renderProjects);
 loadProjects();
+
+// Import a design file (from Export on a project card) as a new project owned by you.
+const importBtn = document.getElementById('import-design-btn');
+const importInput = document.getElementById('import-design-input');
+importBtn?.addEventListener('click', () => importInput.click());
+importInput?.addEventListener('change', async () => {
+  const file = importInput.files[0];
+  importInput.value = '';
+  if (!file) return;
+  importBtn.disabled = true;
+  importBtn.textContent = 'Importing…';
+  try {
+    const project = await importDesign(file);
+    toast(`Imported “${project.name}”`);
+    await loadProjects();
+  } catch (error) {
+    toast(error.message || 'Couldn’t import the design');
+  } finally {
+    importBtn.disabled = false;
+    importBtn.textContent = 'Import design';
+  }
+});
 
 // ───────── Toast ─────────
 let toastEl = null, toastTimer = null;
@@ -615,3 +651,7 @@ routeFromHash();
 // Fill the profile chip (sidebar + Account tab) with the signed-in user's real data.
 loadProfile();
 initUpdates();
+// Server down: a screen saying so instead of errors, reloading once it's back.
+watchServer({ detail: 'Your projects are safe and will be right here.' });
+// Scaffold's MCP tools for projects (list, create, open, pin, delete) work from here too.
+answerProjectTools({ changed: () => loadProjects() });

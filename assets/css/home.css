@@ -71,6 +71,16 @@
 }
 .home-btn:hover { background: var(--accent2); box-shadow: 0 10px 26px rgba(30,204,122,0.40), var(--glass-highlight); transform: translateY(-1px); }
 .home-btn .home-btn-plus { font-size: 16px; line-height: 1; }
+.home-page-actions { display: flex; align-items: center; gap: 10px; }
+/* Secondary action beside it (e.g. Import design) */
+.home-btn-secondary {
+  display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 9px;
+  background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+  font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.home-btn-secondary:hover:not(:disabled) { background: var(--surface3); }
+.home-btn-secondary:disabled { opacity: 0.6; cursor: progress; }
 
 /* Placeholder card for the not-yet-built pages */
 .home-placeholder {
@@ -155,6 +165,23 @@
 }
 .project-card:hover .project-del, .project-card:focus-within .project-del { opacity: 1; }
 .project-del:hover { background: var(--red, #f55b5b); }
+/* Export button (owned projects) — left of delete, revealed on hover/focus like it. */
+.project-export {
+  position: absolute; top: 8px; right: 76px; width: 28px; height: 28px; z-index: 2;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  background: rgba(20,20,24,0.45); border: none; border-radius: 8px; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s, background 0.12s;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.project-export::before {
+  content: ''; width: 15px; height: 15px; background: #fff;
+  -webkit-mask: url(../icons/export.svg) center / contain no-repeat;
+  mask: url(../icons/export.svg) center / contain no-repeat;
+}
+.project-card:hover .project-export, .project-card:focus-within .project-export { opacity: 1; }
+.project-export:hover { background: rgba(20,20,24,0.65); }
+.project-export:disabled { cursor: progress; opacity: 1; }
+.project-export:disabled::before { opacity: 0.5; }
 .project-preview {
   position: relative; overflow: hidden;
   height: 172px; display: flex; align-items: center; justify-content: center; padding-bottom: 34px;

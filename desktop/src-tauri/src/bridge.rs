@@ -85,13 +85,15 @@ fn forward(app: &AppHandle, pending: &Pending, next: &AtomicU64, mut req: Value)
     }
     if app.emit("scaffold-tool", &req).is_err() {
         pending.lock().unwrap().remove(&id);
-        return failure("the editor window is not available");
+        return failure("the Scaffold window is not available");
     }
-    let asking = req.get("method").and_then(Value::as_str) == Some("permission");
+    // Waits on the person: a permission prompt, or a delete they must confirm.
+    let asking = req.get("method").and_then(Value::as_str) == Some("permission")
+        || req.get("name").and_then(Value::as_str) == Some("delete_project");
     let answer = rx.recv_timeout(if asking { PROMPT_TIMEOUT } else { TIMEOUT });
     pending.lock().unwrap().remove(&id);
     answer.unwrap_or_else(|_| {
-        failure("the editor did not answer — is a project open in the editor?")
+        failure("Scaffold did not answer — is its window open on the dashboard or a project?")
     })
 }
 

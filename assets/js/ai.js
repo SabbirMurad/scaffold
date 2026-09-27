@@ -40,6 +40,7 @@ let stopping = false;  // the person pressed stop; the turn's end isn't an error
 let saidThisTurn = false; // Claude has said something since the message was sent
 const activity = new Map(); // tool call id → { group, item, tool, input }
 const waiting = new Set(); // permission cards still waiting for the person
+const turnEnd = [];        // what to do once the turn ends (e.g. open another project)
 
 // ── panel ────────────────────────────────────────────────────────────────────
 function isOpen() { return document.body.classList.contains('claude-open'); }
@@ -267,6 +268,7 @@ function setBusy(on) {
 function stop() {
   if (!busy || stopping) return;
   stopping = true;
+  turnEnd.length = 0; // stopped: don't go on to open whatever Claude asked for
   setStatus('Stopping…');
   tauri.core.invoke('claude_stop');
 }
@@ -310,6 +312,7 @@ function finish() {
   stopStatus();
   setBusy(false);
   saveChat();
+  turnEnd.splice(0).forEach(fn => setTimeout(fn, 300));
 }
 
 // ── built-in tools, as the person would say them ─────────────────────────────
@@ -464,7 +467,11 @@ export function initAi() {
   });
 
   if (!tauri) return;
-  initClaudeTools({ onPermission: askPermission });
+  initClaudeTools({
+    onPermission: askPermission,
+    // Opening/leaving a project mid-turn would cut Claude off: wait for the turn.
+    onTurnEnd: (fn) => { if (busy) turnEnd.push(fn); else setTimeout(fn, 300); },
+  });
   tauri.event.listen('claude', onEvent);
   // Leaving the editor mid-turn: stop Claude rather than let it edit a page
   // that's gone.

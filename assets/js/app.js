@@ -12,6 +12,7 @@ import { initApi, renderApi } from './api.js';
 import { initColors, renderColors, renderThemeSwitch, applyTheme } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
 import { logout, getAuth, avatarSrc } from './session.js';
+import { watchServer } from './server-status.js';
 import { getProject, saveProjectDoc, updateProject, requestAccess,
   listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite, getMe,
   setPublicLink, getPublicProject } from './projects.js';
@@ -704,4 +705,14 @@ async function bootPublic(token) {
   applyMode('design');
 }
 
+// Server down: cover the editor until it's back. A project that never loaded
+// needs the page loading again; one that did just carries on — its live
+// connection (collab.js) reconnects and sends any edits it couldn't sync.
+watchServer({
+  detail: 'Keep this window open — any changes not yet saved will sync when it’s back.',
+  onRecover: () => {
+    const wanted = new URLSearchParams(window.location.search).get('id');
+    if (wanted && !currentProjectId && !PUBLIC_TOKEN) window.location.reload();
+  },
+});
 boot();

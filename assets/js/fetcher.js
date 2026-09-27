@@ -1,4 +1,5 @@
 import { toast } from './toast.js';
+import { reportUnreachable, isServerDownStatus } from './server-status.js';
 
 class Fetcher {
     /**
@@ -186,7 +187,10 @@ class Fetcher {
         try {
             response = await fetch(url, reqObject);
         } catch (error) {
-            if (showError) {
+            // No connection: if the server itself is down, its screen says so
+            // (server-status.js) — no error toast on top of it.
+            const up = await reportUnreachable();
+            if (showError && up) {
                 toast.setNotification({
                     type: 'error',
                     message: error.toString(),
@@ -198,6 +202,16 @@ class Fetcher {
                 status: -1,
                 data: null,
                 error: error.toString(),
+            })
+        }
+
+        // The proxy in front of the server says it's down: same as no connection.
+        if (isServerDownStatus(response.status) && !(await reportUnreachable())) {
+            return new FetchResult({
+                ok: false,
+                status: response.status,
+                data: null,
+                error: 'The server is down',
             })
         }
 

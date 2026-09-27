@@ -291,7 +291,7 @@ fn folder_name(project: &str) -> String {
 /// The MCP config naming Scaffold's server — this binary, pointed at this
 /// launch's bridge. Rewritten every turn because the port and token change with
 /// each launch.
-fn mcp_config(dir: &Path, port: u16, token: &str) -> std::io::Result<PathBuf> {
+pub(crate) fn mcp_config(dir: &Path, port: u16, token: &str) -> std::io::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let path = dir.join("mcp.json");
     let config = json!({

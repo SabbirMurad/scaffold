@@ -9,4 +9,7 @@ pub fn router(cfg: &mut web::ServiceConfig) {
         .route("/{token}/comments", web::get().to(Handler::Public::comments))
         .route("/{token}/image/{image_id}", web::get().to(Handler::Public::image))
     );
+
+    // Is the service up? (the desktop app's server-down screen polls this)
+    cfg.route("/api/v1/health", web::get().to(Handler::Health::task));
 }

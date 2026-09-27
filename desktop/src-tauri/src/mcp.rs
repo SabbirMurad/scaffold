@@ -51,6 +51,7 @@ You can do everything the person can do by hand in the editor:
 - Design tokens: edit_color (color variables, a value per theme), edit_theme, set_color_role (Material ColorScheme roles), edit_text_style.
 - Data: edit_model, edit_enum, edit_mock_data, edit_provider (API providers, endpoints and the base URL). get_data shows all of it.
 - The project: comments, rename_project, undo, export_code.
+- The person's projects: list_projects, create_project, open_project, pin_project, delete_project (the person always confirms a delete). Opening a project happens when your turn ends and ends this conversation — each project has its own — so do it last. On the dashboard (no project open) only these project tools are available.
 
 How to work:
 - Start with get_design (and get_data when tokens or data matter) unless you already know the project from this conversation. The person edits between your turns, so look again rather than assuming.
@@ -115,7 +116,7 @@ impl Bridge {
                 Err(_) => self.conn = None,
             }
         }
-        failure("Scaffold is not running, or its editor is closed")
+        failure("Scaffold is not running, or its window is closed")
     }
 
     fn send(&mut self, req: &Value) -> std::io::Result<Value> {

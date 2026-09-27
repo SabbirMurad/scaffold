@@ -43,7 +43,12 @@
           <h1>Projects</h1>
           <div class="home-page-sub">Open an existing project or start a new one.</div>
         </div>
-        <button class="home-btn" id="new-project-btn"><span class="home-btn-plus">+</span> New project</button>
+        <div class="home-page-actions">
+          <!-- Import a .scaffold design file as a new project of your own (design-file.js) -->
+          <button type="button" class="home-btn-secondary" id="import-design-btn" title="Create a project from a .scaffold design file">Import design</button>
+          <input type="file" id="import-design-input" accept=".scaffold,application/json" hidden>
+          <button class="home-btn" id="new-project-btn"><span class="home-btn-plus">+</span> New project</button>
+        </div>
       </div>
       <div class="projects-toolbar">
         <div class="project-filter" id="project-filter" role="radiogroup" aria-label="Show projects">

@@ -5,6 +5,7 @@
 // is sent to the dashboard; the sign-in endpoint also sets a session cookie.
 
 import { Fetcher } from './fetcher.js';
+import { watchServer } from './server-status.js';
 
 // Auth endpoints live under /api/v1/auth; Fetcher prefixes /api, so paths here
 // start at /v1/auth.
@@ -395,3 +396,6 @@ document.getElementById('reset-resend')?.addEventListener('click', async () => {
 document.getElementById('reset-back')?.addEventListener('click', backToSignIn);
 
 setMode('signin');
+
+// Server down: a screen saying so instead of failed sign-ins, reloading once it's back.
+watchServer();

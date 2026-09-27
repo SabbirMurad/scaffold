@@ -22,4 +22,7 @@ pub use public as Public;
 pub mod download;
 pub use download as Download;
 
+pub mod health;
+pub use health as Health;
+
 pub mod seo;
