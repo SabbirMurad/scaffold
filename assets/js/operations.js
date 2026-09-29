@@ -2,6 +2,7 @@ import { state, getNode, getComponent, getMasterNode, isMaster, isInstance, next
 import { showToast, canvasWrap } from './utils.js';
 import { saveHistory } from './history.js';
 import { render, applyTransform } from './render.js';
+import { revealPageOf } from './pages.js';
 import { canAcceptChild, getWorldPos, canBeComponent, isStack, isSingleChild, canvasToWorld } from './nodes.js';
 
 // ───────── Components ─────────
@@ -115,6 +116,7 @@ export function detachInstancesOf(componentIds, doomed = new Set()) {
 export function goToNode(id) {
   const n = getNode(id);
   if (!n) return;
+  revealPageOf(n); // it may be on another page (e.g. a component's master)
   state.selected = new Set([n.id]);
   const wp = getWorldPos(n);
   state.panX = canvasWrap.clientWidth / 2 - (wp.x + n.w / 2) * state.zoom;

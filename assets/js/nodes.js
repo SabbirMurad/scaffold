@@ -1,4 +1,5 @@
 import { state, getNode } from './state.js';
+import { onActivePage } from './pages.js';
 
 // Types that can contain children (valid drop targets). A Section holds frames.
 export const CONTAINER_TYPES = ['frame', 'container', 'row', 'column', 'wrap', 'stack', 'section'];
@@ -112,6 +113,7 @@ function nestingDepth(node) {
 export function findFrameAt(wx, wy, excludeId = null, childType = null, preferOutermost = false) {
   const hits = [...state.nodes].reverse().filter(n =>
     n.id !== excludeId && !isDescendant(n.id, excludeId) && canAcceptChild(n, excludeId, childType)
+    && onActivePage(n) // only what's drawn: the open page (pages.js)
   ).filter(frame => {
     const wp = getWorldPos(frame);
     return wx >= wp.x && wx <= wp.x + frame.w && wy >= wp.y && wy <= wp.y + frame.h;

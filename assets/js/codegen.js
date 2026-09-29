@@ -308,7 +308,8 @@ export function generateProviderFile(p) {
 
 // A screen's route path: the frame's explicit routePath, else a slug of its name.
 // Mirrors props.js `routeOf` so the export matches what the Screen panel shows.
-function routeOf(frame) {
+// Also shown in Play's address bar for a web screen.
+export function routeOf(frame) {
   const p = (frame.routePath || '').trim();
   if (p) return p;
   const s = (frame.name || 'screen').toLowerCase().trim()

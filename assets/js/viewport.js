@@ -4,12 +4,14 @@
 
 import { state } from './state.js';
 
-const KEY = (id) => 'ff_viewport_' + id;
+// One per page (pages.js), so each page reopens where it was left. Views saved
+// before pages existed are the first page's.
+const KEY = (id, page) => 'ff_viewport_' + id + (page ? ':' + page : '');
 
-export function saveViewport() {
+export function saveViewport(pageId = state.activePageId) {
   if (!state.projectId) return; // unsaved scratch session — nothing to key on
   try {
-    localStorage.setItem(KEY(state.projectId), JSON.stringify({
+    localStorage.setItem(KEY(state.projectId, pageId), JSON.stringify({
       panX: state.panX, panY: state.panY, zoom: state.zoom,
     }));
   } catch { /* storage unavailable */ }
@@ -24,14 +26,20 @@ export function saveViewportSoon() {
 
 // Restore a project's saved viewport into state (before the first paint). No-op if
 // none is stored or the values look invalid.
+// Returns whether a saved view was found for the open page.
 export function restoreViewport() {
-  if (!state.projectId) return;
+  if (!state.projectId) return false;
   try {
-    const v = JSON.parse(localStorage.getItem(KEY(state.projectId)));
+    const first = state.pages.length && state.pages[0].id === state.activePageId;
+    const raw = localStorage.getItem(KEY(state.projectId, state.activePageId))
+      || (first ? localStorage.getItem(KEY(state.projectId)) : null);
+    const v = JSON.parse(raw);
     if (v && Number.isFinite(v.panX) && Number.isFinite(v.panY) && Number.isFinite(v.zoom) && v.zoom > 0) {
       state.panX = v.panX;
       state.panY = v.panY;
       state.zoom = v.zoom;
+      return true;
     }
   } catch { /* ignore malformed entry */ }
+  return false;
 }

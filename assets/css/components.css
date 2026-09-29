@@ -62,7 +62,7 @@
 body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64px); }
 
 /* Shared glass card look for the sidebar cards */
-#top-card, #nav-card, #design-view {
+#top-card, #nav-card, #design-view, #pages-card {
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   border: 1px solid var(--glass-border); border-radius: 14px;
@@ -70,6 +70,7 @@ body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64
   overflow: hidden;
 }
 #top-card, #nav-card { flex-shrink: 0; }
+#pages-card { flex-shrink: 0; display: flex; flex-direction: column; }
 /* Let the nav-icon hover labels / mode-tab tooltips escape the card */
 #top-card, #nav-card { overflow: visible; }
 /* …and paint the nav card (with its tab tooltips) above the panel below it. */
@@ -136,7 +137,7 @@ body.claude-open #claude-panel { transform: translateX(0); }
 .claude-chat {
   flex: 1; min-height: 0; display: flex; flex-direction: column;
   --term: 'Cascadia Mono', 'Cascadia Code', Consolas, var(--mono), monospace;
-  font: 11.5px/1.5 var(--term); color: var(--text);
+  font: 11.5px/1.8 var(--term); color: var(--text);
 }
 /* Their display:flex overrides the UA [hidden] rule; the panel toggles them with `hidden`. */
 .claude-connect[hidden], .claude-chat[hidden] { display: none; }
@@ -226,8 +227,8 @@ body.claude-open #claude-panel { transform: translateX(0); }
 
 /* The prompt: a > and a bare line to type on — Enter sends, Shift+Enter adds a line. */
 .claude-composer { flex-shrink: 0; display: flex; align-items: flex-start; gap: 8px; padding: 9px 14px 12px; border-top: 1px solid var(--border); }
-/* Sized to the first line of the prompt (11.5px × 1.5) so the two stay aligned. */
-.claude-caret { color: #fff; font-size: 15px; font-weight: 700; line-height: 17px; }
+/* Sized to the first line of the prompt (11.5px × 1.8) so the two stay aligned. */
+.claude-caret { color: #fff; font-size: 15px; font-weight: 700; line-height: 20.7px; }
 .claude-composer textarea {
   flex: 1; resize: none; min-height: 20px; max-height: 160px; padding: 0; margin: 0;
   background: transparent; border: none; outline: none; box-shadow: none;
@@ -534,6 +535,14 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 .img-tile:hover { border-color: var(--accent); transform: translateY(-1px); }
 .img-tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .img-tile.selected { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+/* A result whose image wouldn't load (image-picker.js): a quiet placeholder, not pickable. */
+.img-tile.failed { cursor: default; border-style: dashed; background: var(--surface); }
+.img-tile.failed:hover { border-color: var(--border); transform: none; }
+.img-tile-failed {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; height: 100%; font: 11px var(--sans); color: var(--text3);
+}
+.img-tile-failed svg { width: 22px; height: 22px; opacity: 0.7; }
 .img-tile.selected::after {
   content: '✓'; position: absolute; top: 5px; right: 5px;
   width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff;
@@ -1395,3 +1404,68 @@ body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
 .comp-count { font-size: 11px; color: var(--text3); font-family: var(--mono); }
 .comp-place { border: none; background: var(--surface3); color: var(--text); width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 14px; line-height: 1; }
 .comp-place:hover { background: var(--accent); color: #fff; }
+
+/* ── Pages card (pages.js) — above Layers ─────────────────────────────── */
+#pages-card .panel-header { padding-top: 6px; padding-bottom: 6px; }
+#pages-card #page-add { font-size: 18px; padding: 2px 8px; }
+#pages-card #page-add[hidden] { display: none; }
+#pages-list { max-height: 168px; overflow-y: auto; padding: 4px 0; }
+.page-item {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px;
+  cursor: pointer; user-select: none; color: var(--text2); font-size: 12.5px; transition: background 0.1s;
+}
+.page-item:hover { background: var(--surface2); color: var(--text); }
+.page-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.page-item.active { background: var(--accent-glow); color: var(--text); }
+.page-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); border-radius: 0 1px 1px 0; }
+.page-icon { display: flex; flex-shrink: 0; width: 16px; height: 16px; color: var(--text3); }
+.page-item.active .page-icon { color: var(--accent); }
+.page-icon svg { width: 16px; height: 16px; }
+.page-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-kind { font-size: 10.5px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.04em; }
+.page-more {
+  border: none; background: none; color: var(--text3); cursor: pointer; width: 22px; height: 22px;
+  border-radius: 5px; font-size: 15px; line-height: 1; opacity: 0; flex-shrink: 0;
+}
+.page-item:hover .page-more, .page-item:focus-within .page-more, .page-more:focus-visible { opacity: 1; }
+.page-more:hover { background: var(--surface3); color: var(--text); }
+.page-rename {
+  flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--surface3);
+  border: 1px solid var(--accent); border-radius: 5px; padding: 2px 6px; outline: none;
+}
+/* Page menu + add form: small floating cards */
+.page-popover {
+  position: fixed; z-index: 300; min-width: 170px; padding: 6px;
+  background: var(--glass-bg-strong); border: 1px solid var(--glass-border); border-radius: 10px;
+  backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow); font-family: var(--sans);
+}
+.page-menu button {
+  display: block; width: 100%; text-align: left; border: none; background: none; color: var(--text);
+  font: 12.5px var(--sans); padding: 7px 10px; border-radius: 6px; cursor: pointer;
+}
+.page-menu button:hover:not(:disabled), .page-menu button:focus-visible { background: var(--surface3); outline: none; }
+.page-menu button.danger { color: var(--red); }
+.page-menu button:disabled { opacity: 0.45; cursor: default; }
+.page-add-form { width: 232px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.page-form-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
+.page-add-form input {
+  width: 100%; padding: 7px 9px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 7px;
+  color: var(--text); font: 13px var(--sans); outline: none;
+}
+.page-add-form input:focus { border-color: var(--accent); }
+.page-kind-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.page-kind-pick button {
+  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 8px;
+  border: 1px solid var(--border2); border-radius: 7px; background: var(--surface2); color: var(--text2);
+  font: 500 12.5px var(--sans); cursor: pointer;
+}
+.page-kind-pick button svg { width: 16px; height: 16px; }
+.page-kind-pick button:hover { color: var(--text); }
+.page-kind-pick button.active { border-color: var(--accent); background: var(--accent-glow); color: var(--text); }
+.page-form-error { font-size: 12px; color: var(--red); }
+.page-form-error[hidden] { display: none; }
+.page-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.page-form-actions button { border-radius: 7px; padding: 6px 12px; font: 500 12.5px var(--sans); cursor: pointer; border: 1px solid var(--border2); background: var(--surface2); color: var(--text); }
+.page-form-actions .page-form-add { background: var(--accent); border-color: var(--accent); color: #fff; }
+.page-form-actions .page-form-add:hover { background: var(--accent2); }

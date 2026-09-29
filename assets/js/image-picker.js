@@ -4,6 +4,7 @@ import { saveHistory } from './history.js';
 import { render } from './render.js';
 import { canvasWrap, esc, showToast } from './utils.js';
 import { finalizeImages } from './images.js';
+import { candidates, firstImageDataUri } from './stock-images.js';
 
 // Stock-image picker — searches the free Openverse API (https://openverse.org),
 // a catalogue of openly-licensed images. No API key; CORS-enabled. The search is
@@ -25,14 +26,39 @@ let debounce;
 let seeded = false;
 // Pagination state for the infinite-scroll grid.
 let curQuery = '', curPage = 0, totalPages = 1, loading = false;
-const selected = new Map(); // thumbnail src -> { w, h }
+const selected = new Map(); // tile key (its thumbnail) -> { srcs, w, h }
 
 function msg(text) { results.innerHTML = `<div class="icon-msg">${esc(text)}</div>`; }
 
+// Each tile carries the URLs to try (stock-images.js): for its preview, and for
+// the image placed on the canvas. A preview that fails moves on to the next;
+// when none loads, the tile says so (see onTileImageError).
 function tileHtml(it) {
-  return `<button class="img-tile" data-src="${esc(it.thumbnail)}" data-w="${it.width || 0}" data-h="${it.height || 0}" title="${esc(it.title || '')}">
-       <img src="${esc(it.thumbnail)}" alt="" loading="lazy">
+  const previews = candidates(it, true), srcs = candidates(it);
+  if (!previews.length) return '';
+  return `<button class="img-tile" data-src="${esc(srcs[0])}" data-srcs="${esc(srcs.join(' '))}" data-previews="${esc(previews.slice(1).join(' '))}"
+       data-w="${it.width || 0}" data-h="${it.height || 0}" title="${esc(it.title || '')}">
+       <img src="${esc(previews[0])}" alt="" loading="lazy">
      </button>`;
+}
+
+function onTileImageError(e) {
+  const img = e.target;
+  const tile = img.tagName === 'IMG' && img.closest('.img-tile');
+  if (!tile) return;
+  const rest = (tile.dataset.previews || '').split(' ').filter(Boolean);
+  if (rest.length) {
+    tile.dataset.previews = rest.slice(1).join(' ');
+    img.src = rest[0];
+    return;
+  }
+  // Nothing left to try: a quiet placeholder instead of the browser's broken image.
+  if (selected.delete(tile.dataset.src)) updateActionBar();
+  tile.classList.remove('selected');
+  tile.classList.add('failed');
+  tile.disabled = true;
+  tile.title = 'This image couldn’t be loaded';
+  tile.innerHTML = '<span class="img-tile-failed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 15l4.5-4.5 4 4 3-3 5.5 5.5"/><path d="M4 4l16 16"/></svg>Couldn’t load</span>';
 }
 
 // ───────── Multi-select ─────────
@@ -46,7 +72,7 @@ function updateActionBar() {
 function toggleSelect(tile) {
   const src = tile.dataset.src;
   if (selected.has(src)) { selected.delete(src); tile.classList.remove('selected'); }
-  else { selected.set(src, { w: +tile.dataset.w, h: +tile.dataset.h }); tile.classList.add('selected'); }
+  else { selected.set(src, { srcs: tile.dataset.srcs.split(' '), w: +tile.dataset.w, h: +tile.dataset.h }); tile.classList.add('selected'); }
   updateActionBar();
 }
 
@@ -169,38 +195,30 @@ function placeImages(items) {
   finalizeImages(); // inline data URIs → uploaded refs (remote-URL fallbacks left as-is)
 }
 
-// Fetch an image and inline it as a data-URL so the project is self-contained;
-// on failure (e.g. CORS) fall back to the remote URL.
-async function toDataUrl(src) {
-  try {
-    const res = await fetch(src);
-    const blob = await res.blob();
-    return await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-  } catch { return src; }
-}
-
+// Images are inlined as data URIs so the project is self-contained; each tries
+// its URLs in turn (stock-images.js). One that won't load isn't placed.
 async function pickSingle(tile) {
   const w = +tile.dataset.w, h = +tile.dataset.h;
   close();
   showToast('Adding image…');
-  placeImage(await toDataUrl(tile.dataset.src), w, h);
+  const src = await firstImageDataUri(tile.dataset.srcs.split(' '));
+  if (!src) { showToast('That image couldn’t be loaded — try another'); return; }
+  placeImage(src, w, h);
   showToast('Image added');
 }
 
 async function addSelected() {
   if (!selected.size) return;
-  const items = [...selected.entries()].map(([src, d]) => ({ src, w: d.w, h: d.h }));
+  const items = [...selected.values()];
   close();
   const n = items.length;
   showToast(`Adding ${n} image${n > 1 ? 's' : ''}…`);
-  const resolved = await Promise.all(items.map(async it => ({ ...it, src: await toDataUrl(it.src) })));
-  placeImages(resolved);
-  showToast(`Added ${n} image${n > 1 ? 's' : ''}`);
+  const resolved = (await Promise.all(items.map(async it => ({ ...it, src: await firstImageDataUri(it.srcs) }))))
+    .filter(it => it.src);
+  if (resolved.length) placeImages(resolved);
+  const failed = n - resolved.length;
+  if (!resolved.length) showToast(`${n > 1 ? 'Those images' : 'That image'} couldn’t be loaded — try others`);
+  else showToast(`Added ${resolved.length} image${resolved.length > 1 ? 's' : ''}${failed ? ` — ${failed} couldn’t be loaded` : ''}`);
 }
 
 function open() {
@@ -232,10 +250,13 @@ export function initImagePicker() {
     if (results.scrollTop + results.clientHeight >= results.scrollHeight - 240) loadMore();
   });
 
+  // Image load errors don't bubble, so they're caught on the way down.
+  results.addEventListener('error', onTileImageError, true);
+
   // Plain click adds one; Shift-click (or clicking while a selection exists) toggles multi-select.
   results.addEventListener('click', e => {
     const tile = e.target.closest('.img-tile');
-    if (!tile) return;
+    if (!tile || tile.disabled) return;
     if (e.shiftKey || selected.size > 0) toggleSelect(tile);
     else pickSingle(tile);
   });

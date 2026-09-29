@@ -11,6 +11,7 @@ import { renderMock } from './mock.js';
 // consistently across every tab.
 const KEYS = [
   'nodes', 'nextId', 'nextFrameNum', 'nextContainerNum',
+  'pages', 'nextPageId',
   'components', 'nextComponentId',
   'themes', 'nextThemeId', 'activeThemeId',
   'colors', 'nextColorId', 'selectedColorId', 'colorRoles',

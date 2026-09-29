@@ -31,11 +31,14 @@ import { exportModelsCode } from './codegen.js';
 import { scopeFor, pathError, condError, canRepeat, OP_VALUES, providerPreview, previewCandidates } from './data.js';
 import { loadComments } from './comments.js';
 import { PROJECT_TOOLS, isProjectTool, runProjectTool } from './project-tools.js';
+import { candidates, firstImageDataUri, fetchImageDataUri } from './stock-images.js';
+import { pageRoots, revealPageOf, switchPage, addPage, KINDS, assignPages, setRootTarget } from './pages.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
 
 const ICON_API = 'https://api.iconify.design';
 const IMAGE_API = 'https://api.openverse.org/v1/images/';
 const DEVICE = { w: 393, h: 852 };
+const WEB_DEVICE = { w: 1920, h: 1080 }; // a desktop monitor
 const TEXT_WEIGHTS = ['300', '400', '500', '600', '700', '800'];
 
 // ═════════════════════════════ Tool definitions ═════════════════════════════
@@ -97,9 +100,9 @@ const TOOLS = [
     inputSchema: obj({
       name: str('snake_case, e.g. "login_page".'),
       section_id: str('Put the screen inside this section.'),
-      width: num('Default 393.'),
+      width: num('Default 393 on a phone page, 1920 on a web page.'),
       height: num('The frame\'s height. Default: the screen height. Taller makes the screen scroll: the device screen stays screen_height tall and the rest is below the fold.'),
-      screen_height: num('The device screen\'s height (what\'s visible without scrolling). Default 852; change it only for another device size.'),
+      screen_height: num('The device screen\'s height (what\'s visible without scrolling). Default 852 on a phone page, 1080 on a web page; change it only for another device size.'),
       background: str(COLOR_HELP),
       padding: { description: 'A number, or {t,r,b,l}.' }, gap: num(),
       layout: { type: 'string', enum: ['column', 'row', 'stack', 'none'] },
@@ -314,6 +317,18 @@ const TOOLS = [
     description: 'Generate the Flutter/Dart code (screens, routes, models, enums, providers, theme, typography) and download it as a zip, as the Export button does. Refuses while anything has a validation error, and says what.',
     inputSchema: obj({}),
   },
+  {
+    name: 'page', title: 'Pages', annotations: EDIT,
+    description: 'The project\'s pages: separate canvases, each "phone" or "web" (a web page\'s screens are desktop-sized). get_design shows only the open page and lists the others (with how many items each holds). "switch" opens a page (by id or name); "add" makes a new one and opens it. '
+      + 'Put work on an existing page of the right kind — every project starts with a "Phone" and a "Web" page — and add a page only when the person asks for one or no page fits. Adding is refused while a page of that kind is still empty (switch to it instead); pass "new": true only when the person asked for a separate page.',
+    inputSchema: obj({
+      action: { type: 'string', enum: ['switch', 'add'] },
+      id: str('switch: the page id (from get_design).'),
+      name: str('switch: the page name, instead of an id. add: the new page\'s name.'),
+      kind: { type: 'string', enum: ['phone', 'web'], description: 'add: phone or web.' },
+      new: bool('add: the person asked for a separate page, so add it even though an empty page of this kind exists.'),
+    }, ['action']),
+  },
 
   // ── Projects (project-tools.js; the dashboard answers these too) ──
   ...PROJECT_TOOLS,
@@ -377,10 +392,21 @@ function gradientOf(g) {
   };
 }
 
-// Where a new root item goes: right of everything on the canvas (or the viewport
-// centre when it's empty).
+// The page Claude is working on this turn: the page open when the turn began,
+// or the one it switched to with the page tool. Its tools read and build there
+// even if the person looks at another page meanwhile. (The chat panel starts
+// each turn afresh — resetWorkPage.)
+let workPageId = null;
+function workPage() {
+  if (!state.pages.some(p => p.id === workPageId)) workPageId = state.activePageId;
+  return state.pages.find(p => p.id === workPageId) || state.pages[0];
+}
+export function resetWorkPage() { workPageId = null; }
+
+// Where a new root item goes: right of everything on Claude's page (or the
+// viewport centre when it's empty).
 function freeSpot(w, h) {
-  const roots = state.nodes.filter(n => !n.parentId);
+  const roots = pageRoots(workPage().id);
   if (!roots.length) {
     const c = canvasToWorld(canvasWrap.clientWidth / 2, canvasWrap.clientHeight / 2);
     return { x: Math.round(c.x - w / 2), y: Math.round(c.y - h / 2) };
@@ -426,16 +452,14 @@ function svgAspect(svg) {
 
 // An image URL as a data URI (so it's uploaded with the project like any image),
 // with its natural size. Falls back to the remote URL when it can't be read.
+// `url`: one address, or several to try in turn (a stock photo's fallbacks —
+// stock-images.js). The first that really is an image is inlined; if none is,
+// the (first) remote URL is kept, as before.
 async function loadImage(url) {
-  let src = url;
+  const urls = Array.isArray(url) ? url : [url];
+  let src = urls[0];
   try {
-    const blob = await (await fetch(url)).blob();
-    src = await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
+    src = (urls.length > 1 ? await firstImageDataUri(urls) : await fetchImageDataUri(urls[0])) || src;
   } catch { /* keep the remote URL */ }
   const size = await new Promise(resolve => {
     const img = new Image();
@@ -452,9 +476,11 @@ async function searchPhoto(query) {
       const res = await fetch(`${IMAGE_API}?q=${encodeURIComponent(query)}&page_size=5&mature=false&filter_dead=false&category=photograph`);
       if (res.ok) {
         const data = await res.json();
-        const hit = (data.results || [])[0];
-        if (!hit) fail(`No stock photo found for "${query}" — try other words`);
-        return hit.thumbnail || hit.url;
+        const hits = data.results || [];
+        if (!hits.length) fail(`No stock photo found for "${query}" — try other words`);
+        // Each result's own fallbacks, then the next results' (their thumbnails
+        // often fail while the photo itself loads).
+        return hits.flatMap(hit => candidates(hit));
       }
       if (res.status !== 424 && res.status < 500) break;
     } catch (e) { if (e instanceof ToolError) throw e; }
@@ -891,13 +917,18 @@ function describe(node) {
 }
 
 function getDesign() {
-  const roots = state.nodes.filter(n => !n.parentId)
+  // The open page's canvas; the other pages are listed (switch with the page tool).
+  const page = workPage();
+  const roots = pageRoots(page.id)
     .sort((a, b) => (a.type === 'section' ? 0 : 1) - (b.type === 'section' ? 0 : 1));
-  const screens = state.nodes.filter(isScreenFrame).length;
+  const onPage = new Set(roots.map(r => r.id));
+  const screens = state.nodes.filter(n => isScreenFrame(n) && (onPage.has(n.id) || onPage.has(n.parentId))).length;
   return {
     ok: true,
-    summary: `${state.projectName}: ${plural(screens, 'screen')}`,
+    summary: `${state.projectName}, page "${page.name}" (${page.kind}): ${plural(screens, 'screen')}`,
     project: state.projectName,
+    page: { id: page.id, name: page.name, kind: page.kind },
+    pages: state.pages.map(p => ({ id: p.id, name: p.name, kind: p.kind, items: state.nodes.filter(n => !n.parentId && n.pageId === p.id).length })),
     canvas: roots.map(describe),
     components: state.components.map(c => ({ id: c.id, name: componentName(c), master_id: c.rootId, instances: instancesOf(c.id).length })),
   };
@@ -956,9 +987,11 @@ function getData() {
 async function createScreen(args) {
   const section = args.section_id ? need(getNode(args.section_id), args.section_id) : null;
   if (section && section.type !== 'section') fail(`"${section.name}" is a ${section.type}, not a section`);
-  const w = isNum(args.width) ? args.width : DEVICE.w;
+  // A web page's screens default to a desktop browser, a phone page's to a phone.
+  const device = workPage().kind === 'web' ? WEB_DEVICE : DEVICE;
+  const w = isNum(args.width) ? args.width : device.w;
   // The device screen, and the frame — which may run taller than it (scrolling).
-  const screenH = isNum(args.screen_height) ? args.screen_height : DEVICE.h;
+  const screenH = isNum(args.screen_height) ? args.screen_height : device.h;
   const h = isNum(args.height) ? Math.max(args.height, 1) : screenH;
 
   let x, y;
@@ -1220,6 +1253,7 @@ async function searchIcons({ query, limit }) {
 
 function focus({ ids }) {
   const nodes = ids.map(id => need(getNode(id), id));
+  revealPageOf(nodes[0]); // it may be on another page
   state.selected = new Set(nodes.map(n => n.id));
   render();
   panTo(nodes[0]);
@@ -1728,6 +1762,26 @@ async function renameProject({ name }) {
   return { ok: true, summary: `Renamed the project to "${v}"` };
 }
 
+function pageTool({ action, id, name, kind, new: separate }) {
+  if (action === 'add') {
+    // An empty page of this kind is where the work belongs (e.g. the starting
+    // "Web" page), unless the person asked for another one.
+    const empty = state.pages.find(p => p.kind === (kind || 'phone') && !state.nodes.some(n => !n.parentId && n.pageId === p.id));
+    if (empty && !separate) {
+      fail(`The ${empty.kind} page "${empty.name}" is empty — use it ({"action":"switch","id":"${empty.id}"}). Add another only if the person asked for a separate page ("new": true).`);
+    }
+    const res = addPage(name, kind || 'phone');
+    if (res.error) fail(res.error);
+    workPageId = res.page.id;
+    return { ok: true, summary: `Added the ${KINDS[res.page.kind].toLowerCase()} page "${res.page.name}" and opened it`, id: res.page.id };
+  }
+  const page = state.pages.find(p => (id && p.id === id) || (!id && name && p.name.toLowerCase() === String(name).toLowerCase()));
+  if (!page) fail(`No page ${id ? `with id "${id}"` : `named "${name}"`} (there are: ${state.pages.map(p => p.name).join(', ')})`);
+  workPageId = page.id;
+  switchPage(page.id);
+  return { ok: true, summary: `Opened the ${page.kind} page "${page.name}"` };
+}
+
 function undoRedo(args) {
   const steps = args.steps || 1;
   for (let i = 0; i < steps; i++) (args.redo ? redo : undo)();
@@ -1870,7 +1924,7 @@ const HANDLERS = {
   search_icons: searchIcons, focus, check_design: checkDesign,
   edit_color: editColor, edit_theme: editTheme, set_color_role: setColorRole, edit_text_style: editTextStyle,
   edit_model: editModel, edit_enum: editEnum, edit_mock_data: editMockData, edit_provider: editProvider,
-  comments, rename_project: renameProject, undo: undoRedo, export_code: exportCode,
+  comments, rename_project: renameProject, undo: undoRedo, export_code: exportCode, page: pageTool,
 };
 const READ_ONLY = new Set(TOOLS.filter(t => t.annotations.readOnlyHint).map(t => t.name));
 
@@ -1891,13 +1945,20 @@ export async function run(name, args) {
   // A tool that fails partway leaves nothing behind: the document goes back to
   // how it was before the call (nothing was committed, so undo never sees it).
   const before = READ_ONLY.has(name) ? null : captureState();
+  // Anything the tool puts at the top level goes on Claude's page, not the
+  // one the person happens to be looking at (pages.js).
+  setRootTarget(workPage().id);
   try {
-    return await handler(args || {});
+    const result = await handler(args || {});
+    assignPages();
+    return result;
   } catch (error) {
     if (before) restoreState(before);
     if (error instanceof ToolError) return { ok: false, summary: error.message };
     console.error('claude tool failed', name, error);
     return { ok: false, summary: `${name} failed in the editor: ${error.message || error}` };
+  } finally {
+    setRootTarget(null);
   }
 }
 

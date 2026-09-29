@@ -9,8 +9,15 @@ import { state, getNode, getMasterNode } from './state.js';
 import { showToast } from './utils.js';
 import { routeTarget, scopeOfElement } from './data.js';
 import { isFlex } from './nodes.js';
+import { pageOf } from './pages.js';
+import { routeOf } from './codegen.js';
 
-let overlay, stage, device, screen, titleEl, backBtn, restartBtn, statusBar, homeInd;
+let overlay, stage, device, screen, titleEl, backBtn, restartBtn, statusBar, homeInd, browserBar;
+// The screen playing is on a web page: shown in a browser window, not a phone.
+let web = false;
+// That browser window fills the whole view (the default), or sits as a 16:9
+// window — its minimize/maximize buttons switch between the two.
+let webFull = true;
 let stack = [];       // frame ids to return to (Back pops this)
 let startId = null;   // the frame Play launched on (Restart returns here)
 let currentId = null; // the frame on screen now
@@ -98,26 +105,109 @@ function show(frameId, anim, isBack) {
   if (!frame) return;
   const clone = buildClone(frameId);
   if (!clone) return;
-  const screenH = screenHeight(frame);
-  screen.style.width = frame.w + 'px';
-  screen.style.height = screenH + 'px';
+  web = isWebScreen(frame);
+  if (web) fillBrowserBar(frame);
+  layout(frame);
   screen.scrollTop = 0;
   screen.innerHTML = '';
   const cls = anim === 'none' ? '' : (anim === 'fade' ? 'play-anim-fade' : (isBack ? 'play-anim-back' : 'play-anim-fwd'));
   if (cls) clone.classList.add(cls);
   screen.appendChild(clone);
+  // A web screen sits centred when the browser is wider than it, with its own
+  // background colour filling the sides.
+  if (web) {
+    clone.style.margin = '0 auto';
+    screen.style.background = getComputedStyle(clone).backgroundColor;
+  } else {
+    screen.style.background = '';
+  }
   currentId = frameId;
   titleEl.textContent = frame.name || 'Screen';
   backBtn.disabled = stack.length === 0;
-  fit(frame.w, screenH);
+  document.getElementById('pb-back').disabled = stack.length === 0;
   updateChrome();
+}
+
+// Size and place the phone or browser window for `frame`.
+//  - Phone: the frame's screen in the phone shell, scaled down to fit.
+//  - Web, full view: the browser window fills the whole view, the design scaled
+//    to its width (Play's own bar gives way to the browser's buttons).
+//  - Web, windowed: a 16:9 window (a 1920×1080 monitor's shape) as wide as the
+//    design, scaled down to fit.
+// Either way the design starts below the browser's top.
+function layout(frame) {
+  device.classList.toggle('web', web);
+  const full = web && webFull;
+  overlay.classList.toggle('web-full', full);
+  syncWindowButtons();
+  screen.style.width = frame.w + 'px';
+  if (!web) {
+    device.style.width = device.style.height = '';
+    const screenH = screenHeight(frame);
+    screen.style.height = screenH + 'px';
+    fit(frame.w, screenH);
+    return;
+  }
+  let shellW = frame.w, shellH;
+  if (full) {
+    // Never zoomed up: a 1440 design on a 1920 screen shows at its real size,
+    // centred on its background (as a fixed-width site sits on a wide monitor).
+    // Only a design wider than the view is scaled down to fit.
+    const k = Math.min(1, overlay.clientWidth / frame.w);
+    shellW = overlay.clientWidth / k;
+    shellH = overlay.clientHeight / k;
+    device.style.transform = `scale(${k})`;
+    deviceScale = k;
+  } else {
+    shellH = Math.round(frame.w * 9 / 16);
+  }
+  device.style.width = shellW + 'px';
+  device.style.height = shellH + 'px';
+  screen.style.width = shellW + 'px';
+  screen.style.height = Math.max(0, shellH - browserBar.offsetHeight) + 'px';
+  if (!full) fit(frame.w, shellH, 0);
+}
+
+// Full view ⇄ window (the browser's minimize and maximize buttons).
+function toggleWebFull() {
+  const frame = getNode(currentId);
+  if (!web || !frame) return;
+  webFull = !webFull;
+  layout(frame);
+}
+
+// The maximize button shows "restore" (two squares) while the window fills the view.
+function syncWindowButtons() {
+  const max = document.getElementById('pb-max');
+  if (!max) return;
+  max.innerHTML = webFull
+    ? '<svg viewBox="0 0 10 10"><rect x="1.5" y="3" width="5.5" height="5.5"/><path d="M3 3V1.5h5.5V7H7"/></svg>'
+    : '<svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg>';
+  max.setAttribute('aria-label', webFull ? 'Restore down' : 'Maximize');
+  max.title = webFull ? 'Restore down' : 'Maximize';
+}
+
+// Whether a screen is on a web page (pages.js).
+function isWebScreen(frame) {
+  const page = state.pages.find(p => p.id === pageOf(frame));
+  return !!page && page.kind === 'web';
+}
+
+// The browser top for a web screen: its name on the tab, and an address made
+// from the project's name and the screen's route.
+function fillBrowserBar(frame) {
+  const name = state.projectName || 'App';
+  const host = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'app';
+  document.getElementById('pb-tab-title').textContent = frame.name || 'Screen';
+  document.getElementById('pb-favicon').textContent = name.trim().charAt(0).toUpperCase() || 'A';
+  document.getElementById('pb-url').textContent = `${host}.app${routeOf(frame)}`;
 }
 
 // ── Status bar + home indicator colour ──
 // Like iOS, each is black over light content and white over dark, going by what
 // is actually under it — so it follows scrolling and each screen's colours.
 function updateChrome() {
-  if (!statusBar || overlay.hidden) return;
+  if (!statusBar || overlay.hidden || web) return; // a browser window has no status bar
   const sr = screen.getBoundingClientRect();
   if (!sr.width) return;
   const k = deviceScale;
@@ -146,11 +236,14 @@ const updateChromeSoon = () => { if (chromeRaf == null) chromeRaf = requestAnima
 // The device screen's height: the frame's screen height, never taller than the frame.
 const screenHeight = (f) => Math.min(f.screenH != null ? f.screenH : f.h, f.h);
 
-// Scale the phone shell down (never up) so it fits the stage.
-function fit(w, h) {
+// Bezel padding (12px each edge) + the titanium rail/buttons that overhang it.
+const PHONE_PAD = 44;
+
+// Scale the phone (or browser window) down, never up, so it fits the stage.
+// `pad`: what the shell adds around w×h.
+function fit(w, h, pad = PHONE_PAD) {
   const availW = stage.clientWidth - 48;
   const availH = stage.clientHeight - 48;
-  const pad = 44; // bezel padding (12px each edge) + the titanium rail/buttons that overhang it
   const scale = Math.min(1, availW / (w + pad), availH / (h + pad));
   device.style.transform = `scale(${scale})`;
   deviceScale = scale;
@@ -183,7 +276,8 @@ function onDragStart(e) {
   // A press near either side edge can become the back gesture (for touch too —
   // the one gesture touch doesn't already have).
   const r = screen.getBoundingClientRect();
-  const edge = (e.clientX - r.left) / deviceScale <= EDGE ? 'left'
+  // The edge swipe is a phone gesture; a browser has its back button.
+  const edge = web ? null : (e.clientX - r.left) / deviceScale <= EDGE ? 'left'
     : (r.right - e.clientX) / deviceScale <= EDGE ? 'right' : null;
   if (e.pointerType === 'touch' && !edge) return; // touch already scrolls natively
   drag = { x: e.clientX, y: e.clientY, target: e.target, moved: false, edge };
@@ -355,6 +449,8 @@ function open(frameId) {
 
 function close() {
   overlay.hidden = true;
+  overlay.classList.remove('web-full');
+  webFull = true; // next time a web screen opens full view again
   document.body.classList.remove('playing');
   screen.innerHTML = '';
 }
@@ -365,7 +461,9 @@ function launch() {
   if (!frames.length) { showToast('Add a frame to preview'); return; }
   let target = null;
   if (state.selected.size === 1) target = pageFrameOf(getNode([...state.selected][0]));
-  if (!target) target = frames.find(f => f.isInitial) || frames[0];
+  // Nothing selected: the open page's initial (or first) screen, then any page's.
+  const here = frames.filter(f => pageOf(f) === state.activePageId);
+  if (!target) target = here.find(f => f.isInitial) || here[0] || frames.find(f => f.isInitial) || frames[0];
   open(target.id);
 }
 
@@ -393,6 +491,12 @@ export function initPlay() {
   restartBtn = document.getElementById('play-restart');
   statusBar = document.getElementById('play-statusbar');
   homeInd = document.getElementById('play-home-ind');
+  browserBar = document.getElementById('play-browser');
+  document.getElementById('pb-back')?.addEventListener('click', goBack);
+  document.getElementById('pb-reload')?.addEventListener('click', () => { if (currentId) show(currentId, 'fade'); });
+  document.getElementById('pb-min')?.addEventListener('click', toggleWebFull);
+  document.getElementById('pb-max')?.addEventListener('click', toggleWebFull);
+  document.getElementById('pb-close')?.addEventListener('click', close);
   screen?.addEventListener('scroll', updateChromeSoon, true); // the screen or any list in it
 
   document.getElementById('tool-play')?.addEventListener('click', launch);
@@ -409,7 +513,7 @@ export function initPlay() {
   window.addEventListener('resize', () => {
     if (overlay.hidden) return;
     const f = getNode(currentId);
-    if (f) fit(f.w, screenHeight(f));
+    if (f) layout(f);
   });
 
   // While playing, keys belong to Play — none reach the editor's shortcuts, which

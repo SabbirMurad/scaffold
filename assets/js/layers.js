@@ -1,4 +1,5 @@
 import { state, getNode, isMaster } from './state.js';
+import { pageRoots } from './pages.js';
 import { componentName, instancesOf, goToNode, placeInstance } from './operations.js';
 import { layersList, showToast } from './utils.js';
 import { isDescendant, reparentNode, canAcceptChild, isStack } from './nodes.js';
@@ -51,7 +52,7 @@ export function renderLayers() {
     }
   }
 
-  const roots = [...state.nodes].filter(n => !n.parentId).reverse();
+  const roots = pageRoots().reverse(); // the open page only (pages.js)
   roots.forEach(n => walk(n.id, 0));
   initLayerDnd();
   renderComponents();

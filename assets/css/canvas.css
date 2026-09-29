@@ -109,11 +109,13 @@ body.connect-mode #profile-card,
 body.connect-mode #action-bar,
 body.connect-mode #claude-panel,
 body.connect-mode #design-view,
+body.connect-mode #pages-card,
 body.comment-mode #props-panel,
 body.comment-mode #profile-card,
 body.comment-mode #action-bar,
 body.comment-mode #claude-panel,
-body.comment-mode #design-view { display: none; }
+body.comment-mode #design-view,
+body.comment-mode #pages-card { display: none; }
 
 /* Comment mode — pins are pinned to world coords but counter-scaled (via --zoom
    on #canvas) so they keep a constant on-screen size. */
@@ -298,6 +300,68 @@ body.comment-mode #design-view { display: none; }
   pointer-events: none; transition: background 0.15s;
 }
 .play-home-ind.on-dark { background: #fff; }
+/* ── Web screens play in a browser window (play.js: .play-device.web) ─────
+   A 16:9 window as wide as the design; the phone's bezel, island, buttons,
+   status bar and home indicator give way to a browser's tab strip and toolbar. */
+.play-browser { display: none; }
+.play-device.web {
+  display: flex; flex-direction: column; padding: 0; border-radius: 10px; overflow: hidden;
+  background: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 26px 80px rgba(0,0,0,0.7);
+}
+.play-device.web::before,
+.play-device.web .play-side-btn,
+.play-device.web .play-statusbar,
+.play-device.web .play-home-ind { display: none; }
+.play-device.web .play-screen { border-radius: 0; flex: none; }
+.play-device.web .play-browser {
+  display: block; flex-shrink: 0; background: #dfe3e8; color: #1f1f1f;
+  font: 13px/1 system-ui, "Segoe UI", -apple-system, sans-serif;
+}
+.pb-tabs { display: flex; align-items: stretch; height: 32px; padding: 0 0 0 10px; }
+/* The tab runs from the strip's top edge to the toolbar — no grey band above it. */
+.pb-tab {
+  display: flex; align-items: center; gap: 9px; width: 240px; padding: 0 10px 0 12px;
+  background: #fff; border-radius: 10px 10px 0 0;
+}
+.pb-favicon {
+  flex-shrink: 0; width: 16px; height: 16px; border-radius: 4px; background: var(--accent);
+  color: #fff; font: 700 10px/16px system-ui, sans-serif; text-align: center;
+}
+.pb-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-tab-close { color: #5f6368; font-size: 16px; }
+.pb-newtab { align-self: center; margin-left: 12px; color: #5f6368; font-size: 20px; line-height: 1; }
+.pb-window { display: flex; margin-left: auto; align-self: stretch; }
+.pb-window button {
+  width: 46px; height: 100%; padding: 0; border: none; background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: background 0.1s;
+}
+.pb-window svg { width: 10px; height: 10px; fill: none; stroke: #3c4043; stroke-width: 1; }
+.pb-window button:hover { background: rgba(0,0,0,0.08); }
+.pb-window .pb-close:hover { background: #c42b1c; }
+.pb-window .pb-close:hover svg { stroke: #fff; }
+.pb-window button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Full view: the browser fills the whole Play view (play.js scales it to the
+   width); Play's own bar gives way to the browser's buttons. */
+#play-overlay.web-full .play-bar { display: none; }
+#play-overlay.web-full .play-device.web {
+  position: fixed; left: 0; top: 0; transform-origin: 0 0; border-radius: 0; box-shadow: none;
+}
+.pb-toolbar { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 10px; background: #fff; border-bottom: 1px solid #dadce0; }
+.pb-btn {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: none; padding: 0; cursor: pointer;
+}
+.pb-btn svg, .pb-address svg { width: 16px; height: 16px; fill: none; stroke: #474747; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pb-btn:hover:not(:disabled) { background: #eceef1; }
+.pb-btn:disabled { cursor: default; }
+.pb-btn:disabled svg { stroke: #b8bbbf; }
+.pb-address {
+  flex: 1; display: flex; align-items: center; gap: 8px; height: 32px; margin: 0 8px; padding: 0 14px;
+  border-radius: 16px; background: #eef1f4; color: #1f1f1f; min-width: 0;
+}
+.pb-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-menu { color: #474747; font-size: 18px; width: 24px; text-align: center; }
+
 /* Any tappable layer (has a navigate action) shows a pointer in Play. */
 .play-screen .node.has-action { cursor: pointer; }
 /* Drag to scroll: no text selection while dragging, and a grabbing hand once it's a drag. */

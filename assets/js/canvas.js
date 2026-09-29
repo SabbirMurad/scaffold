@@ -1,4 +1,5 @@
 import { state, getNode, makeNode } from './state.js';
+import { pageRoots } from './pages.js';
 import { canvasWrap, selBox, closeMenus, ctxMenu, showToast } from './utils.js';
 import { canvasToWorld, getWorldPos, findFrameAt, reparentNode, clearDropTargets, highlightDropTarget, isDescendant, isSingleChild, isStack,
   isFlex, flexKind, canAcceptChild, isScreenFrame } from './nodes.js';
@@ -926,7 +927,7 @@ function onWrapMouseUp(e) {
       // from inside a screen, that screen's own children. Compared on screen, so
       // it's right for laid-out children too.
       const box = { L: rect.left + sx, T: rect.top + sy, R: rect.left + sx + sw, B: rect.top + sy + sh };
-      const pool = inside ? (inside.children || []).map(getNode).filter(Boolean) : state.nodes.filter(n => !n.parentId);
+      const pool = inside ? (inside.children || []).map(getNode).filter(Boolean) : pageRoots();
       if (inside) state.selected.clear();
       pool.forEach(n => {
         if (n.locked || !n.visible) return; // locked/hidden layers aren't marquee-selectable
@@ -1298,7 +1299,7 @@ export function initCanvasEvents() {
     if (action === 'front') bringToFront();
     if (action === 'back') sendToBack();
     if (action === 'delete') deleteSelected();
-    if (action === 'select-all') { state.selected = new Set(state.nodes.filter(n => !n.parentId).map(n => n.id)); render(); }
+    if (action === 'select-all') { state.selected = new Set(pageRoots().map(n => n.id)); render(); }
     if (action === 'fit') fitView();
   });
 

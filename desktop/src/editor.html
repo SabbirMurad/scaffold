@@ -117,6 +117,14 @@
         </button>
       </div>
     </div>
+    <!-- PAGES — separate canvases (phone / web) above Layers (pages.js) -->
+    <div id="pages-card">
+      <div class="panel-header">
+        <span class="panel-title">Pages</span>
+        <button type="button" class="icon-btn" id="page-add" title="Add page" aria-label="Add page">+</button>
+      </div>
+      <div id="pages-list" role="listbox" aria-label="Pages"></div>
+    </div>
     <div id="design-view">
       <div class="panel-header">
         <span class="panel-title">Layers</span>
@@ -332,22 +340,8 @@
 <!-- Filled per right-click with the actions that apply there (canvas.js) -->
 <div id="ctx-menu"></div>
 
-<!-- Frame Preset Menu -->
-<div id="frame-menu">
-  <div class="frame-menu-cat">Phone</div>
-  <div class="frame-menu-item" data-w="402" data-h="874"><span>iPhone 17</span><span class="frame-dim">402&#215;874</span></div>
-  <div class="frame-menu-item" data-w="402" data-h="874"><span>iPhone 16 &amp; 17 Pro</span><span class="frame-dim">402&#215;874</span></div>
-  <div class="frame-menu-item" data-w="393" data-h="852"><span>iPhone 16</span><span class="frame-dim">393&#215;852</span></div>
-  <div class="frame-menu-item" data-w="440" data-h="956"><span>iPhone 16 &amp; 17 Pro Max</span><span class="frame-dim">440&#215;956</span></div>
-  <div class="frame-menu-item" data-w="430" data-h="932"><span>iPhone 16 Plus</span><span class="frame-dim">430&#215;932</span></div>
-  <div class="frame-menu-item" data-w="420" data-h="912"><span>iPhone Air</span><span class="frame-dim">420&#215;912</span></div>
-  <div class="frame-menu-item" data-w="430" data-h="932"><span>iPhone 14 &amp; 15 Pro Max</span><span class="frame-dim">430&#215;932</span></div>
-  <div class="frame-menu-item" data-w="393" data-h="852"><span>iPhone 14 &amp; 15 Pro</span><span class="frame-dim">393&#215;852</span></div>
-  <div class="frame-menu-item" data-w="390" data-h="844"><span>iPhone 13 &amp; 14</span><span class="frame-dim">390&#215;844</span></div>
-  <div class="frame-menu-item" data-w="428" data-h="926"><span>iPhone 14 Plus</span><span class="frame-dim">428&#215;926</span></div>
-  <div class="frame-menu-item" data-w="412" data-h="917"><span>Android Compact</span><span class="frame-dim">412&#215;917</span></div>
-  <div class="frame-menu-item" data-w="700" data-h="840"><span>Android Medium</span><span class="frame-dim">700&#215;840</span></div>
-</div>
+<!-- Frame Preset Menu — filled for the open page's type (phone or web) by app.js -->
+<div id="frame-menu"></div>
 
 <input type="file" id="image-input" accept="image/*" style="display:none">
 
@@ -367,6 +361,33 @@
       <span class="play-side-btn vol-up"></span>
       <span class="play-side-btn vol-down"></span>
       <span class="play-side-btn power"></span>
+      <!-- Browser window top, for a screen on a web page (play.js adds .web to the device) -->
+      <div class="play-browser" id="play-browser">
+        <div class="pb-tabs">
+          <div class="pb-tab">
+            <span class="pb-favicon" id="pb-favicon" aria-hidden="true"></span>
+            <span class="pb-tab-title" id="pb-tab-title">Screen</span>
+            <span class="pb-tab-close" aria-hidden="true">&#215;</span>
+          </div>
+          <span class="pb-newtab" aria-hidden="true">+</span>
+          <!-- Minimize / maximize switch between the full view and a 16:9 window; close leaves Play -->
+          <span class="pb-window">
+            <button type="button" id="pb-min" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 10 10"><path d="M1 5h8"/></svg></button>
+            <button type="button" id="pb-max" title="Restore down" aria-label="Restore down"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
+            <button type="button" id="pb-close" class="pb-close" title="Close" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
+          </span>
+        </div>
+        <div class="pb-toolbar">
+          <button type="button" class="pb-btn" id="pb-back" aria-label="Back"><svg viewBox="0 0 16 16"><path d="M13 8H3.5M7.5 3.5L3 8l4.5 4.5"/></svg></button>
+          <button type="button" class="pb-btn" disabled aria-label="Forward"><svg viewBox="0 0 16 16"><path d="M3 8h9.5M8.5 3.5L13 8l-4.5 4.5"/></svg></button>
+          <button type="button" class="pb-btn" id="pb-reload" aria-label="Reload"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v3.3H9.7"/></svg></button>
+          <div class="pb-address">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>
+            <span class="pb-url" id="pb-url"></span>
+          </div>
+          <span class="pb-menu" aria-hidden="true">&#8942;</span>
+        </div>
+      </div>
       <div class="play-screen" id="play-screen"></div>
       <!-- Phone chrome over the screen: the status bar and the home indicator. -->
       <div class="play-statusbar" id="play-statusbar" aria-hidden="true">

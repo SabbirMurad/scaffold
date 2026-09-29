@@ -10,7 +10,7 @@
 
 import { state } from './state.js';
 import { showToast } from './utils.js';
-import { initClaudeTools } from './claude-tools.js';
+import { initClaudeTools, resetWorkPage } from './claude-tools.js';
 import { renderMarkdown } from './markdown.js';
 
 const SETUP_URL = 'https://code.claude.com/docs/en/setup';
@@ -286,6 +286,7 @@ async function send() {
   activity.clear();
   saidThisTurn = false;
   lastText = text;
+  resetWorkPage(); // Claude starts on the page being viewed now
   setBusy(true);
   startStatus('Thinking…');
   await ask(text);

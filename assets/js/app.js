@@ -36,8 +36,19 @@ import { fitView } from './render.js';
 const PUBLIC_TOKEN = window.SCAFFOLD_PUBLIC || null;
 import { confirmModal } from './confirm.js';
 import { restoreViewport, saveViewport } from './viewport.js';
+import { initPages, seedPages, pageKind } from './pages.js';
+import { deleteSelected } from './operations.js';
 
 // Initialize event systems
+// Pages panel (pages.js): switching keeps each page's own pan/zoom.
+initPages({
+  render,
+  saveHistory,
+  toast: showToast,
+  deleteNodes: (ids) => { state.selected = new Set(ids); deleteSelected(); },
+  beforeSwitch: (oldId) => saveViewport(oldId),
+  afterSwitch: () => { if (restoreViewport()) applyTransform(); else fitView(); },
+});
 initCanvasEvents();
 initToolEvents();
 initFileDrop();
@@ -81,7 +92,7 @@ document.addEventListener('collab:applied', () => {
 
 // Flush the canvas viewport (pan/zoom) on unload so a change within the debounce
 // window right before a reload isn't lost.
-window.addEventListener('beforeunload', saveViewport);
+window.addEventListener('beforeunload', () => saveViewport());
 
 // Fill the editor's profile chip with the signed-in user's real name/email.
 if (!PUBLIC_TOKEN) getMe().then(res => {
@@ -471,6 +482,7 @@ document.getElementById('sidebar-open')?.addEventListener('click', () => documen
 // Left-panel mode tabs (Design / Model / API)
 const modeTabs = document.querySelectorAll('.mode-tab');
 const designView = document.getElementById('design-view');
+const pagesCard = document.getElementById('pages-card');
 const modelBoard = document.getElementById('model-board');
 const mockBoard = document.getElementById('mock-board');
 const apiBoard = document.getElementById('api-board');
@@ -488,6 +500,7 @@ function applyMode(mode) {
   // Design-only chrome (toolbar, zoom, props panel, rulers) is hidden via this class
   document.body.classList.toggle('design-mode', isDesign);
   designView.style.display = isDesign ? '' : 'none';
+  if (pagesCard) pagesCard.style.display = isDesign ? '' : 'none';
   modelBoard.style.display = mode === 'model' ? 'flex' : 'none';
   mockBoard.style.display = mode === 'mock' ? 'flex' : 'none';
   apiBoard.style.display = mode === 'api' ? 'flex' : 'none';
@@ -519,13 +532,35 @@ modeTabs.forEach(tab => {
 function routeMode() { applyMode(PUBLIC_TOKEN ? 'design' : decodeURIComponent(location.hash.slice(1)) || 'design'); }
 window.addEventListener('hashchange', routeMode);
 
-// Frame preset menu — opens above the frame tool button (toolbar is bottom-anchored)
+// Frame preset menu — opens above the frame tool button (toolbar is bottom-anchored).
+// Its sizes follow the open page's type: phone screens, or web (pages.js).
+const FRAME_PRESETS = {
+  phone: [
+    ['iPhone 17', 402, 874], ['iPhone 16 & 17 Pro', 402, 874], ['iPhone 16', 393, 852],
+    ['iPhone 16 & 17 Pro Max', 440, 956], ['iPhone 16 Plus', 430, 932], ['iPhone Air', 420, 912],
+    ['iPhone 14 & 15 Pro Max', 430, 932], ['iPhone 14 & 15 Pro', 393, 852], ['iPhone 13 & 14', 390, 844],
+    ['iPhone 14 Plus', 428, 926], ['Android Compact', 412, 917], ['Android Medium', 700, 840],
+  ],
+  web: [
+    ['Desktop HD', 1920, 1080], ['Desktop', 1440, 1024], ['MacBook Air', 1280, 832],
+    ['MacBook Pro 14"', 1512, 982], ['MacBook Pro 16"', 1728, 1117], ['Laptop', 1366, 768],
+    ['Tablet', 768, 1024], ['Tablet landscape', 1024, 768],
+  ],
+};
+function fillFrameMenu() {
+  const kind = pageKind();
+  frameMenu.innerHTML = `<div class="frame-menu-cat">${kind === 'web' ? 'Web' : 'Phone'}</div>`
+    + FRAME_PRESETS[kind].map(([name, w, h]) =>
+      `<div class="frame-menu-item" data-w="${w}" data-h="${h}"><span>${esc(name)}</span><span class="frame-dim">${w}&#215;${h}</span></div>`).join('');
+}
+
 const frameBtn = document.getElementById('tool-frame');
 frameBtn.addEventListener('click', e => {
   e.stopPropagation();
   const open = frameMenu.style.display === 'block';
   closeMenus();
   if (open) return;
+  fillFrameMenu();
   frameMenu.style.display = 'block';
   const r = frameBtn.getBoundingClientRect();
   let left = r.left + r.width / 2 - frameMenu.offsetWidth / 2;
@@ -661,6 +696,7 @@ async function boot() {
   }
 
   seedDefaults(); // fills any gaps (themes, white/black, default type style) after a load
+  seedPages();    // the Phone + Web pages for a project from before pages, and which is open
   saveHistory();
   restoreViewport(); // reopen at this project's last pan/zoom (localStorage, per project)
   applyTransform();
@@ -695,6 +731,7 @@ async function bootPublic(token) {
   state.projectName = (res.data.project && res.data.project.name) || 'Untitled';
   document.title = `${state.projectName} \u2014 Scaffold`;
   seedDefaults();
+  seedPages();
   saveHistory();
   render();
   renderThemeSwitch();

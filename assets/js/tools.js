@@ -1,4 +1,5 @@
 import { state, getNode, makeNode } from './state.js';
+import { pageRoots } from './pages.js';
 import { isFlex, flexKind } from './nodes.js';
 import { canvasWrap, showToast } from './utils.js';
 import { render, updateNodeEl, zoomAt, fitView } from './render.js';
@@ -175,7 +176,7 @@ function arrowKey(e) {
 function selectAllAtLevel() {
   const first = getNode([...state.selected][0]);
   const parentId = first ? first.parentId : null;
-  const pool = parentId ? (getNode(parentId).children || []).map(getNode) : state.nodes.filter(n => !n.parentId);
+  const pool = parentId ? (getNode(parentId).children || []).map(getNode) : pageRoots();
   state.selected = new Set(pool.filter(n => n && n.visible !== false && !n.locked).map(n => n.id));
   render();
 }

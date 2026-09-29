@@ -9,6 +9,7 @@ import { attachNodeEvents, beginNodeDrag } from './canvas.js';
 import { ensureFontLoaded } from './google-fonts.js';
 import { resolvedSrc } from './images.js';
 import { saveViewportSoon } from './viewport.js';
+import { assignPages, pageRoots, renderPages } from './pages.js';
 import { rootScope, repeatScopes, scopeFor, viewOf, boundColor, evalCond, registerScope, resetScopes } from './data.js';
 
 export function applyTransform() {
@@ -21,15 +22,18 @@ export function applyTransform() {
 
 export function render() {
   canvas.querySelectorAll('.node, .frame-label').forEach(e => e.remove());
-  // Sections are big region backdrops that group frames, so paint them first
-  // (behind) — any root frame not inside a section still sits on top of them.
-  const roots = state.nodes.filter(n => !n.parentId)
+  // Only the open page is drawn (pages.js). Sections are big region backdrops
+  // that group frames, so paint them first (behind) — any root frame not inside
+  // a section still sits on top of them.
+  assignPages();
+  const roots = pageRoots()
     .sort((a, b) => (a.type === 'section' ? 0 : 1) - (b.type === 'section' ? 0 : 1));
   resetScopes();
   const scope = rootScope();
   roots.forEach(n => renderNode(n, canvas, scope));
   syncMeasuredSizes(); // fold fill/hug rendered sizes back into the model
   renderLayers();
+  renderPages();
   renderProps();
   document.dispatchEvent(new Event('flow:render')); // let Connect mode redraw its arrows
 }
@@ -682,11 +686,13 @@ export function zoomAt(f) {
 }
 
 export function fitView() {
-  if (!state.nodes.length) return;
-  const minX = Math.min(...state.nodes.map(n => n.x));
-  const minY = Math.min(...state.nodes.map(n => n.y));
-  const maxX = Math.max(...state.nodes.map(n => n.x + n.w));
-  const maxY = Math.max(...state.nodes.map(n => n.y + n.h));
+  // The open page's top-level items (their x/y are canvas coordinates).
+  const roots = pageRoots();
+  if (!roots.length) return;
+  const minX = Math.min(...roots.map(n => n.x));
+  const minY = Math.min(...roots.map(n => n.y));
+  const maxX = Math.max(...roots.map(n => n.x + n.w));
+  const maxY = Math.max(...roots.map(n => n.y + n.h));
   const pad = 60;
   const cw = canvasWrap.offsetWidth, ch = canvasWrap.offsetHeight;
   const z = Math.min((cw - pad * 2) / (maxX - minX), (ch - pad * 2) / (maxY - minY), 4);

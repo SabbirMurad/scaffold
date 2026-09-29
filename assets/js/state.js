@@ -24,6 +24,11 @@ export const state = {
   themes: [],
   nextThemeId: 1,
   activeThemeId: null, // which theme the Color tab is currently editing/previewing
+  // Pages (pages.js): separate canvases, each phone or web. Top-level nodes
+  // carry their page's id; which page is open is local to this person.
+  pages: [],
+  nextPageId: 1,
+  activePageId: null,
   colors: [],
   nextColorId: 1,
   selectedColorId: null,
