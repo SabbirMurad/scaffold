@@ -173,6 +173,8 @@ function onDown(e) {
   }
   e.stopPropagation();
   deselectConn();
+  // Empty canvas or a screen: nothing selected, so the panel shows its hint.
+  if (state.selected.size) { state.selected.clear(); render(); }
 }
 
 function onMove(e) {
@@ -223,6 +225,8 @@ function selectConn(id) {
   const n = getNode(id);
   if (!n || !n.action || n.action.type !== 'navigate') { deselectConn(); return; }
   selectedSrc = id;
+  // The link's layer is the one the Interactions panel shows.
+  if (!(state.selected.size === 1 && state.selected.has(id))) { state.selected = new Set([id]); render(); }
   const tgt = getNode(linkTarget(n));
   popTarget.textContent = '→ ' + (tgt ? tgt.name : 'screen') + (n.action.targetFrameId ? '' : ' (conditional)');
   popMode.innerHTML = ddTrigger({ value: n.action.mode || 'push', options: NAV_MODES, data: { fp: 'mode' }, triggerClass: 'dd-block' });

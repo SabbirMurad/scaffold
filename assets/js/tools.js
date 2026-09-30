@@ -19,17 +19,27 @@ let spacePanPrev = null;
 // creation tools (frame/section/container/text/image/icon) are off-limits.
 const VIEWER_TOOLS = ['select', 'hand', 'connect', 'comment'];
 
-export function setTool(tool) {
+// `transient`: the hand held on Space. It pans and shows the grab cursor, but the
+// tool underneath keeps its look — Prototype / Comment keep the panels hidden,
+// their arrows or pins, the selected link or the open thread — so nothing
+// flashes back and forth while the Space bar is held.
+export function setTool(tool, { transient = false } = {}) {
   if (state.readonly && !VIEWER_TOOLS.includes(tool)) return;
   const prev = state.tool;
   state.tool = tool;
+  document.body.classList.toggle('hand-mode', tool === 'hand');
+  canvasWrap.style.cursor = tool === 'hand' ? 'grab' : (tool === 'select' ? 'default' : 'crosshair');
+  if (transient) {
+    // Back from the hand: redraw the tool's own overlays (arrows, pins) in case
+    // the canvas re-rendered while panning.
+    if (tool !== 'hand') document.dispatchEvent(new Event('flow:render'));
+    return;
+  }
   document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
     b.classList.toggle('active', b.dataset.tool === tool)
   );
   document.body.classList.toggle('connect-mode', tool === 'connect');
   document.body.classList.toggle('comment-mode', tool === 'comment');
-  document.body.classList.toggle('hand-mode', tool === 'hand');
-  canvasWrap.style.cursor = tool === 'hand' ? 'grab' : (tool === 'select' ? 'default' : 'crosshair');
   document.dispatchEvent(new CustomEvent('tool:change', { detail: tool }));
   // Connect/Comment modes change how (or whether) the selection renders, so
   // re-render whenever we enter or leave one of them.
@@ -68,7 +78,7 @@ export function initToolEvents() {
       e.preventDefault();
       if (spacePanPrev === null && state.tool !== 'hand') {
         spacePanPrev = state.tool;
-        setTool('hand');
+        setTool('hand', { transient: true });
       }
       return;
     }
@@ -112,7 +122,7 @@ export function initToolEvents() {
   // Release space → restore the tool that was active before space-panning
   document.addEventListener('keyup', e => {
     if (e.code === 'Space' && spacePanPrev !== null) {
-      setTool(spacePanPrev);
+      setTool(spacePanPrev, { transient: true });
       spacePanPrev = null;
     }
   });
@@ -120,7 +130,7 @@ export function initToolEvents() {
   // Safety: if focus is lost while space is held, restore the tool
   window.addEventListener('blur', () => {
     if (spacePanPrev !== null) {
-      setTool(spacePanPrev);
+      setTool(spacePanPrev, { transient: true });
       spacePanPrev = null;
     }
   });

@@ -189,6 +189,23 @@ body.landing { display: block; }
 .lp-dl h3 { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 7px; }
 .lp-dl p { font-size: 13.5px; line-height: 1.55; color: var(--text2); margin-bottom: 20px; flex: 1; }
 .lp-dl-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+/* A copyable install command under a platform's download buttons (winget). */
+.lp-dl-cmd { margin-top: 16px; }
+.lp-dl-cmd-label { display: block; font-size: 12px; color: var(--text3, var(--text2)); margin-bottom: 6px; }
+.lp-dl-cmd-box {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 6px 6px 6px 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,0.1));
+  background: rgba(0, 0, 0, 0.22);
+}
+.lp-dl-cmd-box code {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 12.5px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); color: var(--text);
+}
+.lp-dl-copy {
+  flex-shrink: 0; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--border, rgba(255,255,255,0.12));
+  background: transparent; color: var(--text2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.lp-dl-copy:hover { color: var(--text); border-color: var(--accent, currentColor); }
 
 /* ---------- Footer ---------- */
 .lp-footer {

@@ -189,8 +189,18 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 5.5l7.5-1v7H3zM13 4.2L21 3v8.5h-8zM3 13h7.5v7L3 19zM13 13h8v8l-8-1.2z"/></svg>
       </div>
       <h3>Windows</h3>
-      <p>Windows 10 and 11, 64-bit.</p>
-      <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold-Setup-x64.exe" download>Download .exe</a>
+      <p>Windows 10 and 11, 64-bit. The .msi suits managed and IT installs.</p>
+      <div class="lp-dl-actions">
+        <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold-Setup-x64.exe" download>Download .exe</a>
+        <a class="lp-btn lp-btn-ghost" href="/downloads/Scaffold-Setup-x64.msi" download>.msi</a>
+      </div>
+      <div class="lp-dl-cmd">
+        <span class="lp-dl-cmd-label">Or with winget</span>
+        <div class="lp-dl-cmd-box">
+          <code>winget install SabbirHassan.Scaffold</code>
+          <button type="button" class="lp-dl-copy" data-copy="winget install SabbirHassan.Scaffold" aria-label="Copy the winget command">Copy</button>
+        </div>
+      </div>
     </article>
     <article class="lp-dl" data-os="mac">
       <div class="lp-feature-ic">
@@ -225,6 +235,16 @@
 </footer>
 
 <script>
+  // Copy an install command.
+  document.querySelectorAll('.lp-dl-copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(btn.dataset.copy).then(function () {
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+
   // Highlight the download that matches the visitor's OS.
   (function () {
     var ua = navigator.userAgent;

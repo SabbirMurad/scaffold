@@ -395,6 +395,7 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
   el.className = 'node ' + (node.type === 'text' ? 'text-node' : node.type);
   // A node with a tap interaction gets a small corner badge (see .node.has-action).
   if (node.action && node.action.type && node.action.type !== 'none') el.classList.add('has-action');
+  if (node.action && node.action.type === 'back') el.classList.add('has-back'); // no arrow to show it: a badge does
   if (isMaster(node)) el.classList.add('is-component');       // reusable component master
   if (node.type === 'instance') el.classList.add('is-instance');
   el.id = 'node-' + node.id;

@@ -102,9 +102,15 @@ body.comment-mode .frame-label { pointer-events: none; }
 .flow-temp { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .flow-dot { fill: var(--accent); pointer-events: auto; cursor: pointer; }
 body.connect-mode .node:not(.frame) { cursor: crosshair; }
+/* A layer that goes back on tap: its badge shows a back arrow (it has no link arrow). */
+body.connect-mode .node.has-back::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='5' fill='%231ECC7A'/%3E%3Cpath d='M9.5 4.5 6 8l3.5 3.5' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.interaction-layer { font-size: 13px; font-weight: 600; color: var(--text); }
+.interaction-remove { color: var(--red, #f55b5b); }
 body.connect-mode .node.flow-target { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* Prototype and Comment modes are focused views — hide the Properties + Layers panels. */
-body.connect-mode #props-panel,
+/* Prototype and Comment modes are focused views — hide the Layers panel and the
+   rest; in Prototype mode the right panel stays, as the Interactions panel. */
 body.connect-mode #profile-card,
 body.connect-mode #action-bar,
 body.connect-mode #claude-panel,

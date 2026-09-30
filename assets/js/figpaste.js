@@ -368,6 +368,16 @@ function openRuns(net) {
   return runs;
 }
 
+// size ÷ normalizedSize: from the network's coordinates to the vector's own box.
+function normalizedScale(fig) {
+  const ns = fig.vectorData && fig.vectorData.normalizedSize;
+  const size = fig.size;
+  if (!ns || !size || !(ns.x > 0) || !(ns.y > 0)) return M_ID;
+  const sx = (size.x || 0) / ns.x, sy = (size.y || 0) / ns.y;
+  if (!(sx > 0) || !(sy > 0) || (Math.abs(sx - 1) < 1e-6 && Math.abs(sy - 1) < 1e-6)) return M_ID;
+  return { m00: sx, m01: 0, m02: 0, m10: 0, m11: sy, m12: 0 };
+}
+
 // Walk a vector-ish node (and, for boolean ops, its child vectors) collecting
 // drawable paths in the root's local space. Each entry: {d, fill, strokeW}.
 function collectVectorPaths(ctx, fig, M, out, depth = 0) {
@@ -377,14 +387,18 @@ function collectVectorPaths(ctx, fig, M, out, depth = 0) {
   const bytes = blob && (blob.bytes || blob);
   if (bytes && bytes.length) {
     const net = parseVectorNetwork(bytes);
+    // The network is drawn at the vector's original size (vectorData.normalizedSize);
+    // a vector resized since — e.g. inside a scaled icon or instance — keeps that
+    // geometry and only its `size` changes. Scale it to the size it has now.
+    const NM = mMul(M, normalizedScale(fig)); // (children are placed in M, not NM)
     const hasFill = !!topPaint(fig.fillPaints);
     const strokeW = topPaint(fig.strokePaints) ? d2(numVal(fig.strokeWeight, 1)) || 1 : 0;
     if (net.regions.length) {
       const evenodd = net.regions.some(r => r.winding === 1);
-      const d = net.regions.map(r => r.loops.map(loop => segRunToPath(net, loop, M, true)).join('')).join('');
+      const d = net.regions.map(r => r.loops.map(loop => segRunToPath(net, loop, NM, true)).join('')).join('');
       if (d) out.push({ d, fill: hasFill || !strokeW, evenodd, strokeW });
     } else {
-      const d = openRuns(net).map(run => segRunToPath(net, run, M, false)).join('');
+      const d = openRuns(net).map(run => segRunToPath(net, run, NM, false)).join('');
       if (d) out.push({ d, fill: false, evenodd: false, strokeW: strokeW || 1 });
     }
   } else if (fig.type === 'LINE') {

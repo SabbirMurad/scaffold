@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+PackageIdentifier: SabbirHassan.Scaffold
+PackageVersion: 0.2.0
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: 2026-09-30
+Installers:
+- Architecture: x64
+  InstallerUrl: https://scaffold.sabbirhassan.com/downloads/Scaffold_0.2.0_x64-setup.exe
+  InstallerSha256: FEEA2C1ECA1EDD589C51A50413BB7C2EE673EAE1BFA4267D69E3E58B542338DD
+ManifestType: installer
+ManifestVersion: 1.9.0

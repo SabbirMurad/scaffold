@@ -182,7 +182,7 @@ propsFields.addEventListener('dd:change', e => {
     case 'bind': {
       const slot = e.target.dataset.slot;
       node.bind = { ...(node.bind || {}) };
-      if (v) node.bind[slot] = v; else delete node.bind[slot];
+      if (v) node.bind[slot] = v; else { delete node.bind[slot]; openBinds.delete(node.id + ':' + slot); }
       if (!Object.keys(node.bind).length) delete node.bind;
       commitData(); break;
     }
@@ -211,6 +211,8 @@ propsFields.addEventListener('dd:change', e => {
       if (node.typoId) node.fontWeightOverride = v || null; else node.fontWeight = v;
       updateNodeEl(node); renderProps(); saveHistory(); break;
     case 'typo': node.typoId = v || null; updateNodeEl(node); renderProps(); saveHistory(); break;
+    case 'act-type': case 'act-target': case 'act-mode': case 'act-trans':
+      setAction(node, e.target.dataset.pp, v); break;
     case 'tcolor': node.colorId = v || null; updateNodeEl(node); renderProps(); saveHistory(); break;
   }
 });
@@ -424,25 +426,21 @@ function condValueControl(scope, cond, data, inputId) {
 const opPicker = (op, data) => ddTrigger({ value: op || 'truthy', options: OPS.map(o => ({ value: o.value, label: o.label })), data, triggerClass: 'dd-block' });
 const dataRow = (label, control) => `<div class="prop-row data-row"><span class="prop-label-wide">${label}</span>${control}</div>`;
 
-function dataSection(node) {
+// Behavior: what shapes the element's structure from data — repeated once per
+// list item, or shown only while a condition holds. Near the top of the panel,
+// since it decides whether (and how many times) the element exists at all.
+function behaviorSection(node) {
   if (node.type === 'section') return '';
   const scope = scopeFor(node);
   if (!Object.keys(scope).length) {
-    return `<div class="prop-section"><div class="prop-section-title">Data</div>
-      <div class="api-hint">Add mock data in the Mock Data tab to fill this element from it.</div></div>`;
+    return canRepeat(node) ? `<div class="prop-section"><div class="prop-section-title">Behavior</div>
+      <div class="api-hint">Add mock data in the Mock Data tab to repeat this for each item of a list, or show it only when a condition holds.</div></div>` : '';
   }
   const rows = [];
   if (canRepeat(node)) {
     rows.push(dataRow('Repeat', pathPicker(scope, 'list', node.repeat && node.repeat.source, { pp: 'repeat-src' })));
     if (node.repeat) rows.push(dataRow('Each as', `<input class="prop-input" id="p-repeat-as" value="${esc(aliasOf(node))}" spellcheck="false">`));
   }
-  const b = node.bind || {};
-  if (node.type === 'text') {
-    rows.push(dataRow('Text', pathPicker(scope, 'text', b.text, { pp: 'bind', slot: 'text' })));
-    rows.push(dataRow('Color', pathPicker(scope, 'color', b.color, { pp: 'bind', slot: 'color' })));
-  }
-  if (node.type === 'image') rows.push(dataRow('Image', pathPicker(scope, 'src', b.src, { pp: 'bind', slot: 'src' })));
-  if (node.type === 'container' || node.type === 'image') rows.push(dataRow('Fill', pathPicker(scope, 'fill', b.fill, { pp: 'bind', slot: 'fill' })));
   if (node.type !== 'frame') {
     const c = node.showIf || {};
     rows.push(dataRow('Show if', pathPicker(scope, 'cond', c.path, { pp: 'cond-path' })));
@@ -453,15 +451,36 @@ function dataSection(node) {
     }
   }
   if (!rows.length) return '';
-  const inRepeat = Object.keys(scope).some(k => !state.mockSets.some(m => m.name === k));
-  return `<div class="prop-section"><div class="prop-section-title">Data</div>
+  const item = Object.keys(scope).find(k => !state.mockSets.some(m => m.name === k) && !state.providers.some(pr => pr.name === k));
+  return `<div class="prop-section"><div class="prop-section-title">Behavior</div>
     ${rows.join('')}
     ${node.repeat ? `<div class="api-hint" style="margin-top:6px">Design the first copy; the others follow it, one per item.</div>` : ''}
-    ${!node.repeat && inRepeat && node.type !== 'frame' ? `<div class="api-hint" style="margin-top:6px">Inside a repeat \u2014 use its item (e.g. ${esc(Object.keys(scope).find(k => !state.mockSets.some(m => m.name === k)))}.\u2026) to show each copy's own data.</div>` : ''}
+    ${!node.repeat && item && node.type !== 'frame' ? `<div class="api-hint" style="margin-top:6px">Inside a repeat \u2014 bind to its item (e.g. ${esc(item)}.\u2026) to show each copy's own data.</div>` : ''}
   </div>`;
 }
 
-// Conditional routes: tried in order before the tap's own target (the Connect link).
+// Binding one property to data, right under the property it drives: a small
+// "Bind to data" button, which opens a picker of the mock-data / provider paths
+// that fit; once bound, the picker shows the path ("—" unbinds). Nothing when
+// there's no data in scope to bind to.
+const LINK_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
+const openBinds = new Set(); // "<node id>:<slot>" pickers opened but not bound yet
+function bindControl(node, slot) {
+  if (node.type === 'section') return '';
+  const scope = scopeFor(node);
+  if (!Object.keys(scope).length) return '';
+  const path = node.bind && node.bind[slot];
+  if (!path && !openBinds.has(node.id + ':' + slot)) {
+    return `<button type="button" class="bind-btn" data-bind-open="${slot}" title="Take this from mock data or a provider">${LINK_ICON}Bind to data</button>`;
+  }
+  return `<div class="prop-row bind-row${path ? ' bound' : ''}">
+    <span class="bind-ic" title="${path ? 'From data' : 'Pick the data to show'}">${LINK_ICON}</span>
+    ${pathPicker(scope, slot, path, { pp: 'bind', slot })}
+    ${path ? '' : `<button type="button" class="prop-del" data-bind-close="${slot}" title="Cancel">&times;</button>`}
+  </div>`;
+}
+
+// Conditional routes: tried in order before the tap's own target.
 function routesEditor(node) {
   const a = node.action || {};
   const scope = scopeFor(node);
@@ -483,31 +502,107 @@ function routesEditor(node) {
     <div class="prop-section-sub">Conditional routes</div>
     ${rows}
     <button type="button" class="prop-add" id="p-add-route">+ Add route</button>
-    ${(a.routes || []).length ? `<div class="api-hint" style="margin-top:6px">Checked in order; if none match, the tap goes to its Connect target${a.targetFrameId ? '' : ' (none set, so nothing happens)'}.</div>` : ''}
+    ${(a.routes || []).length ? `<div class="api-hint" style="margin-top:6px">Checked in order; if none match, the tap goes to the screen above${a.targetFrameId ? '' : ' (none chosen, so nothing happens)'}.</div>` : ''}
   </div>`;
 }
 
-const MODE_SHORT = { push: 'Push', replace: 'Replace', clear: 'Clear stack' };
-const TRANS_SHORT = { platform: 'Platform', fade: 'Fade', slideRight: 'Slide', none: 'None' };
+// ───────── Prototype mode: the Interactions panel ─────────
+// In Prototype (Connect) mode the right panel shows what tapping the selected
+// layer does, and every part of it is edited here: the action (navigate to a
+// screen, go back, or nothing), where it goes, how (stack mode, transition),
+// and conditional routes. Dragging from a layer to a screen is the quick way to
+// make a link; the arrow's popover edits the basics too.
+const ACTIONS = [
+  { value: 'none', label: 'Nothing' },
+  { value: 'navigate', label: 'Navigate to screen' },
+  { value: 'back', label: 'Go back' },
+];
+const NAV_MODES = [{ value: 'push', label: 'Push' }, { value: 'replace', label: 'Replace' }, { value: 'clear', label: 'Clear stack' }];
+const TRANSITIONS = [{ value: 'platform', label: 'Platform' }, { value: 'fade', label: 'Fade' }, { value: 'slideRight', label: 'Slide' }, { value: 'none', label: 'None' }];
+const NO_ACTION = () => ({ type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' });
+const actionType = (node) => (node.action && ['navigate', 'back'].includes(node.action.type) ? node.action.type : 'none');
+const isScreen = (n) => n.type === 'frame' && (!n.parentId || getNode(n.parentId)?.type === 'section');
 
-// Read-only interaction summary. Wiring is done visually with the Connect tool
-// (drag from a layer to a screen), so the panel just reports the current link.
-function interactionsSection(node) {
-  const a = node.action;
-  const hasNav = a && a.type === 'navigate' && a.targetFrameId;
-  const tgt = hasNav ? getNode(a.targetFrameId) : null;
-  return `
+const panelTitle = () => document.querySelector('#props-panel .panel-title');
+const NO_SELECTION_DESIGN = 'Select an element<br>to edit its properties';
+
+function renderInteractionsPanel() {
+  const title = panelTitle();
+  if (title) title.textContent = 'Interactions';
+  const node = state.selected.size === 1 ? getNode([...state.selected][0]) : null;
+  if (!node || node.type === 'frame' || node.type === 'section') {
+    noSelection.innerHTML = node
+      ? 'Screens aren’t tapped — select a layer on one,<br>or drag from a layer to this screen to link it'
+      : 'Select a layer to set what tapping it does,<br>or drag from a layer to a screen to link them';
+    noSelection.style.display = '';
+    propsFields.style.display = 'none';
+    return;
+  }
+  noSelection.style.display = 'none';
+  propsFields.style.display = '';
+
+  const a = node.action || {};
+  const type = actionType(node);
+  const screens = state.nodes.filter(isScreen);
+  const readonly = state.readonly;
+  const dd = (pp, value, options) => ddTrigger({ value, options, data: { pp }, triggerClass: 'dd-block' });
+  const hint = (text) => `<div class="api-hint" style="margin-top:6px">${text}</div>`;
+
+  let details = '';
+  if (type === 'navigate') {
+    details = `
+      ${dataRow('Go to', dd('act-target', a.targetFrameId || '', [{ value: '', label: '— choose a screen —' }, ...screens.map(f => ({ value: f.id, label: f.name }))]))}
+      ${dataRow('Stack', dd('act-mode', a.mode || 'push', NAV_MODES))}
+      ${dataRow('Transition', dd('act-trans', a.transition || 'platform', TRANSITIONS))}
+      ${!screens.length ? hint('Add a screen to navigate to.') : ''}`;
+  } else if (type === 'back') {
+    details = hint('Returns to the previous screen — in Play, and as <code>AppRoutes.pop()</code> in the exported app.');
+  } else {
+    details = hint('Tapping does nothing. Pick an action, or drag from this layer to a screen.');
+  }
+
+  const routes = type === 'navigate' ? routesEditor(node) : '';
+  propsFields.innerHTML = `
     <div class="prop-section">
-      <div class="prop-section-title">Interactions</div>
-      ${hasNav && tgt ? `
-      <div style="font-size:12px;color:var(--text2);line-height:1.55">
-        On tap → navigate to <span style="color:var(--accent);font-weight:600">${esc(tgt.name)}</span>
-        <div style="color:var(--text3);font-size:11px;margin-top:2px">${MODE_SHORT[a.mode] || 'Push'} · ${TRANS_SHORT[a.transition] || 'Platform'} transition</div>
-      </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Edit or remove it with the <span style="color:var(--text2)">Connect</span> tool.</div>` : `
-      <div style="font-size:11.5px;color:var(--text3);line-height:1.55">Pick the <span style="color:var(--text2)">Connect</span> tool, then drag from this layer to a screen to link them.</div>`}
-      ${routesEditor(node)}
-    </div>`;
+      <div class="interaction-layer">${esc(node.name || node.type)}</div>
+      ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
+    </div>
+    <div class="prop-section">
+      <div class="prop-section-title">On tap</div>
+      ${dataRow('Action', dd('act-type', type, ACTIONS))}
+      ${details}
+    </div>
+    ${routes ? `<div class="prop-section">${routes}</div>` : ''}
+    ${type !== 'none' && !readonly ? `<div class="prop-section"><button type="button" class="prop-add interaction-remove" id="p-act-remove">Remove interaction</button></div>` : ''}`;
+
+  if (readonly) propsFields.querySelectorAll('.dd-trigger, button, input').forEach(el => { el.disabled = true; });
+  document.getElementById('p-act-remove')?.addEventListener('click', () => {
+    node.action = NO_ACTION();
+    saveHistory();
+    render();
+  });
+  bindDataInputs(node); // the conditional routes' inputs and buttons
+}
+
+// An action picked in the Interactions panel.
+function setAction(node, field, v) {
+  const a = node.action || {};
+  if (field === 'act-type') {
+    if (v === 'navigate') {
+      node.action = { type: 'navigate', targetFrameId: a.targetFrameId || null, mode: a.mode || 'push', transition: a.transition || 'platform', ...(a.routes ? { routes: a.routes } : {}) };
+    } else if (v === 'back') {
+      node.action = { type: 'back', targetFrameId: null, mode: 'push', transition: 'platform' };
+    } else {
+      node.action = NO_ACTION();
+    }
+  } else {
+    if (!node.action || node.action.type !== 'navigate') return;
+    if (field === 'act-target') node.action.targetFrameId = v || null;
+    if (field === 'act-mode') node.action.mode = v;
+    if (field === 'act-trans') node.action.transition = v;
+  }
+  saveHistory();
+  render(); // arrows, badges and this panel
 }
 
 // Container auto-layout choices, shown as a row of icon toggles. 'Stack' overlaps
@@ -691,6 +786,10 @@ function setupShowAll(gridId, toggleId, get, set) {
 }
 
 export function renderProps() {
+  if (state.tool === 'connect') { renderInteractionsPanel(); return; }
+  const title = panelTitle();
+  if (title && title.textContent !== 'Properties') title.textContent = 'Properties';
+  if (noSelection.innerHTML !== NO_SELECTION_DESIGN) noSelection.innerHTML = NO_SELECTION_DESIGN;
   if (state.selected.size === 0) {
     noSelection.style.display = '';
     propsFields.style.display = 'none';
@@ -712,6 +811,7 @@ export function renderProps() {
       ${isIdentNode(node) ? `<div class="prop-error" id="p-name-err" style="${frameNameError(node.name) ? '' : 'display:none'}">${frameNameError(node.name) || ''}</div>` : ''}
       ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
     </div>
+    ${behaviorSection(node)}
     ${node.type === 'frame' ? screenSection(node) : ''}
     ${node.type === 'container' || node.type === 'frame' ? layoutSection(node) : ''}
     ${((node.type === 'container' || node.type === 'frame') && ['none', 'row', 'column'].includes(node.layout || 'none')) || node.type === 'row' || node.type === 'column' ? `
@@ -802,6 +902,7 @@ export function renderProps() {
         <span class="prop-label-wide">Fit</span>
         ${ddTrigger({ value: node.fit || 'cover', options: FIT_OPTIONS, data: { pp: 'fit' }, triggerClass: 'dd-block' })}
       </div>
+      ${bindControl(node, 'src')}
     </div>` : ''}
     ${node.type === 'icon' ? `
     <div class="prop-section">
@@ -828,6 +929,7 @@ export function renderProps() {
         ${state.colors.map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-pickcolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>
       <button type="button" class="color-show-all" id="p-fill-showall" hidden></button>`}
+      ${node.type !== 'frame' ? bindControl(node, 'fill') : ''}
     </div>` : ''}
     ${node.type === 'container' || node.type === 'image' ? `
     <div class="prop-section">
@@ -852,6 +954,8 @@ export function renderProps() {
       <div class="prop-row">
         <textarea class="prop-input" id="p-text" rows="3" style="resize:vertical">${esc(node.text)}</textarea>
       </div>
+      ${bindControl(node, 'text')}
+      ${node.bind && node.bind.text ? `<div class="api-hint" style="margin-top:4px">The text above shows where the data has none.</div>` : ''}
       <div class="prop-row" style="margin-top:10px">
         <button type="button" class="flip-btn ${node.autoSize ? 'active' : ''}" data-textwidth="auto" title="Auto width — grows with the text, no wrapping">${AUTOWIDTH_ICON}</button>
         <button type="button" class="flip-btn ${!node.autoSize ? 'active' : ''}" data-textwidth="fixed" title="Auto height — fixed width, the text wraps and the height grows">${FIXEDWIDTH_ICON}</button>
@@ -865,10 +969,17 @@ export function renderProps() {
       <button class="goto-colors-btn" id="p-goto-typo">+ Create a style</button>` : `
       <div class="prop-row">${typoPicker(node)}</div>`}
       ${textOverrides(node)}
+      ${bindControl(node, 'color')}
     </div>` : ''}
-    ${node.type !== 'frame' && node.type !== 'section' ? interactionsSection(node) : ''}
-    ${dataSection(node)}
   `;
+
+  // "Bind to data" buttons open a picker under their property; × closes an unused one.
+  propsFields.querySelectorAll('[data-bind-open]').forEach(btn => btn.addEventListener('click', () => {
+    openBinds.add(node.id + ':' + btn.dataset.bindOpen); renderProps();
+  }));
+  propsFields.querySelectorAll('[data-bind-close]').forEach(btn => btn.addEventListener('click', () => {
+    openBinds.delete(node.id + ':' + btn.dataset.bindClose); renderProps();
+  }));
 
   // Bind inputs
   bindProp('p-name', v => {

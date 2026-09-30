@@ -4,9 +4,12 @@
 //
 // 1. Sets the version in tauri.conf.json and Cargo.toml (skip --version to keep it).
 // 2. Builds the installers, signed with the updater key (--skip-build to reuse a build).
-// 3. Copies this platform's installer into downloads/ under the name the landing
-//    page links to, and writes downloads/latest.json — what the app's
-//    "Check for updates" reads (desktop/src-tauri/src/updater.rs).
+// 3. Copies this platform's installers into downloads/ under the names the landing
+//    page links to (plus versioned copies, which never change once published),
+//    and writes downloads/latest.json — what the app's "Check for updates" reads
+//    (desktop/src-tauri/src/updater.rs).
+// 4. On Windows, writes the winget manifest for this version under winget/,
+//    ready to submit to microsoft/winget-pkgs (see winget/README.md).
 //
 // Then upload downloads/ to the server. Each platform is built on its own OS;
 // running this on another OS for the same version adds that platform to
@@ -17,6 +20,7 @@
 // Keep it safe and backed up: without it no update can reach apps already installed.
 
 import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,7 +79,8 @@ const find = (dir, test) => {
 let target, update, extra = [];
 if (process.platform === 'win32') {
   target = `windows-${arch}`;
-  update = { from: find('nsis', f => f.includes(`_${version}_`) && f.endsWith('-setup.exe')), as: 'Scaffold-Setup-x64.exe' };
+  update = { from: find('nsis', f => f.includes(`_${version}_`) && f.endsWith('-setup.exe')), as: 'Scaffold-Setup-x64.exe', installer: 'nsis' };
+  extra = [{ from: find('msi', f => f.includes(`_${version}_`) && f.endsWith('.msi')), as: 'Scaffold-Setup-x64.msi', installer: 'msi' }];
 } else if (process.platform === 'darwin') {
   target = `darwin-${arch}`;
   update = { from: find('macos', f => f.endsWith('.app.tar.gz')), as: `Scaffold-${arch}.app.tar.gz` };
@@ -89,11 +94,20 @@ if (!update.from) fail(`No ${version} installer found under ${BUNDLE}. Build fir
 const sigPath = update.from + '.sig';
 if (!fs.existsSync(sigPath)) fail(`${path.basename(update.from)} has no .sig — the build wasn't signed. Is the signing key set?`);
 
+// Each installer goes out twice: under the fixed name the landing page links to
+// (replaced every release), and under a versioned name that never changes once
+// published — what updates and winget point at, so the file always matches the
+// signature / hash recorded for it.
+const versioned = (file) => {
+  const base = path.basename(file.from);
+  return base.includes(version) ? base : `Scaffold_${version}_${file.as}`;
+};
 fs.mkdirSync(DOWNLOADS, { recursive: true });
 for (const file of [update, ...extra]) {
   if (!file.from) continue;
   fs.copyFileSync(file.from, path.join(DOWNLOADS, file.as));
-  console.log(`Copied ${path.basename(file.from)} → downloads/${file.as}`);
+  fs.copyFileSync(file.from, path.join(DOWNLOADS, versioned(file)));
+  console.log(`Copied ${path.basename(file.from)} → downloads/${file.as} and downloads/${versioned(file)}`);
 }
 
 // ── latest.json ──────────────────────────────────────────────────────────────
@@ -105,13 +119,22 @@ const latestPath = path.join(DOWNLOADS, 'latest.json');
 let latest = null;
 try { latest = JSON.parse(fs.readFileSync(latestPath, 'utf8')); } catch { /* first release */ }
 const platforms = latest && latest.version === version ? latest.platforms || {} : {};
-if (latest && latest.version !== version && Object.keys(latest.platforms || {}).some(p => p !== target)) {
+if (latest && latest.version !== version && Object.keys(latest.platforms || {}).some(p => !p.startsWith(target))) {
   console.log(`Note: dropped ${latest.version} entries for other platforms — build ${version} on them too.`);
 }
-platforms[target] = {
-  url: `${baseUrl}/downloads/${update.as}`,
-  signature: fs.readFileSync(sigPath, 'utf8').trim(),
-};
+const entry = (file) => ({
+  url: `${baseUrl}/downloads/${versioned(file)}`,
+  signature: fs.readFileSync(file.from + '.sig', 'utf8').trim(),
+});
+platforms[target] = entry(update);
+// On Windows each installer type updates with its own kind: the updater looks for
+// "<target>-<installer>" first (the build stamps which one it came from), so an
+// .msi install gets the .msi and an .exe install the .exe — never both side by side.
+for (const file of [update, ...extra]) {
+  if (!file.installer || !file.from) continue;
+  if (!fs.existsSync(file.from + '.sig')) fail(`${path.basename(file.from)} has no .sig — the build wasn't signed.`);
+  platforms[`${target}-${file.installer}`] = entry(file);
+}
 const next = {
   version,
   notes: flag('--notes') ?? (latest && latest.version === version ? latest.notes : ''),
@@ -120,4 +143,40 @@ const next = {
 };
 fs.writeFileSync(latestPath, JSON.stringify(next, null, 2) + '\n');
 console.log(`Wrote downloads/latest.json (${version}: ${Object.keys(platforms).join(', ')})`);
-console.log('\nUpload the downloads/ folder to the server to publish the update.');
+
+// ── winget manifest ──────────────────────────────────────────────────────────
+// Windows only: the three files winget-pkgs wants for this version, pointing at
+// the versioned .exe (winget checks its SHA-256, so that file must never change).
+if (process.platform === 'win32') {
+  const ID = 'SabbirHassan.Scaffold';
+  const SCHEMA = '1.9.0';
+  const dir = path.join(HERE, '..', 'winget', 'manifests', 's', 'SabbirHassan', 'Scaffold', version);
+  const sha256 = crypto.createHash('sha256').update(fs.readFileSync(update.from)).digest('hex').toUpperCase();
+  const schema = (type) => `# yaml-language-server: $schema=https://aka.ms/winget-manifest.${type}.${SCHEMA}.schema.json`;
+  const lines = (...l) => l.join('\n') + '\n';
+  const notes = (next.notes || '').replace(/"/g, "'");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${ID}.yaml`), lines(
+    schema('version'),
+    `PackageIdentifier: ${ID}`, `PackageVersion: ${version}`, 'DefaultLocale: en-US',
+    'ManifestType: version', `ManifestVersion: ${SCHEMA}`));
+  fs.writeFileSync(path.join(dir, `${ID}.installer.yaml`), lines(
+    schema('installer'),
+    `PackageIdentifier: ${ID}`, `PackageVersion: ${version}`,
+    'InstallerType: nullsoft', 'Scope: user',
+    'InstallModes:', '- interactive', '- silent', '- silentWithProgress',
+    'UpgradeBehavior: install', `ReleaseDate: ${next.pub_date.slice(0, 10)}`,
+    'Installers:', '- Architecture: x64',
+    `  InstallerUrl: ${baseUrl}/downloads/${versioned(update)}`,
+    `  InstallerSha256: ${sha256}`,
+    'ManifestType: installer', `ManifestVersion: ${SCHEMA}`));
+  fs.writeFileSync(path.join(dir, `${ID}.locale.en-US.yaml`), lines(
+    schema('defaultLocale'),
+    `PackageIdentifier: ${ID}`, `PackageVersion: ${version}`, 'PackageLocale: en-US',
+    'Publisher: Sabbir Hassan', `PublisherUrl: ${baseUrl}`, 'PackageName: Scaffold', `PackageUrl: ${baseUrl}`,
+    'License: Proprietary', 'ShortDescription: Design Flutter apps visually and export clean code.',
+    'Moniker: scaffold', 'Tags:', '- design', '- flutter', '- ui', '- prototyping',
+    `ReleaseNotes: "${notes}"`, 'ManifestType: defaultLocale', `ManifestVersion: ${SCHEMA}`));
+  console.log(`Wrote the winget manifest → winget/manifests/s/SabbirHassan/Scaffold/${version}/`);
+}
+console.log('\nUpload the new files in downloads/ to the server to publish the update; for winget, see winget/README.md.');

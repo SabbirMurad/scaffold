@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: SabbirHassan.Scaffold
+PackageVersion: 0.2.0
+PackageLocale: en-US
+Publisher: Sabbir Hassan
+PublisherUrl: https://scaffold.sabbirhassan.com
+PackageName: Scaffold
+PackageUrl: https://scaffold.sabbirhassan.com
+License: Proprietary
+ShortDescription: Design Flutter apps visually and export clean code.
+Moniker: scaffold
+Tags:
+- design
+- flutter
+- ui
+- prototyping
+ReleaseNotes: "Pages for phone and web, in-app updates, profile editing, design file export and import, Google and GitHub sign-in, a server-down screen, and many design, Play and export fixes."
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
