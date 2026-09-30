@@ -1,4 +1,5 @@
 import { state, getNode, getColorById, getTypoById, getMasterNode, isMaster } from './state.js';
+import { safeSvg } from './svg-safe.js';
 import { colorCss } from './colors.js';
 import { SINGLE_CHILD_TYPES, MULTI_CHILD_TYPES, flexKind, isFlex, isSingleChild } from './nodes.js';
 import { canvas, zoomLabel, canvasWrap } from './utils.js';
@@ -211,7 +212,7 @@ function iconTint(node) {
 // the selection handles already appended aren't wiped.
 function applyIcon(el, node, injectSvg) {
   if (injectSvg) {
-    el.innerHTML = node.svg || '';
+    el.innerHTML = safeSvg(node.svg); // only what draws — no script from pasted / imported SVG
     const svg = el.querySelector('svg');
     if (svg) {
       svg.removeAttribute('width'); svg.removeAttribute('height');

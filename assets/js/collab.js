@@ -149,11 +149,17 @@ function applyRemote(slices) {
 
 // Last-resort persistence when the socket isn't open. Imported lazily to avoid a
 // load-time dependency cycle with the project API client.
+// computePatch already counted these slices as saved, so if the save fails
+// (the server is down too) they're marked unsynced again — the next flush,
+// e.g. when the socket reconnects, sends them instead of dropping them.
 async function fallbackSave(patch) {
+  let ok = false;
   try {
     const { saveProjectDoc } = await import('./projects.js');
-    await saveProjectDoc(projectId, patch, null);
+    const res = await saveProjectDoc(projectId, patch, null);
+    ok = !!(res && res.ok);
   } catch (error) {
     console.error('collab: fallback save failed', error);
   }
+  if (!ok) Object.keys(patch).forEach(key => { delete baseline[key]; });
 }
