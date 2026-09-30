@@ -1044,6 +1044,11 @@ body.sidebar-collapsed #typo-board { padding-left: 20px; }
 .shadow-item:first-child { margin-top: 4px; }
 .shadow-item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .shadow-item-title { font-size: 11px; color: var(--text2); }
+.shadow-kind { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.shadow-kind button { background: none; border: none; color: var(--text2); font: inherit; font-size: 11px; padding: 3px 10px; cursor: pointer; }
+.shadow-kind button + button { border-left: 1px solid var(--border); }
+.shadow-kind button:hover { color: var(--text); }
+.shadow-kind button.active { background: var(--bg3, rgba(127,127,127,.18)); color: var(--text); }
 
 .box-grid { display: flex; gap: 6px; }
 .box-grid .input-affix { gap: 5px; padding-left: 4px; }
@@ -1482,3 +1487,6 @@ body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
 .bind-row { margin-top: 8px; gap: 6px; }
 .bind-ic { display: flex; flex-shrink: 0; color: var(--text3); }
 .bind-row.bound .bind-ic { color: var(--accent); }
+
+/* Text case toggles (Aa / AA / aa) — letters instead of an icon. */
+.flip-btn.case-btn { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }

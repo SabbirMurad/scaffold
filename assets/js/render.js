@@ -299,9 +299,18 @@ function strokeColor(node) {
   }
   return applyStrokeOpacity(node.stroke, node.strokeOpacity);
 }
+// A stroke on every side, or only the sides in node.strokeSides ({t,r,b,l}) —
+// e.g. a bottom-only line for dividers and underlined inputs.
 function applyStroke(el, node) {
-  if (node.strokeW > 0) el.style.border = `${node.strokeW}px ${node.strokeStyle || 'solid'} ${strokeColor(node)}`;
-  else el.style.border = 'none';
+  if (!(node.strokeW > 0)) { el.style.border = 'none'; return; }
+  const line = `${node.strokeW}px ${node.strokeStyle || 'solid'} ${strokeColor(node)}`;
+  const s = node.strokeSides;
+  if (!s) { el.style.border = line; return; }
+  el.style.border = 'none';
+  if (s.t) el.style.borderTop = line;
+  if (s.r) el.style.borderRight = line;
+  if (s.b) el.style.borderBottom = line;
+  if (s.l) el.style.borderLeft = line;
 }
 
 // Outer margin (container only) — space around the box. Pushes flex siblings
@@ -344,6 +353,30 @@ function applyRadius(el, node) {
 
 // Drop shadow (container/image) → CSS box-shadow. Colour comes from a referenced
 // solid Color variable (or black by default), tinted by the shadow's alpha.
+// Background blur: blurs whatever is behind the element (glassmorphism, with a
+// see-through fill). Same value as Figma's "Background blur" and Flutter's sigma.
+function applyBackdropBlur(el, node) {
+  const b = node.backdropBlur > 0 ? `blur(${node.backdropBlur}px)` : '';
+  el.style.backdropFilter = b;
+  el.style.webkitBackdropFilter = b;
+}
+
+// Layer blur: blurs the element itself (soft background shapes, glow blobs).
+function applyLayerBlur(el, node) {
+  el.style.filter = node.layerBlur > 0 ? `blur(${node.layerBlur}px)` : '';
+}
+
+// A text's shadows (no spread / inset — CSS text-shadow and Flutter's Shadow have neither).
+function textShadowCss(node) {
+  const list = node.shadows;
+  if (!list || !list.length) return '';
+  return list.map(s => {
+    let hex = '#000000';
+    if (s.colorId) { const c = getColorById(s.colorId); if (c && c.fillType === 'solid') hex = c.fill; }
+    return `${s.x || 0}px ${s.y || 0}px ${s.blur || 0}px ${applyStrokeOpacity(hex, s.alpha == null ? 1 : s.alpha)}`;
+  }).join(', ');
+}
+
 function applyShadow(el, node) {
   const list = node.shadows;
   if (!list || !list.length) { el.style.boxShadow = ''; return; }
@@ -351,7 +384,7 @@ function applyShadow(el, node) {
     let hex = '#000000';
     if (s.colorId) { const c = getColorById(s.colorId); if (c && c.fillType === 'solid') hex = c.fill; }
     const color = applyStrokeOpacity(hex, s.alpha == null ? 1 : s.alpha);
-    return `${s.x || 0}px ${s.y || 0}px ${s.blur || 0}px ${s.spread || 0}px ${color}`;
+    return `${s.inset ? 'inset ' : ''}${s.x || 0}px ${s.y || 0}px ${s.blur || 0}px ${s.spread || 0}px ${color}`;
   }).join(', ');
 }
 
@@ -387,6 +420,11 @@ export function applyTextStyle(el, node) {
     el.style.color = ownColor || node.color || '#1a1a1a';
   }
   el.style.textAlign = (node.alignment && node.alignment.h) || 'left';
+  // Per-text decoration, on top of any style: italic, underline / strikethrough, case.
+  el.style.fontStyle = node.italic ? 'italic' : '';
+  el.style.textDecoration = node.decoration === 'underline' ? 'underline' : node.decoration === 'lineThrough' ? 'line-through' : '';
+  el.style.textTransform = node.textCase === 'upper' ? 'uppercase' : node.textCase === 'lower' ? 'lowercase' : '';
+  el.style.textShadow = node.type === 'text' ? textShadowCss(node) : '';
 }
 
 export function renderNode(node, parent, scope = rootScope(), inRepeat = false) {
@@ -409,6 +447,7 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
   applySize(el, node);
   applyNodeTransform(el, node);
   el.style.opacity = node.opacity != null ? node.opacity : 1;
+  applyLayerBlur(el, node);
   el.style.display = node.visible ? '' : 'none';
   applyWrapperAlignment(el, node);
 
@@ -430,7 +469,7 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
     if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);
     if (node.type === 'container') applyMargin(el, node);
     if (node.type === 'container') applyScroll(el, node);
-    if (node.type === 'container' || node.type === 'image') applyShadow(el, node);
+    if (node.type === 'container' || node.type === 'image') { applyShadow(el, node); applyBackdropBlur(el, node); }
     if (isFlex(node)) applyFlexLayout(el, node);
   }
 
@@ -520,6 +559,7 @@ function renderGhost(node, parentEl, depth, scope = rootScope(), copy = false) {
   applySize(el, node);
   applyNodeTransform(el, node);
   el.style.opacity = node.opacity != null ? node.opacity : 1;
+  applyLayerBlur(el, node);
   el.style.display = node.visible ? '' : 'none';
   applyWrapperAlignment(el, node);
   applyGhostStyle(el, node, depth, scope, copy);
@@ -548,7 +588,7 @@ function applyGhostStyle(el, node, depth, scope = rootScope(), copy = false) {
     applyRadius(el, node);
     if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);
     if (node.type === 'container') { applyMargin(el, node); applyScroll(el, node); }
-    if (node.type === 'container' || node.type === 'image') applyShadow(el, node);
+    if (node.type === 'container' || node.type === 'image') { applyShadow(el, node); applyBackdropBlur(el, node); }
     if (isFlex(node)) applyFlexLayout(el, node);
   }
   const kids = (node.children || []).map(getNode).filter(Boolean);
@@ -654,6 +694,7 @@ export function updateNodeEl(node) {
   applyNodeTransform(el, node);
   applyWrapperAlignment(el, node);
   el.style.opacity = node.opacity != null ? node.opacity : 1;
+  applyLayerBlur(el, node);
   const scope = node.bind ? scopeFor(node) : null;
   const view = scope ? viewOf(node, scope) : node;
   if (node.type === 'text') {
@@ -670,7 +711,7 @@ export function updateNodeEl(node) {
     if (SINGLE_CHILD_TYPES.includes(node.type)) applyPadding(el, node);
     if (node.type === 'container') applyMargin(el, node);
     if (node.type === 'container') applyScroll(el, node);
-    if (node.type === 'container' || node.type === 'image') applyShadow(el, node);
+    if (node.type === 'container' || node.type === 'image') { applyShadow(el, node); applyBackdropBlur(el, node); }
     if (isFlex(node)) applyFlexLayout(el, node);
     if (el.querySelector('.radius-handle')) positionRadiusHandles(el, node);
   }

@@ -134,14 +134,40 @@ function borderRadiusExpr(ctx, node) {
   return null;
 }
 
-function shadowListExpr(ctx, node) {
+// Drop shadows are BoxShadows; inner (inset) ones are drawn by the exported
+// InnerShadow widget (lib/widget/inner_shadow.dart) — Flutter has no inset BoxShadow.
+const outerShadows = (node) => (node.shadows || []).filter(s => !s.inset);
+const innerShadows = (node) => (node.type === 'container' || node.type === 'image') ? (node.shadows || []).filter(s => s.inset) : [];
+
+// A text's shadows, as TextStyle.shadows (Shadow has no spread).
+function textShadowsExpr(ctx, node) {
   return '[' + node.shadows.map(s => {
+    const col = solidColor(ctx, s.colorId, '#000000', s.alpha == null ? 0.25 : s.alpha)
+      || colorLiteral('#000000', s.alpha == null ? 0.25 : s.alpha);
+    return `Shadow(color: ${col}, offset: Offset(${sw(ctx, s.x || 0)}, ${sh(ctx, s.y || 0)}), blurRadius: ${sr(ctx, s.blur || 0)})`;
+  }).join(', ') + ']';
+}
+
+function shadowListExpr(ctx, list) {
+  return '[' + list.map(s => {
     const col = solidColor(ctx, s.colorId, '#000000', s.alpha == null ? 0.25 : s.alpha)
       || colorLiteral('#000000', s.alpha == null ? 0.25 : s.alpha);
     return `BoxShadow(color: ${col}, offset: Offset(${sw(ctx, s.x || 0)}, ${sh(ctx, s.y || 0)}), `
       + `blurRadius: ${sr(ctx, s.blur || 0)}, spreadRadius: ${sr(ctx, s.spread || 0)})`;
   }).join(', ') + ']';
 }
+
+// A stroke on only some sides ({t,r,b,l}); none of it when every side is on.
+const partialSides = (node) => node.strokeW > 0 && !!node.strokeSides
+  && !(node.strokeSides.t && node.strokeSides.r && node.strokeSides.b && node.strokeSides.l);
+// Flutter can't round a border that isn't on every side, and a clip would cut a
+// shadow off — so such boxes (and blurred ones) are rounded by a clip, with the
+// shadow drawn outside it (applyEffects).
+const isClipped = (ctx, node) => (node.type === 'container' || node.type === 'image')
+  && (node.backdropBlur > 0 || (partialSides(node) && (node.shape === 'circle' || !!borderRadiusExpr(ctx, node))));
+// A container's margin moves out to a Padding when the box is wrapped (clip, inner
+// shadow), so those wrap the box itself and not its margin too.
+const marginOutside = (ctx, node) => node.type === 'container' && (isClipped(ctx, node) || innerShadows(node).length > 0);
 
 // A BoxDecoration AST for a box node, or null when nothing to decorate.
 function decorationExpr(ctx, node) {
@@ -153,11 +179,20 @@ function decorationExpr(ctx, node) {
   else { const col = solidColor(ctx, node.colorId, node.fill); if (col) props.color = col; }
   if (node.strokeW > 0) {
     const sc = solidColor(ctx, node.strokeColorId, node.stroke) || 'Colors.black';
-    props.border = `Border.all(color: ${sc}, width: ${sw(ctx, node.strokeW)})`;
+    const side = `BorderSide(color: ${sc}, width: ${sw(ctx, node.strokeW)})`;
+    if (partialSides(node)) {
+      const s = node.strokeSides;
+      const sides = [['top', s.t], ['right', s.r], ['bottom', s.b], ['left', s.l]].filter(([, on]) => on).map(([k]) => `${k}: ${side}`);
+      props.border = `Border(${sides.join(', ')})`;
+    } else props.border = `Border.all(color: ${sc}, width: ${sw(ctx, node.strokeW)})`;
   }
-  if (node.shape === 'circle') props.shape = 'BoxShape.circle';
-  else { const br = borderRadiusExpr(ctx, node); if (br) props.borderRadius = br; }
-  if (node.shadows && node.shadows.length) props.boxShadow = shadowListExpr(ctx, node);
+  // A partly-bordered box is rounded by its clip instead (Flutter only rounds uniform borders).
+  const roundedByClip = partialSides(node) && isClipped(ctx, node);
+  if (!roundedByClip) {
+    if (node.shape === 'circle') props.shape = 'BoxShape.circle';
+    else { const br = borderRadiusExpr(ctx, node); if (br) props.borderRadius = br; }
+  }
+  if (outerShadows(node).length && !isClipped(ctx, node)) props.boxShadow = shadowListExpr(ctx, outerShadows(node));
   return Object.keys(props).length ? W('BoxDecoration', props) : null;
 }
 
@@ -210,18 +245,37 @@ function textStyleExpr(ctx, node) {
       const over = {};
       if (node.fontSizeOverride != null) over.fontSize = ssp(ctx, node.fontSizeOverride);
       if (node.fontWeightOverride) over.fontWeight = `FontWeight.w${node.fontWeightOverride}`;
+      Object.assign(over, textDecorationProps(node));
       // The text's colour, else the style's own colour — from the current theme
       // (VTextStyle's built-in colour is the first theme's).
       const col = bound || solidColor(ctx, node.colorId, null) || solidColor(ctx, t.colorId, null);
       if (col) over.color = col;
+      if (node.shadows && node.shadows.length) over.shadows = textShadowsExpr(ctx, node);
       return Object.keys(over).length ? W(`VTextStyle.${t.name}.copyWith`, over) : `VTextStyle.${t.name}`;
     }
   }
-  const props = { fontSize: ssp(ctx, node.fontSize || 14), fontWeight: `FontWeight.w${node.fontWeight || '400'}` };
+  const props = { fontSize: ssp(ctx, node.fontSize || 14), fontWeight: `FontWeight.w${node.fontWeight || '400'}`, ...textDecorationProps(node) };
   const col = bound || solidColor(ctx, node.colorId, node.color);
   if (col) props.color = col;
+  if (node.shadows && node.shadows.length) props.shadows = textShadowsExpr(ctx, node);
   return W('TextStyle', props);
 }
+// Italic and underline / strikethrough, as TextStyle fields.
+function textDecorationProps(node) {
+  const out = {};
+  if (node.italic) out.fontStyle = 'FontStyle.italic';
+  if (node.decoration === 'underline') out.decoration = 'TextDecoration.underline';
+  if (node.decoration === 'lineThrough') out.decoration = 'TextDecoration.lineThrough';
+  return out;
+}
+// Upper / lower case: the words themselves, as the app shows them.
+function withCase(node, text, expr) {
+  const c = node.textCase;
+  if (c !== 'upper' && c !== 'lower') return expr || dartStr(text);
+  const m = c === 'upper' ? 'toUpperCase' : 'toLowerCase';
+  return expr ? `(${expr}).${m}()` : dartStr(c === 'upper' ? String(text).toUpperCase() : String(text).toLowerCase());
+}
+
 function textAlignExpr(node) {
   const h = (node.alignment && node.alignment.h) || 'left';
   if (h === 'center') return 'TextAlign.center';
@@ -233,7 +287,7 @@ function buildText(ctx, node) {
   const ta = textAlignExpr(node);
   if (ta) props.textAlign = ta;
   const boundText = node.bind && node.bind.text ? boundTextExpr(ctx, node.bind.text) : null;
-  let w = W('Text', props, { pos: [boundText || dartStr(node.text || '')] });
+  let w = W('Text', props, { pos: [withCase(node, node.text || '', boundText)] });
   // Fixed-width text wraps inside a SizedBox so it matches the design's wrap width.
   if (!node.autoSize && node.wMode !== 'hug') w = W('SizedBox', { width: sw(ctx, node.w) }, { child: w });
   return w;
@@ -369,7 +423,7 @@ function buildBox(ctx, node, opts) {
   if (!opts.isRoot) Object.assign(cprops, sizeProps(ctx, node, opts));
   const pad = edgeInsets(ctx, node.padding);
   if (pad) cprops.padding = pad;
-  if (node.type === 'container') { const m = edgeInsets(ctx, node.margin); if (m) cprops.margin = m; }
+  if (node.type === 'container' && !marginOutside(ctx, node)) { const m = edgeInsets(ctx, node.margin); if (m) cprops.margin = m; }
   if (!fk && !isStack(node) && content) { const al = alignment2D(node); if (al) cprops.alignment = al; }
   const deco = opts.isRoot ? null : decorationExpr(ctx, node);
   if (deco) cprops.decoration = deco;
@@ -381,6 +435,44 @@ function buildBox(ctx, node, opts) {
 // Wrap a built widget in opacity / rotation effects (applies to every node type).
 function applyEffects(ctx, node, w) {
   let out = w;
+  // Inner shadows: painted over the box, inside its shape.
+  const inner = innerShadows(node);
+  if (inner.length) {
+    ctx.innerShadow = true;
+    const props = { shadows: shadowListExpr(ctx, inner) };
+    if (node.shape === 'circle') props.circle = 'true';
+    else { const br = borderRadiusExpr(ctx, node); if (br) props.borderRadius = br; }
+    out = W('InnerShadow', props, { child: out });
+  }
+  // Clipped boxes: background blur (glass) — a BackdropFilter blurs what's behind,
+  // inside the box's shape — and rounded boxes with a border on only some sides.
+  // A clip would cut the shadow off, so it's drawn by a DecoratedBox outside.
+  if (isClipped(ctx, node)) {
+    if (node.backdropBlur > 0) {
+      ctx.ui = true;
+      const sigma = d(node.backdropBlur);
+      out = W('BackdropFilter', { filter: `ImageFilter.blur(sigmaX: ${sigma}, sigmaY: ${sigma})` }, { child: out });
+    }
+    if (node.shape === 'circle') out = W('ClipOval', {}, { child: out });
+    else {
+      const br = borderRadiusExpr(ctx, node);
+      out = br ? W('ClipRRect', { borderRadius: br }, { child: out }) : W('ClipRect', {}, { child: out });
+    }
+    if (outerShadows(node).length) {
+      const deco = { boxShadow: shadowListExpr(ctx, outerShadows(node)) };
+      if (node.shape === 'circle') deco.shape = 'BoxShape.circle';
+      else { const br = borderRadiusExpr(ctx, node); if (br) deco.borderRadius = br; }
+      out = W('DecoratedBox', { decoration: W('BoxDecoration', deco) }, { child: out });
+    }
+  }
+  // A margin stays outside the clip / inner shadow (see marginOutside).
+  if (marginOutside(ctx, node)) { const m = edgeInsets(ctx, node.margin); if (m) out = W('Padding', { padding: m }, { child: out }); }
+  // Layer blur: blurs the element itself. Decal keeps the edges soft, like CSS blur().
+  if (node.layerBlur > 0) {
+    ctx.ui = true;
+    const sigma = d(node.layerBlur);
+    out = W('ImageFiltered', { imageFilter: `ImageFilter.blur(sigmaX: ${sigma}, sigmaY: ${sigma}, tileMode: TileMode.decal)` }, { child: out });
+  }
   if (node.rotation) out = W('Transform.rotate', { angle: d((node.rotation * Math.PI) / 180) }, { child: out });
   if (node.opacity != null && node.opacity < 1) out = W('Opacity', { opacity: d(node.opacity) }, { child: out });
   return out;
@@ -418,7 +510,7 @@ function buildNode(ctx, node, opts = {}) {
 // Flutter names a component mustn't shadow.
 const FLUTTER_NAMES = new Set(['Card', 'Container', 'Text', 'Icon', 'Image', 'Row', 'Column', 'Stack', 'Wrap',
   'Button', 'Scaffold', 'Center', 'Padding', 'Align', 'Expanded', 'Chip', 'Divider', 'Badge', 'Title', 'Material',
-  'Form', 'Table', 'Checkbox', 'Radio', 'Switch', 'Slider', 'Tab', 'Drawer', 'Dialog', 'Banner', 'Placeholder']);
+  'Form', 'Table', 'Checkbox', 'Radio', 'Switch', 'Slider', 'Tab', 'Drawer', 'Dialog', 'Banner', 'Placeholder', 'InnerShadow']);
 
 export function componentClass(c) {
   const master = getNode(c.rootId);
@@ -605,7 +697,7 @@ function newCtx(routeName) {
     scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
       [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
     mocks: new Set(), providers: new Set(), enums: new Set(), components: new Set(),
-    hexColor: false, routes: false, routeName,
+    hexColor: false, routes: false, innerShadow: false, routeName,
   };
 }
 

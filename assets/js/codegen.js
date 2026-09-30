@@ -359,6 +359,7 @@ function generateViewFile(it) {
 
   const L = [];
   L.push(`import 'package:flutter/material.dart';`);
+  if (ctx.ui) L.push(`import 'dart:ui' show ImageFilter;`);
   if (ctx.svg) L.push(`import 'package:flutter_svg/flutter_svg.dart';`);
   if (ctx.screenutil) L.push(`import 'package:flutter_screenutil/flutter_screenutil.dart';`);
   if (ctx.colors) L.push(`import 'package:${pkg}/constants/colors.dart';`);
@@ -366,6 +367,7 @@ function generateViewFile(it) {
   [...ctx.mocks].sort().forEach(m => L.push(`import 'package:${pkg}/mock/${snake(m)}.dart';`));
   [...ctx.enums].sort().forEach(e => L.push(`import 'package:${pkg}/model/${snake(e)}.dart';`));
   if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
+  if (ctx.innerShadow) L.push(`import 'package:${pkg}/widget/inner_shadow.dart';`);
   componentImports(ctx).forEach(i => L.push(i));
   // Providers the screen reads: a Riverpod consumer that watches each one.
   const watched = [...ctx.providers].map(name => state.providers.find(p => p.name === name)).filter(Boolean);
@@ -423,8 +425,76 @@ function generateViewFile(it) {
   }
   // Return the .dart content plus any asset files the screen references, so the
   // exporter can bundle icon SVGs (assets/icons/) and image bytes (assets/images/).
-  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks, components: ctx.components };
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks, components: ctx.components, innerShadow: ctx.innerShadow };
 }
+
+// ───────── Inner shadow (lib/widget/inner_shadow.dart) ─────────
+// Flutter's BoxShadow only draws outside a box, so inset shadows are painted by
+// this small widget, over the box and clipped to its shape. Exported only when used.
+const INNER_SHADOW_DART = `import 'package:flutter/material.dart';
+
+/// Shadows drawn inside a box's edges (a BoxShadow only draws outside them).
+class InnerShadow extends StatelessWidget {
+  const InnerShadow({
+    super.key,
+    required this.shadows,
+    this.borderRadius = BorderRadius.zero,
+    this.circle = false,
+    required this.child,
+  });
+
+  final List<BoxShadow> shadows;
+  final BorderRadiusGeometry borderRadius;
+  final bool circle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      foregroundPainter: _InnerShadowPainter(shadows, borderRadius.resolve(Directionality.maybeOf(context)), circle),
+      child: child,
+    );
+  }
+}
+
+class _InnerShadowPainter extends CustomPainter {
+  _InnerShadowPainter(this.shadows, this.borderRadius, this.circle);
+
+  final List<BoxShadow> shadows;
+  final BorderRadius borderRadius;
+  final bool circle;
+
+  Path _shape(Rect rect, double inset) => circle
+      ? (Path()..addOval(rect.deflate(inset)))
+      : (Path()..addRRect(borderRadius.toRRect(rect).deflate(inset)));
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.save();
+    canvas.clipPath(_shape(rect, 0));
+    for (final s in shadows) {
+      // Everything outside the (offset, spread-shrunk) shape, blurred, shows
+      // through at the edges.
+      final ring = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(rect.inflate(s.blurRadius * 2 + s.spreadRadius.abs() + s.offset.distance))
+        ..addPath(_shape(rect, s.spreadRadius), s.offset);
+      final paint = Paint()..color = s.color;
+      if (s.blurRadius > 0) paint.maskFilter = MaskFilter.blur(BlurStyle.normal, s.blurSigma);
+      canvas.drawPath(ring, paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_InnerShadowPainter old) =>
+      old.circle != circle ||
+      old.borderRadius != borderRadius ||
+      old.shadows.length != shadows.length ||
+      Iterable.generate(shadows.length).any((i) => old.shadows[i] != shadows[i]);
+}
+`;
 
 // ───────── Components (lib/widget/<name>.dart) ─────────
 const componentFile = (c) => snake(componentClass(c));
@@ -441,16 +511,18 @@ function generateComponentFile(c) {
   const cls = componentClass(c);
   const { code, ctx } = generateComponentBody(c.id, { routeName: (id) => (routeNames.get(id) || null) });
   const L = [`import 'package:flutter/material.dart';`];
+  if (ctx.ui) L.push(`import 'dart:ui' show ImageFilter;`);
   if (ctx.svg) L.push(`import 'package:flutter_svg/flutter_svg.dart';`);
   if (ctx.screenutil) L.push(`import 'package:flutter_screenutil/flutter_screenutil.dart';`);
   if (ctx.colors) L.push(`import 'package:${pkg}/constants/colors.dart';`);
   if (ctx.typo) L.push(`import 'package:${pkg}/constants/typography.dart';`);
   if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
+  if (ctx.innerShadow) L.push(`import 'package:${pkg}/widget/inner_shadow.dart';`);
   ctx.components.delete(c.id);
   componentImports(ctx).forEach(i => L.push(i));
   L.push('', `class ${cls} extends StatelessWidget {`, `  const ${cls}({super.key});`, '');
   L.push(`  @override`, `  Widget build(BuildContext context) {`, `    return ${code};`, `  }`, `}`, '');
-  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, components: ctx.components };
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, components: ctx.components, innerShadow: ctx.innerShadow };
 }
 
 // Build lib/route.dart: one GoRoute per screen, unique constant + class names,
@@ -735,10 +807,12 @@ export function exportModelsCode(selection = null) {
     routeNames = new Map(items.map(it => [it.fr.id, it.cname]));
     const usedMocks = new Set();
     const usedComponents = new Set();
+    let innerShadow = false; // any screen or component draws an inner shadow
     const iconAssets = new Map();  // assets/icons/<name>.svg  → svg markup   (deduped across screens)
     const imageAssets = new Map(); // assets/images/<name>.<ext> → image bytes (deduped across screens)
     items.forEach(it => {
-      const { content, icons, images, mocks, components } = generateViewFile(it);
+      const { content, icons, images, mocks, components, innerShadow: inner } = generateViewFile(it);
+      if (inner) innerShadow = true;
       mocks.forEach(m => usedMocks.add(m));
       components.forEach(c => usedComponents.add(c));
       files.push({ name: `lib/view/${it.file}.dart`, content });
@@ -755,12 +829,14 @@ export function exportModelsCode(selection = null) {
       done.add(id);
       const c = state.components.find(x => x.id === id);
       if (!c) continue;
-      const { content, icons, images, components } = generateComponentFile(c);
+      const { content, icons, images, components, innerShadow: inner } = generateComponentFile(c);
+      if (inner) innerShadow = true;
       files.push({ name: `lib/widget/${componentFile(c)}.dart`, content });
       icons.forEach((svg, path) => iconAssets.set(path, svg));
       images.forEach((bytes, path) => imageAssets.set(path, bytes));
       components.forEach(x => queue.push(x));
     }
+    if (innerShadow) files.push({ name: 'lib/widget/inner_shadow.dart', content: INNER_SHADOW_DART });
     // The mock data the screens read (lib/mock/<set>.dart), plus the model and enum
     // files it needs even if they weren't picked for export.
     usedMocks.forEach(name => {

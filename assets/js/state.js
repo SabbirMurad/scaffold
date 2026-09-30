@@ -248,7 +248,7 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     rotation: 0, // degrees
     flipH: false,
     flipV: false,
-    // Drop shadows (container/image) — a list; each {x,y,blur,spread,colorId,alpha}.
+    // Shadows (container/image; text shadows on a text) — a list; each {x,y,blur,spread,colorId,alpha,inset?}.
     // colorId null → black; alpha is 0..1. Empty list = no shadow.
     shadows: [],
     shape: 'rect',

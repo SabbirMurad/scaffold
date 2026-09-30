@@ -11,11 +11,12 @@ import { scopeFor, pathOptions, pathType, canRepeat, aliasOf, OPS, isUnary } fro
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 
-// Whether the Fill / Stroke swatch grids are expanded (all rows) vs collapsed (2
-// rows). Kept at module scope so the choice survives the renderProps() that a
-// swatch pick triggers.
+// Whether the Fill / Stroke / Shadow swatch grids are expanded (all rows) vs
+// collapsed (2 rows). Kept at module scope so the choice survives the
+// renderProps() that a swatch pick triggers. Shadows: by index, one grid each.
 let fillExpanded = false;
 let strokeExpanded = false;
+const shadowExpanded = new Set();
 
 // Shape toggle glyphs: a rounded square and a circle (sized by .shape-btn svg).
 const SHAPE_RECT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/></svg>`;
@@ -29,6 +30,18 @@ const SIDES_ICON = `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" 
 const PLUS_ICON = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>`;
 // Text sizing: auto-width = text lines with outward horizontal arrows (grows
 // sideways); fixed-width = wrapped lines inside a fixed box.
+const ICON = (d) => `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ITALIC_ICON = ICON('<path d="M10 4h8M6 20h8M14 4l-4 16"/>');
+const UNDERLINE_ICON = ICON('<path d="M7 4v7a5 5 0 0 0 10 0V4M5 20h14"/>');
+const STRIKE_ICON = ICON('<path d="M4 12h16"/><path d="M16.5 7c-.5-1.8-2.3-3-4.5-3-2.8 0-4.5 1.5-4.5 3.3 0 1.2.7 2.1 2 2.7M8 16.5c.6 2 2.4 3.5 4.9 3.5 2.9 0 4.6-1.6 4.6-3.6 0-.9-.3-1.6-.9-2.2"/>');
+// A square with one side drawn heavier: which side the stroke is on.
+const SIDE_ICONS = {
+  t: ICON('<rect x="5" y="5" width="14" height="14" rx="1.5" stroke-opacity=".3"/><path d="M4.5 5h15" stroke-width="2.6"/>'),
+  r: ICON('<rect x="5" y="5" width="14" height="14" rx="1.5" stroke-opacity=".3"/><path d="M19 4.5v15" stroke-width="2.6"/>'),
+  b: ICON('<rect x="5" y="5" width="14" height="14" rx="1.5" stroke-opacity=".3"/><path d="M4.5 19h15" stroke-width="2.6"/>'),
+  l: ICON('<rect x="5" y="5" width="14" height="14" rx="1.5" stroke-opacity=".3"/><path d="M5 4.5v15" stroke-width="2.6"/>'),
+};
+
 // Figma's text resizing icons: Auto width (↔ between two bars) and Auto height
 // (↕ between two bars — fixed width, the height grows as the text wraps).
 const AUTOWIDTH_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7v10M20 7v10"/><path d="M7.5 12h9"/><path d="M10 9.5 7.5 12l2.5 2.5M14 9.5l2.5 2.5-2.5 2.5"/></svg>`;
@@ -123,25 +136,31 @@ function shadowSection(node) {
         <div class="prop-section-title">Shadow</div>
         <button class="box-toggle" data-shadow-add title="Add shadow">${PLUS_ICON}</button>
       </div>
-      ${list.map((s, i) => shadowItem(s, i)).join('')}
+      ${list.map((s, i) => shadowItem(s, i, node.type === 'text')).join('')}
     </div>`;
 }
 
-function shadowItem(s, i) {
+// A text's shadow has no spread and no inner option (Flutter's text Shadow has neither).
+function shadowItem(s, i, isText = false) {
   const field = (label, key, val, min) => `<label class="input-affix" title="${esc(label)}"><span class="input-affix-label">${label[0]}</span><input class="prop-input bare" id="p-sh-${key}-${i}" type="number"${min ? ' min="0"' : ''} value="${val}"></label>`;
   return `
     <div class="shadow-item">
       <div class="shadow-item-head">
-        <span class="shadow-item-title">Shadow ${i + 1}</span>
+        ${isText ? `<span class="shadow-item-title">Shadow ${i + 1}</span>` : `<div class="shadow-kind" title="Drop shadows fall outside the box; inner shadows sit inside its edges (pressed buttons, inset fields)">
+          <button type="button" class="${s.inset ? '' : 'active'}" data-shkind="drop" data-shidx="${i}">Drop</button>
+          <button type="button" class="${s.inset ? 'active' : ''}" data-shkind="inner" data-shidx="${i}">Inner</button>
+        </div>`}
         <button class="model-del" data-shadow-del="${i}" title="Remove shadow">&times;</button>
       </div>
       <div class="box-grid">
-        ${field('X offset', 'x', s.x)}${field('Y offset', 'y', s.y)}${field('Blur', 'blur', s.blur, true)}${field('Spread', 'spread', s.spread)}
+        ${field('X offset', 'x', s.x)}${field('Y offset', 'y', s.y)}${field('Blur', 'blur', s.blur, true)}${isText ? '' : field('Spread', 'spread', s.spread)}
       </div>
-      <div class="color-pick-grid" style="margin:14px 0 8px">
+      <div class="color-pick-grid${shadowExpanded.has(i) ? '' : ' collapsed'}" id="p-shadow-grid-${i}" style="margin-top:14px">
         <button class="color-pick none ${!s.colorId ? 'selected' : ''}" data-shadowcolor="" data-shidx="${i}" title="Black (default)"></button>
         ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${s.colorId === c.id ? 'selected' : ''}" data-shadowcolor="${c.id}" data-shidx="${i}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>
+      <button type="button" class="color-show-all" id="p-shadow-showall-${i}" hidden></button>
+      <div style="height:8px"></div>
       <div class="prop-row">
         <span class="prop-label" style="width:auto">Opacity</span>
         <input class="prop-input" id="p-sh-alpha-${i}" type="number" min="0" max="100" value="${Math.round((s.alpha == null ? 0.25 : s.alpha) * 100)}" style="width:56px;flex:0 0 auto">
@@ -946,8 +965,23 @@ export function renderProps() {
         <span class="prop-label-wide" style="width:auto">Style</span>
         ${styleDropdown(node)}
       </div>
+      <div class="prop-row" style="margin-top:8px">
+        <span class="prop-label" style="width:auto">Sides</span>
+        ${[['t', 'Top'], ['r', 'Right'], ['b', 'Bottom'], ['l', 'Left']].map(([k, label]) => `<button type="button" class="flip-btn side-btn ${!node.strokeSides || node.strokeSides[k] ? 'active' : ''}" data-sside="${k}" title="${label}">${SIDE_ICONS[k]}</button>`).join('')}
+      </div>
     </div>` : ''}
-    ${node.type === 'container' || node.type === 'image' ? shadowSection(node) : ''}
+    ${node.type === 'container' || node.type === 'image' || node.type === 'text' ? shadowSection(node) : ''}
+    ${node.type !== 'frame' && node.type !== 'section' ? `
+    <div class="prop-section">
+      <div class="prop-section-title">Blur</div>
+      <div class="prop-row affix-row">
+        <label class="input-affix" title="Layer blur: blurs this element itself, in px (0 = off)"><span class="input-affix-label">L</span><input class="prop-input bare" id="p-lblur" type="number" min="0" max="200" value="${node.layerBlur || 0}"></label>
+        ${node.type === 'container' || node.type === 'image' ? `<label class="input-affix" title="Background blur: blurs what's behind this, in px (0 = off)"><span class="input-affix-label">B</span><input class="prop-input bare" id="p-bblur" type="number" min="0" max="200" value="${node.backdropBlur || 0}"></label>` : ''}
+      </div>
+      <div class="api-hint" style="margin-top:6px">${node.type === 'container' || node.type === 'image'
+        ? 'L blurs the element itself (soft glows, background shapes). B blurs what is behind it: for glass, use a see-through fill and a thin light stroke.'
+        : 'Blurs the element itself.'}</div>
+    </div>` : ''}
     ${node.type === 'text' ? `
     <div class="prop-section">
       <div class="prop-section-title">Text</div>
@@ -961,6 +995,15 @@ export function renderProps() {
         <button type="button" class="flip-btn ${!node.autoSize ? 'active' : ''}" data-textwidth="fixed" title="Auto height — fixed width, the text wraps and the height grows">${FIXEDWIDTH_ICON}</button>
       </div>
       ${!node.autoSize ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">Drag the side handles to change the wrap width.</div>` : ''}
+      <div class="prop-row" style="margin-top:10px">
+        <button type="button" class="flip-btn ${node.italic ? 'active' : ''}" data-tdeco="italic" title="Italic">${ITALIC_ICON}</button>
+        <button type="button" class="flip-btn ${node.decoration === 'underline' ? 'active' : ''}" data-tdeco="underline" title="Underline">${UNDERLINE_ICON}</button>
+        <button type="button" class="flip-btn ${node.decoration === 'lineThrough' ? 'active' : ''}" data-tdeco="lineThrough" title="Strikethrough">${STRIKE_ICON}</button>
+        <span style="width:8px"></span>
+        <button type="button" class="flip-btn case-btn ${!node.textCase ? 'active' : ''}" data-tcase="" title="As typed">Aa</button>
+        <button type="button" class="flip-btn case-btn ${node.textCase === 'upper' ? 'active' : ''}" data-tcase="upper" title="Uppercase">AA</button>
+        <button type="button" class="flip-btn case-btn ${node.textCase === 'lower' ? 'active' : ''}" data-tcase="lower" title="Lowercase">aa</button>
+      </div>
     </div>
     <div class="prop-section">
       <div class="prop-section-title">Style</div>
@@ -1022,6 +1065,8 @@ export function renderProps() {
     bindPropNum('p-h', v => { node.h = Math.max(1, v); updateNodeEl(node); });
   }
   bindPropNum('p-opacity', v => { node.opacity = Math.min(1, Math.max(0, v / 100)); updateNodeEl(node); });
+  bindPropNum('p-lblur', v => { node.layerBlur = Math.min(200, Math.max(0, v)) || undefined; updateNodeEl(node); });
+  document.getElementById('p-lblur')?.addEventListener('change', () => saveHistory());
   bindPropNum('p-rotation', v => { node.rotation = v; updateNodeEl(node); });
   document.querySelectorAll('[data-rotate]').forEach(btn => btn.addEventListener('click', () => {
     node.rotation = (((node.rotation || 0) + Number(btn.dataset.rotate)) % 360 + 360) % 360;
@@ -1057,7 +1102,7 @@ export function renderProps() {
     });
   }
 
-  if (node.type === 'container' || node.type === 'image') {
+  if (node.type === 'container' || node.type === 'image' || node.type === 'text') {
     if (!node.shadows) node.shadows = [];
     const addBtn = document.querySelector('[data-shadow-add]');
     if (addBtn) addBtn.addEventListener('click', () => {
@@ -1075,6 +1120,14 @@ export function renderProps() {
       bindPropNum(`p-sh-spread-${i}`, v => { s.spread = v; updateNodeEl(node); });
       bindPropNum(`p-sh-alpha-${i}`, v => { s.alpha = Math.min(1, Math.max(0, v / 100)); updateNodeEl(node); });
     });
+    document.querySelectorAll('[data-shkind]').forEach(btn => btn.addEventListener('click', () => {
+      const s = node.shadows[Number(btn.dataset.shidx)];
+      if (!s) return;
+      const inset = btn.dataset.shkind === 'inner';
+      if (!!s.inset === inset) return;
+      if (inset) s.inset = true; else delete s.inset;
+      updateNodeEl(node); renderProps(); saveHistory();
+    }));
     document.querySelectorAll('[data-shadowcolor]').forEach(btn => btn.addEventListener('click', () => {
       const s = node.shadows[Number(btn.dataset.shidx)];
       if (!s) return;
@@ -1162,6 +1215,8 @@ export function renderProps() {
     });
     setupShowAll('p-fill-grid', 'p-fill-showall', () => fillExpanded, v => { fillExpanded = v; });
     setupShowAll('p-stroke-grid', 'p-stroke-showall', () => strokeExpanded, v => { strokeExpanded = v; });
+    (node.shadows || []).forEach((_, i) => setupShowAll(`p-shadow-grid-${i}`, `p-shadow-showall-${i}`,
+      () => shadowExpanded.has(i), v => { if (v) shadowExpanded.add(i); else shadowExpanded.delete(i); }));
     const gotoColors = document.getElementById('p-goto-colors');
     if (gotoColors) gotoColors.addEventListener('click', () => document.querySelector('.mode-tab[data-mode="color"]')?.click());
 
@@ -1170,7 +1225,30 @@ export function renderProps() {
       btn.addEventListener('click', () => { node.strokeColorId = btn.dataset.strokecolor || null; updateNodeEl(node); renderProps(); });
     });
     bindPropNum('p-strokew', v => { node.strokeW = Math.max(0, v); updateNodeEl(node); });
+    // Stroke sides: toggle one; at least one stays on; all on is stored as "all".
+    propsFields.querySelectorAll('[data-sside]').forEach(btn => btn.addEventListener('click', () => {
+      const s = { t: true, r: true, b: true, l: true, ...(node.strokeSides || {}) };
+      const k = btn.dataset.sside;
+      s[k] = !s[k];
+      if (!s.t && !s.r && !s.b && !s.l) return;
+      if (s.t && s.r && s.b && s.l) delete node.strokeSides; else node.strokeSides = s;
+      if (!(node.strokeW > 0)) node.strokeW = 1; // picking sides means wanting a stroke
+      updateNodeEl(node); renderProps(); saveHistory();
+    }));
+    bindPropNum('p-bblur', v => { node.backdropBlur = Math.min(200, Math.max(0, v)); updateNodeEl(node); });
+    document.getElementById('p-bblur')?.addEventListener('change', () => saveHistory());
   } else {
+    // Italic / underline / strikethrough / case.
+    propsFields.querySelectorAll('[data-tdeco]').forEach(btn => btn.addEventListener('click', () => {
+      const k = btn.dataset.tdeco;
+      if (k === 'italic') node.italic = !node.italic || undefined;
+      else node.decoration = node.decoration === k ? undefined : k;
+      updateNodeEl(node); renderProps(); saveHistory();
+    }));
+    propsFields.querySelectorAll('[data-tcase]').forEach(btn => btn.addEventListener('click', () => {
+      node.textCase = btn.dataset.tcase || undefined;
+      updateNodeEl(node); renderProps(); saveHistory();
+    }));
     const ta = document.getElementById('p-text');
     if (ta) ta.addEventListener('input', () => { node.text = ta.value; updateNodeEl(node); });
     const sizeEl = document.getElementById('p-tsize');

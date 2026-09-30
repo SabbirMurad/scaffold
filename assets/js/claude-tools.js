@@ -55,7 +55,7 @@ const ELEMENT_HELP = [
   '  button:    { "type":"button", "text":"Sign in", "fill":"#2563eb", "color":"#ffffff", "radius":10 }  — a container with a centred label.',
   '  instance:  { "type":"instance", "component_id":"cmp1" }  — a live copy of a component.',
   'Any element also takes: name, width / height (px number, "fill" to fill the parent, or "hug" to fit content), x / y (only inside a stack or on the bare canvas), '
-    + 'opacity (0–1), rotation, stroke / strokeWidth / strokeStyle ("solid|dashed|dotted"), shadows ([{x,y,blur,spread,color:"var:…",alpha}]), '
+    + 'opacity (0–1), rotation, stroke / strokeWidth / strokeStyle ("solid|dashed|dotted"), shadows ([{x,y,blur,spread,color:"var:…",alpha,inset}] — inset:true for an inner shadow, e.g. a pressed button or an inset field; on a text they are text shadows, without spread or inset), layerBlur (px: blurs the element itself — soft glows and background shapes), backgroundBlur (px: blurs the content behind it — glassmorphism, with a see-through fill), strokeSides (list of sides for the stroke, e.g. ["bottom"] for a divider line), italic, decoration ("underline" / "lineThrough"), textCase ("upper" / "lower"), '
     + 'margin, visible, locked, scroll (containers), and "props" — raw node fields for anything else (see get_element for field names).',
   'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","fill":"item.color_hex","color":"…"} fills an element from a field; '
     + '"showIf":{"path":"user.role","op":"==","value":"admin"} shows it only while the condition holds (op: truthy, falsy, ==, !=, >, <, >=, <=, empty, notEmpty — compare enums by value name); '
@@ -133,7 +133,7 @@ const TOOLS = [
   },
   {
     name: 'update_element', title: 'Update element', annotations: EDIT,
-    description: 'Change properties of one screen, section or element. Only what is given changes. Takes the same properties as an element in add_elements (text, fontSize, fontWeight, color, textStyle, fill, radius — a number or {tl,tr,br,bl} —, padding, margin, gap, layout, align, valign, width, height, x, y, opacity, rotation, flipH, flipV, stroke, strokeWidth, strokeStyle, shadows, visible, locked, scroll, fit, icon, url, search, gradient), '
+    description: 'Change properties of one screen, section or element. Only what is given changes. Takes the same properties as an element in add_elements (text, fontSize, fontWeight, color, textStyle, fill, radius — a number or {tl,tr,br,bl} —, padding, margin, gap, layout, align, valign, width, height, x, y, opacity, rotation, flipH, flipV, stroke, strokeWidth, strokeStyle, strokeSides, shadows, layerBlur, backgroundBlur, italic, decoration, textCase, visible, locked, scroll, fit, icon, url, search, gradient), '
       + 'screen properties (route, initial), and "props" for raw node fields. Fill can also be a gradient: {"type":"linear|radial","angle":90,"stops":[{"color":"#…","pos":0},{"color":"#…","pos":100}]}. ' + COLOR_HELP,
     inputSchema: obj({ id: str(), properties: { type: 'object', description: 'The properties to set.' } }, ['id', 'properties']),
   },
@@ -494,10 +494,10 @@ async function searchPhoto(query) {
 // Keys handled by name (everything else must go through "props").
 const SPEC_KEYS = new Set([
   'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat',
-  'text', 'fontSize', 'fontWeight', 'color', 'textStyle',
+  'text', 'fontSize', 'fontWeight', 'color', 'textStyle', 'italic', 'decoration', 'textCase', 'strokeSides',
   'fill', 'gradient', 'radius', 'padding', 'margin', 'gap', 'layout', 'align', 'valign',
   'width', 'height', 'size', 'x', 'y', 'opacity', 'rotation', 'flipH', 'flipV',
-  'stroke', 'strokeWidth', 'strokeStyle', 'shadows', 'visible', 'locked', 'scroll',
+  'stroke', 'strokeWidth', 'strokeStyle', 'shadows', 'layerBlur', 'backgroundBlur', 'visible', 'locked', 'scroll',
   'fit', 'icon', 'url', 'search', 'route', 'initial', 'background',
 ]);
 // Raw fields Claude must not set directly: identity, structure, and what other
@@ -528,7 +528,7 @@ async function applyProps(node, p) {
   }
 
   // Text
-  only('text', ['text']); only('textStyle', ['text']); only('fontSize', ['text']); only('fontWeight', ['text']);
+  only('text', ['text']); only('textStyle', ['text']); only('italic', ['text']); only('decoration', ['text']); only('textCase', ['text']); only('fontSize', ['text']); only('fontWeight', ['text']);
   if (p.text !== undefined) node.text = String(p.text);
   if (p.textStyle !== undefined) {
     if (p.textStyle === null) node.typoId = null;
@@ -596,8 +596,36 @@ async function applyProps(node, p) {
       node.radiusMode = 'corners';
     } else fail('radius is a number or {tl,tr,br,bl}');
   }
+  if (p.italic !== undefined) node.italic = !!p.italic || undefined;
+  if (p.decoration !== undefined) {
+    if (![null, 'none', 'underline', 'lineThrough'].includes(p.decoration)) fail('decoration is "underline", "lineThrough" or "none"');
+    node.decoration = p.decoration === 'underline' || p.decoration === 'lineThrough' ? p.decoration : undefined;
+  }
+  if (p.textCase !== undefined) {
+    if (![null, 'none', 'upper', 'lower'].includes(p.textCase)) fail('textCase is "upper", "lower" or "none"');
+    node.textCase = p.textCase === 'upper' || p.textCase === 'lower' ? p.textCase : undefined;
+  }
+  if (p.strokeSides !== undefined) {
+    if (node.type !== 'container' && node.type !== 'image') fail('strokeSides is for containers and images');
+    const names = { top: 't', right: 'r', bottom: 'b', left: 'l' };
+    const list = p.strokeSides === 'all' || p.strokeSides == null ? ['top', 'right', 'bottom', 'left'] : p.strokeSides;
+    if (!Array.isArray(list) || !list.length || list.some(k => !names[k])) fail('strokeSides is a list of sides: ["top","right","bottom","left"] (or "all")');
+    const s = { t: false, r: false, b: false, l: false };
+    list.forEach(k => { s[names[k]] = true; });
+    if (s.t && s.r && s.b && s.l) delete node.strokeSides; else node.strokeSides = s;
+  }
+  if (p.backgroundBlur !== undefined) {
+    if (!isNum(p.backgroundBlur) || p.backgroundBlur < 0) fail('backgroundBlur is a number of px (0 = off)');
+    if (node.type !== 'container' && node.type !== 'image') fail('backgroundBlur is for containers and images');
+    node.backdropBlur = Math.min(200, p.backgroundBlur) || undefined;
+  }
+  if (p.layerBlur !== undefined) {
+    if (!isNum(p.layerBlur) || p.layerBlur < 0) fail('layerBlur is a number of px (0 = off)');
+    if (t === 'frame' || t === 'section') fail('layerBlur is for elements, not screens or sections');
+    node.layerBlur = Math.min(200, p.layerBlur) || undefined;
+  }
   if (p.shadows !== undefined) {
-    if (!Array.isArray(p.shadows)) fail('shadows is a list of {x,y,blur,spread,color,alpha}');
+    if (!Array.isArray(p.shadows)) fail('shadows is a list of {x,y,blur,spread,color,alpha,inset}');
     node.shadows = p.shadows.map(s => {
       let colorId = null;
       if (s.color) {
@@ -605,7 +633,8 @@ async function applyProps(node, p) {
         if (!c.colorId) fail('Shadow colors are color variables ("var:<name>"); leave color out for black');
         colorId = c.colorId;
       }
-      return { x: +s.x || 0, y: +s.y || 0, blur: +s.blur || 0, spread: +s.spread || 0, colorId, alpha: isNum(s.alpha) ? s.alpha : 0.25 };
+      if (t === 'text') return { x: +s.x || 0, y: +s.y || 0, blur: +s.blur || 0, spread: 0, colorId, alpha: isNum(s.alpha) ? s.alpha : 0.25 };
+      return { x: +s.x || 0, y: +s.y || 0, blur: +s.blur || 0, spread: +s.spread || 0, colorId, alpha: isNum(s.alpha) ? s.alpha : 0.25, ...(s.inset ? { inset: true } : {}) };
     });
   }
 
@@ -878,6 +907,7 @@ function describe(node) {
     Object.assign(out, { screen: isScreenFrame(node), route: node.routePath || routeFromName(node.name), size: [node.w, node.h] });
     if (node.isInitial) out.initial = true;
   }
+  if (node.layerBlur > 0) out.layerBlur = node.layerBlur;
   if (t === 'text') {
     out.text = node.text;
     const typo = node.typoId && getTypoById(node.typoId);
@@ -898,6 +928,9 @@ function describe(node) {
     const fill = fillOf(node);
     if (fill && fill !== 'transparent') out.fill = fill;
     if (node.radius) out.radius = node.radius;
+    if (node.backdropBlur > 0) out.backgroundBlur = node.backdropBlur;
+    if (node.shadows && node.shadows.some(s => s.inset)) out.innerShadows = node.shadows.filter(s => s.inset).length;
+    if (node.strokeSides) out.strokeSides = [['top', 't'], ['right', 'r'], ['bottom', 'b'], ['left', 'l']].filter(([, k]) => node.strokeSides[k]).map(([n]) => n);
     if (t === 'image') out.image = node.src ? 'photo' : 'placeholder';
   }
   if ((t === 'frame' || t === 'container') && node.layout) out.layout = node.layout;

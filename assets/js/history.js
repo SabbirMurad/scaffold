@@ -40,9 +40,10 @@ const LAYOUT_TYPES = ['frame', 'container', 'section', 'row', 'column', 'wrap', 
 const FIELD_OWNERS = {
   src: ['image'], fit: ['image'],
   svg: ['icon'], iconId: ['icon'],
-  text: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
+  text: ['text'], italic: ['text'], decoration: ['text'], textCase: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
   fontSizeOverride: ['text'], fontWeightOverride: ['text'],
   repeat: ['frame', 'container'],
+  backdropBlur: ['container', 'image'], strokeSides: ['container', 'image'],
   routePath: ['frame'], isInitial: ['frame'], screenH: ['frame'], editedAt: ['frame'],
   layout: LAYOUT_TYPES, scroll: LAYOUT_TYPES, gap: LAYOUT_TYPES, gapH: LAYOUT_TYPES, gapV: LAYOUT_TYPES,
 };
@@ -56,7 +57,7 @@ const FIELD_OWNERS = {
 const NO_STYLE = ['frame', 'section'];
 const FIELD_EXCLUDE = {
   stroke: NO_STYLE, strokeW: NO_STYLE, strokeOpacity: NO_STYLE, strokeStyle: NO_STYLE, strokeColorId: NO_STYLE,
-  opacity: NO_STYLE, radius: NO_STYLE, radii: NO_STYLE, radiusMode: NO_STYLE,
+  opacity: NO_STYLE, layerBlur: NO_STYLE, radius: NO_STYLE, radii: NO_STYLE, radiusMode: NO_STYLE,
   rotation: NO_STYLE, flipH: NO_STYLE, flipV: NO_STYLE, shadows: NO_STYLE, shape: NO_STYLE,
   padding: ['image'],
 };

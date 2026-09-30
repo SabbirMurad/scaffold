@@ -480,18 +480,33 @@ function applyStroke(ctx, node, fig) {
   node.stroke = paintSolid(p).hex;
   node.strokeW = Math.max(1, Math.round(numVal(fig.strokeWeight, 1)));
   if (Array.isArray(fig.dashPattern) && fig.dashPattern.length) node.strokeStyle = 'dashed';
+  // Separate weights per side (e.g. a bottom-only divider): the sides that have one.
+  if (fig.borderStrokeWeightsIndependent) {
+    const w = { t: numVal(fig.borderTopWeight, 0), r: numVal(fig.borderRightWeight, 0), b: numVal(fig.borderBottomWeight, 0), l: numVal(fig.borderLeftWeight, 0) };
+    const s = { t: w.t > 0, r: w.r > 0, b: w.b > 0, l: w.l > 0 };
+    if (!(s.t && s.r && s.b && s.l) && (s.t || s.r || s.b || s.l)) {
+      node.strokeSides = s;
+      node.strokeW = Math.max(1, Math.round(Math.max(w.t, w.r, w.b, w.l)));
+    }
+  }
 }
 
 function applyShadows(ctx, node, fig) {
+  const isText = node.type === 'text'; // text: drop shadows only, without spread
   (fig.effects || []).forEach(e => {
-    if (e.type !== 'DROP_SHADOW' || e.visible === false) return;
+    if (isText && e.type !== 'DROP_SHADOW') return;
+    // Figma's "Background blur" (glass) → the box's background blur.
+    // Figma's blur radius is twice the CSS / Flutter blur (its Dev Mode writes blur(radius / 2)).
+    if (e.type === 'BACKGROUND_BLUR' && e.visible !== false && e.radius > 0) { node.backdropBlur = Math.max(1, Math.round(e.radius / 2)); return; }
+    if ((e.type !== 'DROP_SHADOW' && e.type !== 'INNER_SHADOW') || e.visible === false) return;
     const c = e.color || { r: 0, g: 0, b: 0, a: 0.25 };
     const hex = rgbaToHex(c);
     node.shadows.push({
       x: Math.round((e.offset && e.offset.x) || 0), y: Math.round((e.offset && e.offset.y) || 0),
-      blur: Math.round(e.radius || 0), spread: Math.round(e.spread || 0),
+      blur: Math.round(e.radius || 0), spread: isText ? 0 : Math.round(e.spread || 0),
       colorId: hex === '#000000' ? null : ensureColor(ctx, hex, 1), // null = black (the default)
       alpha: round2(c.a == null ? 0.25 : c.a),
+      ...(e.type === 'INNER_SHADOW' ? { inset: true } : {}),
     });
   });
 }
@@ -585,6 +600,11 @@ function mapText(ctx, node, fig) {
     colorId,
   });
   node.alignment.h = { LEFT: 'left', CENTER: 'center', RIGHT: 'right', JUSTIFIED: 'left' }[fig.textAlignHorizontal] || 'left';
+  if (/italic|oblique/i.test((fig.fontName && fig.fontName.style) || '')) node.italic = true;
+  if (fig.textDecoration === 'UNDERLINE') node.decoration = 'underline';
+  if (fig.textDecoration === 'STRIKETHROUGH') node.decoration = 'lineThrough';
+  if (fig.textCase === 'UPPER') node.textCase = 'upper';
+  if (fig.textCase === 'LOWER') node.textCase = 'lower';
   node.autoSize = fig.textAutoResize === 'WIDTH_AND_HEIGHT' || fig.textAutoResize == null;
   if (!node.autoSize) node.wMode = 'fixed';
 }
@@ -652,12 +672,16 @@ function mapFigNode(ctx, fig, parentId, isRoot, parentAxis, depth = 0) {
   if (fig.visible === false) node.visible = false;
   if (fig.locked) node.locked = true;
   if (typeof fig.opacity === 'number' && fig.opacity < 1) node.opacity = round2(fig.opacity);
+  // Figma's layer blur → the element's own blur (half its radius, like Dev Mode's CSS).
+  const layerBlur = ffType !== 'frame' && (fig.effects || []).find(e => e.type === 'LAYER_BLUR' && e.visible !== false && e.radius > 0);
+  if (layerBlur) node.layerBlur = Math.max(1, Math.round(layerBlur.radius / 2));
   const rot = Math.atan2(m.m10, m.m00) * 180 / Math.PI;
   if (Math.abs(rot) > 0.01) node.rotation = round2(rot);
 
   let axis = null;
   if (ffType === 'text') {
     mapText(ctx, node, fig);
+    applyShadows(ctx, node, fig);
   } else if (ffType === 'icon') {
     node.svg = icon.svg;
     node.iconId = '';
