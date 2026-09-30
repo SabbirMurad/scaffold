@@ -75,7 +75,14 @@
           if (provider === 'github') { p = new GithubAuthProvider(); p.addScope('user:email'); }
           else { p = new GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account' }); }
           const result = await signInWithPopup(auth, p);
-          const token = await result.user.getIdToken();
+          let token = await result.user.getIdToken();
+          // Firebase marks GitHub emails unverified even when GitHub has verified
+          // them, so the server asks GitHub itself — with this sign-in's GitHub
+          // token, packed in with the Firebase one (social_login.rs).
+          if (provider === 'github') {
+            const cred = GithubAuthProvider.credentialFromResult(result);
+            if (cred && cred.accessToken) token = JSON.stringify({ id_token: token, github_access_token: cred.accessToken });
+          }
           say('Signed in — returning to Scaffold…');
           send({ token });
         } catch (err) {

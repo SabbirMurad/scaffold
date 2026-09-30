@@ -16,8 +16,27 @@ pub struct ReqBody {
     token: String,
 }
 
+// What the sign-in page sends as `token`: the Firebase ID token alone, or — for
+// GitHub — {"id_token": …, "github_access_token": …} (see pages/social-auth.html).
+// Packed into the one field so apps already installed pass it through unchanged.
+#[derive(Debug, Deserialize)]
+struct TokenEnvelope {
+    id_token: String,
+    github_access_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProviderInfo {
+    #[serde(rename = "providerId", default)]
+    provider_id: String,
+    #[serde(rename = "rawId", default)]
+    raw_id: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct FirebaseUser {
+    #[serde(rename = "providerUserInfo", default)]
+    providers: Vec<ProviderInfo>,
     email: Option<String>,
     #[serde(rename = "emailVerified", default)]
     email_verified: bool,
@@ -53,9 +72,17 @@ pub async fn task(
         api_key
     );
 
+    let (id_token, github_token) = match body.token.trim_start().starts_with('{') {
+        true => match serde_json::from_str::<TokenEnvelope>(&body.token) {
+            Ok(env) => (env.id_token, env.github_access_token),
+            Err(_) => return Ok(Response::bad_request("Malformed sign-in token")),
+        },
+        false => (body.token.clone(), None),
+    };
+
     let firebase_res = client
         .post(&verify_url)
-        .json(&json!({ "idToken": &body.token }))
+        .json(&json!({ "idToken": &id_token }))
         .send()
         .await;
 
@@ -87,13 +114,19 @@ pub async fn task(
     if fb_user.disabled {
         return Ok(Response::forbidden("This sign-in account is disabled"));
     }
-    let email = match fb_user.email {
+    let email = match &fb_user.email {
         Some(e) => e.trim().to_lowercase(),
         None => return Ok(Response::bad_request("No email associated with this account")),
     };
     // The email is what ties the sign-in to a Scaffold account, so it must be one
     // the provider has verified — otherwise anyone could claim someone else's.
-    if !fb_user.email_verified {
+    // Firebase leaves GitHub emails unverified even when GitHub has verified them,
+    // so for GitHub the answer comes from GitHub itself.
+    let verified = fb_user.email_verified || match (&github_token, github_id(&fb_user)) {
+        (Some(token), Some(user_id)) => github_confirms(&client, token, user_id, &email).await,
+        _ => false,
+    };
+    if !verified {
         return Ok(Response::forbidden("Your email with this provider isn’t verified — verify it there first, then try again"));
     }
 
@@ -183,4 +216,46 @@ pub async fn task(
         "user_id": user_id,
         "role": role,
     })))
+}
+
+// The GitHub user id Firebase signed in, if this is a GitHub sign-in.
+fn github_id(user: &FirebaseUser) -> Option<&str> {
+    user.providers
+        .iter()
+        .find(|p| p.provider_id == "github.com" && !p.raw_id.is_empty())
+        .map(|p| p.raw_id.as_str())
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubUser { id: u64 }
+
+#[derive(Debug, Deserialize)]
+struct GithubEmail { email: String, verified: bool }
+
+// Ask GitHub, with the access token from this sign-in: is it the same GitHub
+// account Firebase signed in (so a token for some other account can't vouch
+// for this one), and is `email` one of its verified addresses? The token is
+// used for these two reads only and never stored.
+async fn github_confirms(client: &reqwest::Client, token: &str, user_id: &str, email: &str) -> bool {
+    let get = |url: &'static str| {
+        client
+            .get(url)
+            .bearer_auth(token)
+            .header("User-Agent", "Scaffold")
+            .header("Accept", "application/vnd.github+json")
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+    };
+    let who: GithubUser = match get("https://api.github.com/user").await {
+        Ok(r) if r.status().is_success() => match r.json().await { Ok(u) => u, Err(_) => return false },
+        _ => return false,
+    };
+    if who.id.to_string() != user_id {
+        return false;
+    }
+    let emails: Vec<GithubEmail> = match get("https://api.github.com/user/emails").await {
+        Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+        _ => return false,
+    };
+    emails.iter().any(|e| e.verified && e.email.trim().eq_ignore_ascii_case(email))
 }
