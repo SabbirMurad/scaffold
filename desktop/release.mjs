@@ -13,8 +13,8 @@
 // latest.json (copy the file between machines, or upload after each run).
 //
 // The private signing key is read from TAURI_SIGNING_PRIVATE_KEY (a path or the
-// key itself), or else ~/.tauri/scaffold-updater.key. Keep it safe and backed
-// up: without it no update can reach apps already installed.
+// key itself), or else .keys/scaffold-updater.key in the project (git-ignored).
+// Keep it safe and backed up: without it no update can reach apps already installed.
 
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -49,7 +49,7 @@ if (version !== conf.version) {
 
 // ── build ────────────────────────────────────────────────────────────────────
 if (!has('--skip-build')) {
-  const key = process.env.TAURI_SIGNING_PRIVATE_KEY || path.join(os.homedir(), '.tauri', 'scaffold-updater.key');
+  const key = process.env.TAURI_SIGNING_PRIVATE_KEY || path.join(HERE, '..', '.keys', 'scaffold-updater.key');
   if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !fs.existsSync(key)) fail(`No signing key at ${key}. Set TAURI_SIGNING_PRIVATE_KEY.`);
   console.log(`Building Scaffold ${version} (signed)…`);
   execSync('npx --yes @tauri-apps/cli@2 build', {

@@ -27,3 +27,6 @@ Thumbs.db
 # Desktop installers (built with `cargo tauri build`, copied here for release)
 /downloads/*
 !/downloads/.gitkeep
+
+# Updater signing key (private — never commit; back it up)
+/.keys/
