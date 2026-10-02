@@ -3664,6 +3664,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-files",
+ "actix-http",
  "actix-multipart",
  "actix-session",
  "actix-web",

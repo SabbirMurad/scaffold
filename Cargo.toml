@@ -72,6 +72,7 @@ listenfd = "0.5"
 
 resend = "0.1.4"
 resend-rs = "0.21.1"
+actix-http = "3"
 
 [dependencies.jsonwebtoken]
 version = "8"

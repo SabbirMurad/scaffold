@@ -174,7 +174,7 @@ export function resolve(scope, path) {
 // What each binding slot accepts.
 const SLOT_OK = {
   text: (t) => PRIMITIVES.includes(t.base) || !!enumByName(t.base) || (listType(t) && (PRIMITIVES.includes(t.args[0].base) || !!enumByName(t.args[0].base))),
-  src: (t) => t.base === 'String',
+  src: (t) => t.base === 'String' || (modelByName(t.base) || {}).builtin === 'image', // a URL, or an ImageModel
   fill: (t) => t.base === 'String',
   color: (t) => t.base === 'String',
   list: (t) => listType(t),
@@ -182,7 +182,7 @@ const SLOT_OK = {
 };
 export const SLOT_HINT = {
   text: 'a text, number, bool or enum field',
-  src: 'a String field holding an image URL',
+  src: 'an ImageModel, or a String field holding an image URL',
   fill: 'a String field holding a hex color',
   color: 'a String field holding a hex color',
   list: 'a list',
@@ -266,7 +266,12 @@ export function viewOf(node, scope) {
   if (!b) return node;
   const v = Object.create(node);
   if (b.text) { const val = resolve(scope, b.text); if (val !== undefined) v.text = asText(val); }
-  if (b.src) { const val = resolve(scope, b.src); if (typeof val === 'string' && val) v.src = val; }
+  if (b.src) {
+    // A URL, or an ImageModel — shown from its webp_url.
+    const val = resolve(scope, b.src);
+    const url = typeof val === 'string' ? val : val && typeof val === 'object' ? val.webp_url || val.original_url : null;
+    if (url) v.src = url;
+  }
   if (b.fill) {
     const val = resolve(scope, b.fill);
     if (isHex(val)) { v.fill = val; v.colorId = null; v.fillType = 'solid'; v.alpha = 1; }

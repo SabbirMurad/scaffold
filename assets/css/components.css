@@ -458,6 +458,10 @@ body.sidebar-collapsed #sidebar-open { display: block; }
 /* One line per file (the theme item is several files under one checkbox). */
 .export-item-path { margin-left: auto; font-size: 11px; color: var(--text3); font-family: var(--mono); max-width: 55%; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .export-item-path > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Assets group: a small preview of each image / icon file. */
+.export-asset-preview { width: 26px; height: 26px; flex-shrink: 0; border-radius: 5px; object-fit: cover; background: var(--surface3); }
+.export-asset-preview.icon { object-fit: contain; padding: 4px; background: #e9ebef; }
+.export-assets-loading { font-size: 12px; color: var(--text3); padding: 6px 10px; }
 
 /* Icon picker (Iconify) */
 .icon-modal { max-width: 540px; }
@@ -1360,8 +1364,13 @@ body.public-view #cmt-delete { display: none !important; }
 body.public-view #project-name { pointer-events: none; }
 /* No left panel at all (no tabs, layers or name), and the viewing controls —
    theme switch and Play — sit at the right, over the Properties panel. */
-body.public-view #layers-panel,
 body.public-view #sidebar-open { display: none !important; }
+/* Of the left panel, a public view keeps only the Pages card (view-only — no
+   add, rename or delete), so visitors can move between pages; a design with a
+   single page shows nothing there. */
+body.public-view #layers-panel { bottom: auto; }
+body.public-view #layers-panel > :not(#pages-card),
+body.public-view.single-page #layers-panel { display: none !important; }
 body.public-view #action-bar { justify-content: flex-end; }
 body.public-view #actions-card { flex: 0 0 auto; padding: 6px; }
 /* Viewers see a layer's lock / visibility state, not buttons for it. */
@@ -1490,3 +1499,16 @@ body.role-viewer #props-panel [contenteditable] { pointer-events: none; }
 
 /* Text case toggles (Aa / AA / aa) — letters instead of an icon. */
 .flip-btn.case-btn { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+
+/* Built-in model card (models.js renderBuiltinCard): read-only, marked as built in. */
+.model-card.builtin { border-style: dashed; }
+.model-name-static { flex: 1; min-width: 0; font: 600 14px var(--mono); color: var(--text); padding: 6px 2px; }
+.model-builtin-badge {
+  flex-shrink: 0; font: 600 10.5px var(--sans); letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--accent); background: var(--accent-glow); border-radius: 5px; padding: 3px 7px;
+}
+.model-prop.builtin { gap: 8px; }
+.prop-name-static { flex: 1; min-width: 0; font: 12.5px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.prop-type-static { font: 12px var(--mono); color: var(--text2); }
+.prop-req.static { cursor: default; }
+.model-builtin-note { font-size: 11.5px; line-height: 1.5; color: var(--text3); padding: 8px 2px 2px; }

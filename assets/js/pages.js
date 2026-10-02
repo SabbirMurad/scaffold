@@ -105,6 +105,8 @@ export function initPages(options) {
 }
 
 export function renderPages() {
+  // A public view hides the Pages card when there's nothing to switch between.
+  document.body.classList.toggle('single-page', state.pages.length < 2);
   if (!listEl) return;
   if (addBtn) addBtn.hidden = !!state.readonly;
   listEl.innerHTML = state.pages.map(p => `

@@ -115,11 +115,12 @@ function layerIconHtml(node) {
   }
   let svg = { frame: 'frame', container: 'container', image: 'image' }[node.type];
   if (node.type === 'section') svg = collapsed.has(node.id) ? 'folder-close' : 'folder-open';
-  if (svg) {
-    const url = `/assets/icons/layers/${svg}.svg`;
+  // An icon layer shows the toolbar's Icon tool symbol, so the two match.
+  const url = svg ? `/assets/icons/layers/${svg}.svg` : node.type === 'icon' ? '/assets/icons/icon.svg' : null;
+  if (url) {
     return `<span class="layer-icon layer-icon-svg" style="-webkit-mask-image:url(${url});mask-image:url(${url})"></span>`;
   }
-  const glyph = { row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', icon: '\u2726', text: 'T' }[node.type] || '\u25AD';
+  const glyph = { row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', text: 'T' }[node.type] || '\u25AD';
   return `<span class="layer-icon">${glyph}</span>`;
 }
 

@@ -6,6 +6,7 @@
 use std::time::{Duration, Instant};
 
 use actix::{Actor, ActorContext, Addr, AsyncContext, Handler, Running, StreamHandler};
+use actix_http::ws::Item;
 use actix_web_actors::ws;
 use serde_json::Value;
 
@@ -14,6 +15,9 @@ use super::messages::{Connect, Disconnect, DocUpdate, WsMessage};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(12);
+// The most a message split across continuation frames may add up to — the same
+// limit as a single frame (connect.rs MAX_FRAME).
+const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 
 pub struct WsConn {
     project_id: String,
@@ -22,6 +26,8 @@ pub struct WsConn {
     can_edit: bool, // viewers may receive updates but their edits are ignored
     lobby: Addr<Lobby>,
     hb: Instant,
+    // A text message arriving in pieces (continuation frames), until its last one.
+    partial: Option<Vec<u8>>,
 }
 
 impl WsConn {
@@ -39,6 +45,7 @@ impl WsConn {
             can_edit,
             lobby,
             hb: Instant::now(),
+            partial: None,
         }
     }
 
@@ -122,8 +129,31 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsConn {
                 ctx.close(reason);
                 ctx.stop();
             }
-            Ok(ws::Message::Continuation(_)) => {
-                ctx.stop();
+            // A large message (e.g. a doc_update carrying a big design) arrives
+            // split into frames: collect them, and handle the whole once complete.
+            Ok(ws::Message::Continuation(item)) => {
+                self.hb = Instant::now();
+                let last = matches!(item, Item::Last(_));
+                match item {
+                    Item::FirstText(bytes) => self.partial = Some(bytes.to_vec()),
+                    Item::FirstBinary(_) => self.partial = None, // binary isn't used
+                    Item::Continue(bytes) | Item::Last(bytes) => {
+                        let Some(buf) = self.partial.as_mut() else { return };
+                        buf.extend_from_slice(&bytes);
+                        if buf.len() > MAX_MESSAGE {
+                            log::error!("ws message over {MAX_MESSAGE} bytes; dropping the connection");
+                            ctx.stop();
+                            return;
+                        }
+                        if last {
+                            let whole = self.partial.take().unwrap_or_default();
+                            match String::from_utf8(whole) {
+                                Ok(text) => self.on_text(text),
+                                Err(_) => log::error!("ws continuation message isn't valid UTF-8"),
+                            }
+                        }
+                    }
+                }
             }
             Ok(ws::Message::Nop) => {}
             Err(error) => {

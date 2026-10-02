@@ -92,6 +92,32 @@ export function propError(model, prop) {
   return typeError(prop.type);
 }
 
+// ───────── Built-in models ─────────
+// Models every new project starts with. They can be used as field types (e.g.
+// Shop.image: ImageModel) and bound in the design, but not edited: the exporter
+// writes their files itself.
+export const BUILTIN_NOTES = {
+  image: 'Shown by AppImage. Exported as lib/model/image_model.dart: webp_url and original_url are built from ApiEndpoint.baseUrl and the uuid.',
+};
+
+// ImageModel, as in the hasp app: an image the server stores by uuid, with its
+// webp and original URLs, its blurhash and size.
+function imageModel() {
+  const prop = (name, base) => ({ id: 'p' + state.nextPropId++, name, type: makeType(base), required: true });
+  return {
+    id: 'm' + state.nextModelId++, name: 'ImageModel', builtin: 'image',
+    properties: [
+      prop('uuid', 'String'), prop('webp_url', 'String'), prop('original_url', 'String'),
+      prop('blur_hash', 'String'), prop('width', 'double'), prop('height', 'double'),
+    ],
+  };
+}
+
+// Add the built-in models a new project starts with (none already named so).
+export function seedBuiltinModels() {
+  if (!state.models.some(m => m.name === 'ImageModel')) state.models.unshift(imageModel());
+}
+
 // ───────── Following a rename ─────────
 // Types, API outputs and mock data refer to models, enums, fields and enum values
 // by name, as do the design's data bindings — so a rename is carried through all
@@ -320,6 +346,7 @@ function addModel() {
 }
 
 function deleteModel(id) {
+  if (getModel(id)?.builtin) return;
   state.models = state.models.filter(m => m.id !== id);
   saveHistory();
   renderModels();
@@ -348,6 +375,7 @@ function duplicateModel(id) {
 }
 
 function addProperty(model) {
+  if (!model || model.builtin) return;
   if (!model) return;
   model.properties.push({ id: 'p' + state.nextPropId++, name: 'field', type: makeType('String'), required: true });
   saveHistory();
@@ -404,7 +432,28 @@ function renderTypePicker(t, modelId, propId, path) {
   return html;
 }
 
+// A built-in model (e.g. ImageModel): shown for reference, not editable — its
+// file is written by the exporter itself (codegen.js), so edits wouldn't reach it.
+function renderBuiltinCard(m) {
+  const props = m.properties.map(p => `
+    <div class="model-prop builtin">
+      <span class="prop-name-static">${esc(p.name)}</span>
+      <span class="prop-type-static">${esc(typeToString(p.type))}</span>
+      <span class="prop-req ${p.required !== false ? 'required' : 'optional'} static">${p.required !== false ? 'required' : 'optional'}</span>
+    </div>`).join('');
+  return `
+  <div class="model-card builtin">
+    <div class="model-card-head">
+      <span class="model-name-static">${esc(m.name)}</span>
+      <span class="model-builtin-badge" title="${esc(BUILTIN_NOTES[m.builtin] || 'Built into every project')}">Built-in</span>
+    </div>
+    <div class="model-props">${props}</div>
+    <div class="model-builtin-note">${esc(BUILTIN_NOTES[m.builtin] || '')}</div>
+  </div>`;
+}
+
 function renderCard(m) {
+  if (m.builtin) return renderBuiltinCard(m);
   const props = m.properties.map(p => {
     const perr = propError(m, p);
     const required = p.required !== false;

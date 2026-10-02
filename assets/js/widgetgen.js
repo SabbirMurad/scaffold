@@ -313,38 +313,60 @@ function b64ToBytes(b64) {
 // A bare remote URL, or an unresolved ref, returns null. Identical images share one
 // file (named by a content hash).
 function registerImage(ctx, node) {
-  let src = node.src || '';
+  const file = imageFile(node);
+  if (!file) return null;
+  const path = `assets/images/${file.name}`;
+  ctx.images.set(path, file.bytes);
+  return path;
+}
+
+// An image node's file, for any export: { name: image_<hash>.<ext>, bytes }, or
+// null when there are no bytes (a bare URL, or a ref not resolved yet).
+export function imageFile(node) {
+  let src = (node && node.src) || '';
   if (isImageRef(src)) src = imageDataUri(refId(src)) || '';
   const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(src);
   if (!m || !m[2]) return null;
   const ext = IMG_EXT[(m[1] || 'image/png').toLowerCase()] || 'png';
-  const b64 = m[3];
-  const path = `assets/images/image_${hashStr(b64)}.${ext}`;
-  ctx.images.set(path, b64ToBytes(b64));
-  return path;
+  return { name: `image_${hashStr(m[3])}.${ext}`, bytes: b64ToBytes(m[3]) };
 }
+// Every picture is the app's own AppImage widget (lib/widget/app_image.dart):
+// a design image is an asset file, a data-bound one its URL from the data.
 function buildImage(ctx, node, opts) {
-  const props = sizeProps(ctx, node, opts);
-  const deco = {};
-  const br = borderRadiusExpr(ctx, node);
-  if (br) deco.borderRadius = br;
+  const size = sizeProps(ctx, node, opts);
   const boundSrc = node.bind && node.bind.src ? dataPath(ctx, node.bind.src) : null;
   const assetPath = !boundSrc && node.src ? registerImage(ctx, node) : null;
-  if (boundSrc) {
-    // The picture comes from the data: a URL field.
-    deco.image = `DecorationImage(image: NetworkImage(${boundSrc.nullable ? `${boundSrc.expr} ?? ''` : boundSrc.expr}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
+  // The ImageModel to show (lib/model/image_model.dart).
+  let image = null;
+  if (boundSrc && isImageModelType(boundSrc.type)) {
+    // An ImageModel field in the data — shown as it is.
+    image = boundSrc.nullable ? `${boundSrc.expr} ?? ImageModel.network('')` : boundSrc.expr;
+  } else if (boundSrc) {
+    // A String field holding an image URL.
+    image = `ImageModel.network(${boundSrc.nullable ? `${boundSrc.expr} ?? ''` : boundSrc.expr})`;
   } else if (assetPath) {
-    deco.image = `DecorationImage(image: AssetImage(${dartStr(assetPath)}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
+    image = `ImageModel.asset(${dartStr(assetPath)})`;                                  // the design's own image
   } else if (node.src && !isImageRef(node.src)) {
-    // A bare remote URL (the picker's CORS fallback) → NetworkImage.
-    deco.image = `DecorationImage(image: NetworkImage(${dartStr(node.src)}), fit: ${FIT[node.fit] || 'BoxFit.cover'})`;
-  } else {
-    // No image, or an image whose bytes couldn't be resolved → plain fill.
-    const col = solidColor(ctx, node.colorId, node.fill) || 'Color(0x1AFFFFFF)';
-    deco.color = col;
+    image = `ImageModel.network(${dartStr(node.src)})`;                                 // a bare remote URL
   }
-  props.decoration = W('BoxDecoration', deco);
-  return W('Container', props);
+  if (!image) {
+    // No image, or one whose bytes couldn't be resolved → its plain fill.
+    const col = solidColor(ctx, node.colorId, node.fill) || 'Color(0x1AFFFFFF)';
+    const deco = { color: col };
+    const br = borderRadiusExpr(ctx, node);
+    if (br) deco.borderRadius = br;
+    if (node.shape === 'circle') deco.shape = 'BoxShape.circle';
+    return W('Container', { ...size, decoration: W('BoxDecoration', deco) });
+  }
+  ctx.appImage = true;
+  ctx.imageModel = true;
+  const props = { image, ...size };
+  if (node.fit && node.fit !== 'cover') props.fit = FIT[node.fit] || 'BoxFit.cover';
+  const br = borderRadiusExpr(ctx, node);
+  if (br) props.borderRadius = br;
+  const img = W('AppImage', props);
+  // A circle is clipped round (borderRadiusExpr leaves circles out).
+  return node.shape === 'circle' ? W('ClipOval', {}, { child: img }) : img;
 }
 // djb2 hash → base36, to name icon files that have no Iconify id deterministically.
 function hashStr(s) {
@@ -356,11 +378,17 @@ function hashStr(s) {
 // asset path. Named from the Iconify id (e.g. mdi:home → mdi_home) when present,
 // else a content hash so identical icons share one file across screens.
 function iconAssetPath(ctx, node) {
+  const file = iconFile(node);
+  const path = `assets/icons/${file.name}`;
+  ctx.icons.set(path, file.svg);
+  return path;
+}
+
+// An icon node's file, for any export: { name: <iconify_id or icon_hash>.svg, svg }.
+export function iconFile(node) {
   const base = node.iconId || ('icon_' + hashStr(node.svg));
   const name = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'icon';
-  const path = `assets/icons/${name}.svg`;
-  ctx.icons.set(path, node.svg);
-  return path;
+  return { name: `${name}.svg`, svg: node.svg };
 }
 function buildIcon(ctx, node, opts) {
   // No SVG assigned yet → just reserve the space.
@@ -510,7 +538,8 @@ function buildNode(ctx, node, opts = {}) {
 // Flutter names a component mustn't shadow.
 const FLUTTER_NAMES = new Set(['Card', 'Container', 'Text', 'Icon', 'Image', 'Row', 'Column', 'Stack', 'Wrap',
   'Button', 'Scaffold', 'Center', 'Padding', 'Align', 'Expanded', 'Chip', 'Divider', 'Badge', 'Title', 'Material',
-  'Form', 'Table', 'Checkbox', 'Radio', 'Switch', 'Slider', 'Tab', 'Drawer', 'Dialog', 'Banner', 'Placeholder', 'InnerShadow']);
+  'Form', 'Table', 'Checkbox', 'Radio', 'Switch', 'Slider', 'Tab', 'Drawer', 'Dialog', 'Banner', 'Placeholder', 'InnerShadow',
+  'AppImage', 'ImagePlaceholder', 'ImageErrorWidget']);
 
 export function componentClass(c) {
   const master = getNode(c.rootId);
@@ -591,6 +620,8 @@ function dataPath(ctx, path) {
   return { expr, type, nullable };
 }
 const isEnumType = (t) => !!state.enums.find(e => e.name === t.base);
+// The built-in ImageModel (models.js), as a field type.
+const isImageModelType = (t) => !!t && !!state.models.find(m => m.name === t.base && m.builtin === 'image');
 
 function boundTextExpr(ctx, path) {
   const p = dataPath(ctx, path);
@@ -697,7 +728,7 @@ function newCtx(routeName) {
     scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
       [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
     mocks: new Set(), providers: new Set(), enums: new Set(), components: new Set(),
-    hexColor: false, routes: false, innerShadow: false, routeName,
+    hexColor: false, routes: false, innerShadow: false, appImage: false, imageModel: false, routeName,
   };
 }
 

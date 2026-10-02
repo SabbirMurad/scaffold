@@ -90,7 +90,17 @@ function fakeValue(type, field, depth) {
   return null;
 }
 
+// A built-in ImageModel (models.js): a real photo at a real size, both URLs
+// pointing at it, and a valid blurhash for its placeholder.
+const SAMPLE_BLURHASHES = ['LEHV6nWB2yk8pyo0adR*.7kCMdnj', 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH', 'L6PZfSi_.AyE_3t7t7R**0o#DgR4', 'LGF5]+Yk^6#M@-5c,1J5@[or[Q6.'];
+function fakeImage() {
+  const seed = randInt(1, 999), w = pick([800, 1200, 600]), h = pick([600, 800, 900]);
+  const url = `https://picsum.photos/seed/${seed}/${w}/${h}`;
+  return { uuid: uuidish(), webp_url: url, original_url: url, blur_hash: pick(SAMPLE_BLURHASHES), width: w, height: h };
+}
+
 function genObject(model, depth) {
+  if (model.builtin === 'image') return fakeImage();
   const obj = {};
   model.properties.forEach(p => { obj[p.name] = fakeValue(p.type, p.name, depth); });
   return obj;
@@ -148,6 +158,8 @@ function dartValue(val, type, indent) {
 function dartObject(model, obj, indent) {
   const pad = indentStr(indent + 1);
   const fields = model.properties.map(p => `${pad}${p.name}: ${dartValue(obj ? obj[p.name] : null, p.type, indent + 1)}`);
+  // ImageModel also takes the provider it's drawn from (see its exported file).
+  if (model.builtin === 'image') fields.push(`${pad}provider: CachedNetworkImageProvider(${dartString((obj && obj.webp_url) || '')})`);
   return `${model.name}(\n${fields.join(',\n')}\n${indentStr(indent)})`;
 }
 

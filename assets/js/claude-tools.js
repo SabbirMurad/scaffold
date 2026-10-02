@@ -314,8 +314,8 @@ const TOOLS = [
   },
   {
     name: 'export_code', title: 'Export code', annotations: { readOnlyHint: true, openWorldHint: false },
-    description: 'Generate the Flutter/Dart code (screens, routes, models, enums, providers, theme, typography) and download it as a zip, as the Export button does. Refuses while anything has a validation error, and says what.',
-    inputSchema: obj({}),
+    description: 'Export one page\'s code as a zip, as the Export button does — each page exports on its own. A phone page gives the Flutter/Dart code (its screens and routes, plus the models, enums, providers, theme and typography); a web page gives an HTML file per screen in pages/ (empty for now). Exports the page you\'re working on unless "page" names another. Refuses while anything has a validation error, and says what.',
+    inputSchema: obj({ page: str('The page to export, by name or id (get_design lists them). Default: the page you\'re working on.') }),
   },
   {
     name: 'page', title: 'Pages', annotations: EDIT,
@@ -1507,6 +1507,7 @@ function editModel(args) {
     return { ok: true, summary: `Added model "${m.name}" with ${plural(m.properties.length, 'field')}`, id: m.id };
   }
   const m = findBy(state.models, args, 'model');
+  if (m.builtin) fail(`"${m.name}" is built in — it can be used as a field type and bound in the design, but not changed or deleted`);
   if (args.action === 'delete') {
     state.models = state.models.filter(x => x !== m);
     commit();
@@ -1821,7 +1822,14 @@ function undoRedo(args) {
   return { ok: true, summary: `${args.redo ? 'Redid' : 'Undid'} ${plural(steps, 'step')}` };
 }
 
-async function exportCode() {
+async function exportCode(args = {}) {
+  // Which page: the one named, else the one Claude is working on.
+  let page = workPage();
+  if (args.page) {
+    const want = String(args.page).trim().toLowerCase();
+    page = state.pages.find(p => p.id === args.page || p.name.toLowerCase() === want);
+    if (!page) fail(`No page "${args.page}" (there are: ${state.pages.map(p => p.name).join(', ')})`);
+  }
   const problems = [
     anyFrameError() && 'screen or section names/routes',
     anyColorError() && 'color variables',
@@ -1832,15 +1840,15 @@ async function exportCode() {
   ].filter(Boolean);
   if (problems.length) fail(`Fix the errors first — in ${problems.join(', ')} (names must follow the naming rules and be unique)`);
   await resolveRefsForExport(state.nodes);
-  const r = exportModelsCode(null);
-  if (!r.ok) fail('Nothing to export yet — add a screen, model, provider or color');
+  const r = exportModelsCode(null, page.id);
+  if (!r.ok) fail(page.kind === 'web' ? `Nothing to export on "${page.name}" yet — add a screen to it` : 'Nothing to export yet — add a screen, model, provider or color');
   const parts = [];
   if (r.screens) parts.push(plural(r.screens, 'screen'));
   if (r.models) parts.push(plural(r.models, 'model'));
   if (r.enums) parts.push(plural(r.enums, 'enum'));
   if (r.providers) parts.push(plural(r.providers, 'provider'));
   if (r.theme) parts.push('theme');
-  return { ok: true, summary: `Exported ${parts.join(' + ')} — the zip is in Downloads` };
+  return { ok: true, summary: `Exported the ${page.kind} page "${page.name}": ${parts.join(' + ')} — the zip is in Downloads` };
 }
 
 // ═════════════════════════════ Checking ═════════════════════════════════════

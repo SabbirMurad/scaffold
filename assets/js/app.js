@@ -7,7 +7,7 @@ import { render, applyTransform } from './render.js';
 import { initCanvasEvents } from './canvas.js';
 import { initToolEvents, setTool, initFileDrop } from './tools.js';
 import { findFrameAt, getWorldPos } from './nodes.js';
-import { initModels, renderModels } from './models.js';
+import { initModels, renderModels, seedBuiltinModels } from './models.js';
 import { initApi, renderApi } from './api.js';
 import { initColors, renderColors, renderThemeSwitch, applyTheme } from './colors.js';
 import { initTypography, renderTypography } from './typography.js';
@@ -17,7 +17,7 @@ import { getProject, saveProjectDoc, updateProject, requestAccess,
   listCollaborators, inviteCollaborator, setCollaboratorRole, removeCollaborator, respondInvite, getMe,
   setPublicLink, getPublicProject } from './projects.js';
 import { initMock, renderMock } from './mock.js';
-import { exportModelsCode, collectExportables, dartPaths } from './codegen.js';
+import { exportModelsCode, collectExportables, dartPaths, exportAssets } from './codegen.js';
 import { updateExportButton } from './validate.js';
 import { initDropdowns, ddTrigger } from './dropdown.js';
 import { initIconPicker } from './icons-picker.js';
@@ -209,18 +209,58 @@ function buildExportList(groups) {
   return group('models', 'Models', groups.models.map(m => m.name))
     + group('enums', 'Enums', groups.enums.map(e => e.name))
     + group('providers', 'Providers', groups.providers.map(p => p.name))
-    + group('screens', 'Screens', groups.screens.map(s => s.name))
-    + group('theme', 'Theme', groups.hasTheme ? [groups.hasTypography ? 'App colors, type & theme' : 'App colors & theme'] : []);
+    + group('screens', groups.web ? 'Pages' : 'Screens', groups.screens.map(s => s.name))
+    + group('theme', 'Theme', groups.hasTheme ? [groups.hasTypography ? 'App colors, type & theme' : 'App colors & theme'] : [])
+    // Images and icons the screens use — found after the popup opens (fillExportAssets).
+    + (groups.screens.length ? '<div id="export-assets"><div class="export-group"><div class="export-group-head"><span>Assets</span></div><div class="export-assets-loading">Finding images and icons…</div></div></div>' : '');
+}
+
+// The Assets group: each image / icon file the export would include, with a
+// small preview, all ticked. Unticking leaves that file out of the zip.
+let exportAssetsReady = false;
+async function fillExportAssets() {
+  exportAssetsReady = false;
+  const slot = document.getElementById('export-assets');
+  if (!slot) return;
+  await resolveRefsForExport(state.nodes); // images' bytes, so their files can be named and shown
+  if (!slot.isConnected) return;           // the popup closed / reopened meanwhile
+  const assets = exportAssets();
+  slot.innerHTML = assets.length ? `
+    <div class="export-group">
+      <div class="export-group-head">
+        <span>Assets</span>
+        <button type="button" class="export-toggle-all" data-kind="assets">Toggle all</button>
+      </div>
+      ${assets.map(a => `
+      <label class="export-item">
+        <input type="checkbox" data-kind="assets" value="${esc(a.path)}" checked>
+        <img class="export-asset-preview ${a.kind}" src="${esc(a.preview)}" alt="" loading="lazy">
+        <span class="export-item-name">${esc(a.path.split('/').pop())}</span>
+        <span class="export-item-path"><span>${esc(a.path)}</span></span>
+      </label>`).join('')}
+    </div>` : '';
+  exportAssetsReady = true;
 }
 
 function openExportModal() {
   const groups = collectExportables();
+  // Each page exports on its own: say which, and what kind of code it gives.
+  const pageName = groups.page ? groups.page.name : '';
+  if (groups.web && !groups.screens.length) {
+    showToast(`Nothing to export — add a screen to the "${pageName}" page first`);
+    return;
+  }
   if (!groups.models.length && !groups.enums.length && !groups.providers.length && !groups.screens.length && !groups.hasTheme) {
     showToast('Nothing to export — create a model, provider, screen or color first');
     return;
   }
+  document.getElementById('export-title').textContent = pageName ? `Export “${pageName}”` : 'Export code';
+  document.getElementById('export-sub').textContent = groups.web
+    ? 'A web page: one HTML file per screen in pages/ (folders follow its sections), with its images in assets/image/ and icons in assets/icon/.'
+    : 'Choose what to include in the exported Dart project — this page’s screens only.';
   exportList.innerHTML = buildExportList(groups);
   exportModal.hidden = false;
+  fillExportAssets();
 }
 
 document.getElementById('btn-export-code')?.addEventListener('click', (e) => {
@@ -241,7 +281,9 @@ exportList?.addEventListener('click', (e) => {
 
 document.getElementById('export-confirm')?.addEventListener('click', async () => {
   const selection = { models: new Set(), enums: new Set(), providers: new Set(), screens: new Set(), theme: new Set() };
-  exportList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => selection[cb.dataset.kind].add(cb.value));
+  // The asset ticks count once the Assets list has loaded; before that, all go.
+  if (exportAssetsReady) selection.assets = new Set();
+  exportList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => selection[cb.dataset.kind]?.add(cb.value));
   if (!selection.models.size && !selection.enums.size && !selection.providers.size && !selection.screens.size && !selection.theme.size) {
     showToast('Select at least one item to export');
     return;
@@ -257,6 +299,7 @@ document.getElementById('export-confirm')?.addEventListener('click', async () =>
   if (r.providers) parts.push(`${r.providers} provider${r.providers === 1 ? '' : 's'}`);
   if (r.screens) parts.push(`${r.screens} screen${r.screens === 1 ? '' : 's'}`);
   if (r.theme) parts.push('theme');
+  if (r.assets) parts.push(`${r.assets} asset${r.assets === 1 ? '' : 's'}`);
   showToast('Exported ' + (parts.join(' + ') || 'nothing'));
 });
 
@@ -696,6 +739,9 @@ async function boot() {
   }
 
   seedDefaults(); // fills any gaps (themes, white/black, default type style) after a load
+  // A new project (its document has never been saved: no models list at all)
+  // starts with the built-in models, e.g. ImageModel.
+  if (currentProjectId && !('models' in serverContent)) seedBuiltinModels();
   seedPages();    // the Phone + Web pages for a project from before pages, and which is open
   saveHistory();
   restoreViewport(); // reopen at this project's last pan/zoom (localStorage, per project)

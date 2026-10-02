@@ -1,9 +1,10 @@
-import { state, getNode } from './state.js';
+import { state, getNode, getMasterNode } from './state.js';
 import { isScreenFrame } from './nodes.js';
 import { typeToString, modelError, enumError } from './models.js';
-import { generateScreenBody, generateComponentBody, componentClass } from './widgetgen.js';
+import { generateScreenBody, generateComponentBody, componentClass, imageFile, iconFile } from './widgetgen.js';
 import { makeZip } from './zip.js';
 import { toDart as mockDart } from './mock.js';
+import { activePage, pageOf } from './pages.js';
 
 // Screen frame id → its AppRoutes constant, for taps in generated views. Filled
 // while an export runs (screenItems decides the names).
@@ -129,7 +130,111 @@ function dartType(f) {
   return typeToString(f.type) + (f.required === false ? '?' : '');
 }
 
+// The built-in ImageModel (models.js), as in the hasp app: an image the server
+// stores by uuid — its webp and original URLs come from ApiEndpoint.baseUrl —
+// plus the design's own images (assets) and plain URLs from the data.
+const imageModelDart = (pkg) => `import 'dart:typed_data';
+
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+import 'package:${pkg}/constants/api_endpoint.dart';
+
+class ImageModel {
+  final String uuid;
+  final String webp_url;
+  final String original_url;
+  final String blur_hash;
+  final double width;
+  final double height;
+  final ImageProvider provider;
+  final bool local;
+  final Uint8List? local_bytes;
+
+  const ImageModel({
+    required this.uuid,
+    required this.webp_url,
+    required this.original_url,
+    required this.blur_hash,
+    required this.width,
+    required this.height,
+    required this.provider,
+    this.local = false,
+    this.local_bytes,
+  });
+
+  factory ImageModel.fromJson(Map<String, dynamic> json) {
+    return ImageModel(
+      uuid: json['uuid'],
+      blur_hash: json['blur_hash'],
+      webp_url: '\${ApiEndpoint.baseUrl}/image/webp/\${json['uuid']}',
+      original_url: '\${ApiEndpoint.baseUrl}/image/original/\${json['uuid']}',
+      width: json['width'].toDouble(),
+      height: json['height'].toDouble(),
+      provider: CachedNetworkImageProvider(
+        '\${ApiEndpoint.baseUrl}/image/webp/\${json['uuid']}',
+      ),
+    );
+  }
+
+  /// Builds a network-backed model from just an image id — used for optimistic
+  /// display right after an upload returns only the uuid.
+  factory ImageModel.fromUuid(String uuid) {
+    final webp = '\${ApiEndpoint.baseUrl}/image/webp/$uuid';
+    return ImageModel(
+      uuid: uuid,
+      blur_hash: '',
+      webp_url: webp,
+      original_url: '\${ApiEndpoint.baseUrl}/image/original/$uuid',
+      width: 0,
+      height: 0,
+      provider: CachedNetworkImageProvider(webp),
+    );
+  }
+
+  /// An image shipped with the app (assets/images/…), drawn from the asset.
+  factory ImageModel.asset(String path) {
+    return ImageModel(
+      uuid: '',
+      blur_hash: '',
+      webp_url: '',
+      original_url: '',
+      width: 0,
+      height: 0,
+      provider: AssetImage(path),
+      local: true,
+    );
+  }
+
+  /// An image at a plain URL (not stored on the server by uuid).
+  factory ImageModel.network(String url) {
+    return ImageModel(
+      uuid: '',
+      blur_hash: '',
+      webp_url: url,
+      original_url: url,
+      width: 0,
+      height: 0,
+      provider: CachedNetworkImageProvider(url),
+    );
+  }
+
+  static List<ImageModel> fromJsonList(List<dynamic> json) {
+    return json.map((item) => ImageModel.fromJson(item)).toList();
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'uuid': uuid,
+      'blur_hash': blur_hash,
+      'width': width,
+      'height': height,
+    };
+  }
+}
+`;
+
 function generateModelFile(model) {
+  if (model.builtin === 'image') return imageModelDart(pkgName());
   const cls = model.name;
   const fields = model.properties;
   const pkg = pkgName();
@@ -368,6 +473,8 @@ function generateViewFile(it) {
   [...ctx.enums].sort().forEach(e => L.push(`import 'package:${pkg}/model/${snake(e)}.dart';`));
   if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
   if (ctx.innerShadow) L.push(`import 'package:${pkg}/widget/inner_shadow.dart';`);
+  if (ctx.appImage) L.push(`import 'package:${pkg}/widget/app_image.dart';`);
+  if (ctx.imageModel && !L.includes(`import 'package:${pkg}/model/image_model.dart';`)) L.push(`import 'package:${pkg}/model/image_model.dart';`);
   componentImports(ctx).forEach(i => L.push(i));
   // Providers the screen reads: a Riverpod consumer that watches each one.
   const watched = [...ctx.providers].map(name => state.providers.find(p => p.name === name)).filter(Boolean);
@@ -425,7 +532,7 @@ function generateViewFile(it) {
   }
   // Return the .dart content plus any asset files the screen references, so the
   // exporter can bundle icon SVGs (assets/icons/) and image bytes (assets/images/).
-  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks, components: ctx.components, innerShadow: ctx.innerShadow };
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, mocks: ctx.mocks, components: ctx.components, innerShadow: ctx.innerShadow, appImage: ctx.appImage };
 }
 
 // ───────── Inner shadow (lib/widget/inner_shadow.dart) ─────────
@@ -496,6 +603,170 @@ class _InnerShadowPainter extends CustomPainter {
 }
 `;
 
+// ───────── Images (lib/widget/app_image.dart + its placeholder and error) ─────────
+// Every image in the app is an AppImage of an ImageModel (as HaspImage in the
+// hasp app): a local image (the design's assets) from its provider, a network
+// one cached, fading in from its blurhash, with a "Couldn't load image" state
+// if it fails. Exported only when a screen or component shows an image.
+const appImageDart = (pkg) => `import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+import 'package:${pkg}/model/image_model.dart';
+import 'package:${pkg}/widget/image_error_widget.dart';
+import 'package:${pkg}/widget/image_placeholder.dart';
+
+/// App-wide way to render an [ImageModel]. Shows the image's blurhash while the
+/// network image loads (via [ImagePlaceholder]) and on failure (via
+/// [ImageErrorWidget]), so photos fade in from their blur instead of popping in
+/// from a blank box. Prefer this over a raw \`Image(image: model.provider)\`.
+class AppImage extends StatelessWidget {
+  final ImageModel image;
+  final BoxFit fit;
+  final double? width;
+  final double? height;
+  final BorderRadius? borderRadius;
+
+  /// Optional override for the failure state. Defaults to [ImageErrorWidget]
+  /// (a blurhash with a "Couldn't load image" label). Pass a compact widget for
+  /// small avatars where the label would not fit.
+  final Widget? errorWidget;
+
+  const AppImage({
+    super.key,
+    required this.image,
+    this.fit = BoxFit.cover,
+    this.width,
+    this.height,
+    this.borderRadius,
+    this.errorWidget,
+  });
+
+  Widget _placeholder() => ImagePlaceholder(blurHash: image.blur_hash, width: width, height: height);
+
+  Widget _error() => SizedBox(
+        width: width,
+        height: height,
+        child: errorWidget ?? ImageErrorWidget(blurHash: image.blur_hash),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget picture;
+    if (image.local) {
+      // Images shipped with the app, and locally-picked ones (not yet
+      // uploaded), have no network URL — render straight from the provider.
+      picture = Image(
+        image: image.provider,
+        fit: fit,
+        width: width,
+        height: height,
+        errorBuilder: (context, error, stack) => _error(),
+      );
+    } else if (image.webp_url.isEmpty) {
+      picture = _placeholder();
+    } else {
+      picture = CachedNetworkImage(
+        imageUrl: image.webp_url,
+        fit: fit,
+        width: width,
+        height: height,
+        placeholder: (context, url) => _placeholder(),
+        errorWidget: (context, url, error) => _error(),
+      );
+    }
+    if (borderRadius == null) return picture;
+    return ClipRRect(borderRadius: borderRadius!, child: picture);
+  }
+}
+`;
+
+const IMAGE_PLACEHOLDER_DART = `import 'package:flutter/material.dart';
+import 'package:flutter_blurhash/flutter_blurhash.dart';
+
+/// What an image shows while it loads: its blurhash when it has one, else a flat
+/// colour from the theme.
+class ImagePlaceholder extends StatelessWidget {
+  final String? blurHash;
+  final double? width;
+  final double? height;
+
+  const ImagePlaceholder({
+    super.key,
+    this.blurHash,
+    this.width,
+    this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.surfaceContainerHighest;
+    final hash = blurHash;
+    return SizedBox(
+      width: width ?? double.infinity,
+      height: height ?? double.infinity,
+      // BlurHash can't decode an empty hash — a flat colour stands in.
+      child: hash == null || hash.isEmpty
+          ? ColoredBox(color: color)
+          : BlurHash(
+              hash: hash,
+              color: color,
+              optimizationMode: BlurHashOptimizationMode.approximation,
+            ),
+    );
+  }
+}
+`;
+
+const imageErrorWidgetDart = (pkg) => `import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:${pkg}/widget/image_placeholder.dart';
+
+/// What an image shows when it can't load: its placeholder with a
+/// "Couldn't load image" label over it.
+class ImageErrorWidget extends StatelessWidget {
+  final String? blurHash;
+
+  const ImageErrorWidget({super.key, this.blurHash});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: double.infinity,
+      child: Stack(
+        children: [
+          ImagePlaceholder(blurHash: blurHash),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(24, 24, 24, 0.6),
+                border: Border.all(color: Colors.white.withValues(alpha: .1)),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color.fromRGBO(24, 24, 24, .2),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                'Couldn\\'t load image',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+`;
+
 // ───────── Components (lib/widget/<name>.dart) ─────────
 const componentFile = (c) => snake(componentClass(c));
 function componentImports(ctx) {
@@ -518,11 +789,13 @@ function generateComponentFile(c) {
   if (ctx.typo) L.push(`import 'package:${pkg}/constants/typography.dart';`);
   if (ctx.routes) L.push(`import 'package:${pkg}/route.dart';`);
   if (ctx.innerShadow) L.push(`import 'package:${pkg}/widget/inner_shadow.dart';`);
+  if (ctx.appImage) L.push(`import 'package:${pkg}/widget/app_image.dart';`);
+  if (ctx.imageModel && !L.includes(`import 'package:${pkg}/model/image_model.dart';`)) L.push(`import 'package:${pkg}/model/image_model.dart';`);
   ctx.components.delete(c.id);
   componentImports(ctx).forEach(i => L.push(i));
   L.push('', `class ${cls} extends StatelessWidget {`, `  const ${cls}({super.key});`, '');
   L.push(`  @override`, `  Widget build(BuildContext context) {`, `    return ${code};`, `  }`, `}`, '');
-  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, components: ctx.components, innerShadow: ctx.innerShadow };
+  return { content: L.join('\n'), icons: ctx.icons, images: ctx.images, components: ctx.components, innerShadow: ctx.innerShadow, appImage: ctx.appImage };
 }
 
 // Build lib/route.dart: one GoRoute per screen, unique constant + class names,
@@ -744,7 +1017,19 @@ function downloadBlob(blob, filename) {
 
 // Everything that can be exported right now: valid models, the enums those models
 // reference, and providers. Returned as arrays of the actual state objects.
-export function collectExportables() {
+// Each page exports on its own (pages.js): the open page's screens, as a Flutter
+// app for a phone page or as web pages for a web page — two pages never mix.
+// A web page's export is its pages/<screen>.html files for now (the web code
+// itself comes later), so models, data and theme go only with a phone page.
+// `pageId`: the page to export; the one open in the editor by default.
+export function collectExportables(pageId = null) {
+  const page = (pageId && state.pages.find(p => p.id === pageId)) || activePage();
+  const web = !!page && page.kind === 'web';
+  const onPage = (n) => !page || pageOf(n) === page.id;
+  if (web) {
+    const screens = state.nodes.filter(n => isScreenFrame(n) && onPage(n));
+    return { page, web, models: [], enums: [], providers: [], screens, hasTheme: false, hasTypography: false };
+  }
   const models = state.models.filter(m => modelError(m) === null);
   const refs = new Set();
   models.forEach(m => m.properties.forEach(p => collectRefs(p.type, refs)));
@@ -753,14 +1038,46 @@ export function collectExportables() {
   // Screens are page frames (root, or directly inside a Section — nested frames
   // are components, not routable pages) with a valid, exportable route path.
   const screens = state.nodes.filter(n =>
-    isScreenFrame(n) && routeExportable(routeOf(n)));
+    isScreenFrame(n) && onPage(n) && routeExportable(routeOf(n)));
   // The theme system (colors.dart + themes.dart) is exportable once there's at
   // least one color and one theme to generate from.
   const hasTheme = state.colors.length > 0 && state.themes.length > 0;
   // Typography (typography.dart) rides with the theme unit, so it's reported for
   // the picker label only when the theme unit is itself exportable.
   const hasTypography = hasTheme && state.typography.length > 0;
-  return { models, enums, providers, screens, hasTheme, hasTypography };
+  return { page, web, models, enums, providers, screens, hasTheme, hasTypography };
+}
+
+// The images and icons a web page's screens show (inside component instances
+// too): assets/image/<name> and assets/icon/<name>.svg, once each. An image
+// bound to data comes from the data at run time, so it has no file.
+function webAssetFiles(screens) {
+  const out = new Map();
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || seen.has(n.id)) return;
+    seen.add(n.id);
+    if (n.type === 'image' && !(n.bind && n.bind.src)) {
+      const f = imageFile(n);
+      if (f) out.set(`assets/image/${f.name}`, f.bytes);
+    } else if (n.type === 'icon' && n.svg) {
+      const f = iconFile(n);
+      out.set(`assets/icon/${f.name}`, f.svg);
+    } else if (n.type === 'instance') {
+      walk(getMasterNode(n.componentId));
+    }
+    (n.children || []).forEach(id => walk(getNode(id)));
+  };
+  screens.forEach(walk);
+  return [...out].map(([name, content]) => ({ name, content }));
+}
+
+// A web screen's file: pages/<screen>.html, inside a folder named after its
+// section when it's in one (as a phone screen's view lands in lib/view/<section>/).
+function webPagePath(fr) {
+  const parent = fr.parentId ? getNode(fr.parentId) : null;
+  const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
+  return `pages/${folder}${snake(fr.name)}.html`;
 }
 
 // The Dart files an exported item lands at (shown in the export picker). Each
@@ -768,7 +1085,10 @@ export function collectExportables() {
 // the theme unit is several files that import each other, so they export together.
 export function dartPaths(kind, name) {
   if (kind === 'screens') {
-    const fr = state.nodes.find(n => n.type === 'frame' && n.name === name);
+    // The screen of that name on the open page (another page may have one too).
+    const { screens, web } = collectExportables();
+    const fr = screens.find(n => n.name === name);
+    if (web) return fr ? [webPagePath(fr)] : [];
     const parent = fr && fr.parentId ? getNode(fr.parentId) : null;
     const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
     return [`lib/view/${folder}${snake(name)}.dart`];
@@ -786,8 +1106,19 @@ export function dartPaths(kind, name) {
 // zip and trigger a download. `selection` (optional) narrows the export to chosen
 // items: { models:Set<name>, enums:Set<name>, providers:Set<name> }. Assumes the
 // project is otherwise error-free (the export button is gated on that).
-export function exportModelsCode(selection = null) {
-  const all = collectExportables();
+// Every file the export would write for `selection` (null = everything), without
+// downloading: { ok, files, counts }. Image and icon files (assets/…) are the
+// ones the chosen screens and components actually use.
+function buildExportFiles(selection = null, pageId = null) {
+  const all = collectExportables(pageId);
+  if (all.web) {
+    // A web page: one empty .html file per screen for now.
+    const screens = selection ? all.screens.filter(s => selection.screens?.has(s.name)) : all.screens;
+    if (!screens.length) return { ok: false };
+    const files = screens.map(fr => ({ name: webPagePath(fr), content: '' }));
+    files.push(...webAssetFiles(screens));
+    return { ok: true, page: all.page, files, models: 0, enums: 0, providers: 0, screens: screens.length, theme: 0, skipped: 0 };
+  }
   let { models, enums, providers, screens } = all;
   const wantTheme = all.hasTheme && (!selection || (selection.theme && selection.theme.size > 0));
   if (selection) {
@@ -808,10 +1139,12 @@ export function exportModelsCode(selection = null) {
     const usedMocks = new Set();
     const usedComponents = new Set();
     let innerShadow = false; // any screen or component draws an inner shadow
+    let appImage = false;    // ...or shows an image
     const iconAssets = new Map();  // assets/icons/<name>.svg  → svg markup   (deduped across screens)
     const imageAssets = new Map(); // assets/images/<name>.<ext> → image bytes (deduped across screens)
     items.forEach(it => {
-      const { content, icons, images, mocks, components, innerShadow: inner } = generateViewFile(it);
+      const { content, icons, images, mocks, components, innerShadow: inner, appImage: usesImage } = generateViewFile(it);
+      if (usesImage) appImage = true;
       if (inner) innerShadow = true;
       mocks.forEach(m => usedMocks.add(m));
       components.forEach(c => usedComponents.add(c));
@@ -829,7 +1162,8 @@ export function exportModelsCode(selection = null) {
       done.add(id);
       const c = state.components.find(x => x.id === id);
       if (!c) continue;
-      const { content, icons, images, components, innerShadow: inner } = generateComponentFile(c);
+      const { content, icons, images, components, innerShadow: inner, appImage: usesImage } = generateComponentFile(c);
+      if (usesImage) appImage = true;
       if (inner) innerShadow = true;
       files.push({ name: `lib/widget/${componentFile(c)}.dart`, content });
       icons.forEach((svg, path) => iconAssets.set(path, svg));
@@ -837,6 +1171,13 @@ export function exportModelsCode(selection = null) {
       components.forEach(x => queue.push(x));
     }
     if (innerShadow) files.push({ name: 'lib/widget/inner_shadow.dart', content: INNER_SHADOW_DART });
+    if (appImage) {
+      files.push({ name: 'lib/widget/app_image.dart', content: appImageDart(pkgName()) });
+      files.push({ name: 'lib/widget/image_placeholder.dart', content: IMAGE_PLACEHOLDER_DART });
+      files.push({ name: 'lib/widget/image_error_widget.dart', content: imageErrorWidgetDart(pkgName()) });
+      // AppImage shows an ImageModel, so its file goes along even if the model wasn't picked.
+      if (!files.some(f => f.name === 'lib/model/image_model.dart')) files.push({ name: 'lib/model/image_model.dart', content: imageModelDart(pkgName()) });
+    }
     // The mock data the screens read (lib/mock/<set>.dart), plus the model and enum
     // files it needs even if they weren't picked for export.
     usedMocks.forEach(name => {
@@ -855,6 +1196,10 @@ export function exportModelsCode(selection = null) {
       walk(model.name);
       const pkg = pkgName();
       const imports = [...refs].sort().map(r => `import 'package:${pkg}/model/${snake(r)}.dart';`);
+      // A mock ImageModel is built with its provider (CachedNetworkImageProvider).
+      if ([...refs].some(r => state.models.some(m => m.name === r && m.builtin === 'image'))) {
+        imports.unshift(`import 'package:cached_network_image/cached_network_image.dart';`);
+      }
       files.push({ name: `lib/mock/${snake(name)}.dart`, content: `${imports.join('\n')}\n\n// Mock data from the Mock Data tab.\n${mockDart(set)}\n` });
       refs.forEach(r => {
         const path = `lib/model/${snake(r)}.dart`;
@@ -877,6 +1222,43 @@ export function exportModelsCode(selection = null) {
     files.push({ name: 'lib/themes.dart', content: generateThemesFile(state.colors, state.themes, state.colorRoles || {}) });
   }
 
-  downloadBlob(makeZip(files), `${pkgName()}_code.zip`);
-  return { ok: true, models: models.length, enums: enums.length, providers: providers.length, screens: screens.length, theme: wantTheme ? 1 : 0, skipped: state.models.length - all.models.length };
+  return { ok: true, page: all.page, files, models: models.length, enums: enums.length, providers: providers.length, screens: screens.length, theme: wantTheme ? 1 : 0, skipped: state.models.length - all.models.length };
+}
+
+const isAsset = (name) => name.startsWith('assets/');
+
+// The image and icon files a full export would include, for the export picker:
+// [{ path, kind: 'image' | 'icon', preview }] — preview is a data URL to show.
+// Needs images resolved first (resolveRefsForExport), like the export itself.
+export function exportAssets() {
+  const r = buildExportFiles(null);
+  if (!r.ok) return [];
+  return r.files.filter(f => isAsset(f.name)).map(f => {
+    const icon = /^assets\/icons?\//.test(f.name); // assets/icons/ (Flutter) or assets/icon/ (web)
+    const ext = f.name.split('.').pop().toLowerCase();
+    const mime = icon || ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+    let preview;
+    if (typeof f.content === 'string') preview = `data:${mime};charset=utf-8,${encodeURIComponent(f.content)}`;
+    else {
+      let bin = '';
+      for (let i = 0; i < f.content.length; i++) bin += String.fromCharCode(f.content[i]);
+      preview = `data:${mime};base64,${btoa(bin)}`;
+    }
+    return { path: f.name, kind: icon ? 'icon' : 'image', preview };
+  });
+}
+
+// Generate the export for `selection` and download it as a zip. `selection.assets`
+// (a Set of paths) narrows the image / icon files; without it, all of them go.
+export function exportModelsCode(selection = null, pageId = null) {
+  const r = buildExportFiles(selection, pageId);
+  if (!r.ok) return r;
+  const files = selection && selection.assets
+    ? r.files.filter(f => !isAsset(f.name) || selection.assets.has(f.name))
+    : r.files;
+  // Named after the page, so two pages' exports never get mixed up.
+  const page = r.page;
+  downloadBlob(makeZip(files), `${pkgName()}${page ? '_' + snake(page.name) : ''}_code.zip`);
+  const { files: _all, page: _page, ...counts } = r;
+  return { ...counts, page: page ? { id: page.id, name: page.name, kind: page.kind } : null, assets: files.filter(f => isAsset(f.name)).length };
 }
