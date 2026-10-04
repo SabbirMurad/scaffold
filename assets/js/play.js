@@ -6,6 +6,7 @@
 // and stripped of editor chrome, so what plays is exactly what's on the canvas.
 
 import { state, getNode, getMasterNode } from './state.js';
+import { tapTab } from './widgets.js';
 import { showToast } from './utils.js';
 import { routeTarget, scopeOfElement } from './data.js';
 import { isFlex } from './nodes.js';
@@ -471,6 +472,7 @@ function launch() {
 // with a navigate action wins (mirrors how an onTap bubbles in Flutter).
 function onScreenClick(e) {
   if (suppressClick) { suppressClick = false; return; }
+  if (tapTab(e.target)) return; // a tab of a Tabs element
   const TAPPABLE = '[data-id], [data-play-id]';
   let el = e.target.closest(TAPPABLE);
   while (el) {

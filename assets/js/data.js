@@ -175,6 +175,7 @@ export function resolve(scope, path) {
 const SLOT_OK = {
   text: (t) => PRIMITIVES.includes(t.base) || !!enumByName(t.base) || (listType(t) && (PRIMITIVES.includes(t.args[0].base) || !!enumByName(t.args[0].base))),
   src: (t) => t.base === 'String' || (modelByName(t.base) || {}).builtin === 'image', // a URL, or an ImageModel
+  alt: (t) => SLOT_OK.text(t),           // an image's alt text: anything shown as text
   fill: (t) => t.base === 'String',
   color: (t) => t.base === 'String',
   list: (t) => listType(t),
@@ -183,6 +184,7 @@ const SLOT_OK = {
 export const SLOT_HINT = {
   text: 'a text, number, bool or enum field',
   src: 'an ImageModel, or a String field holding an image URL',
+  alt: 'a text, number or enum field',
   fill: 'a String field holding a hex color',
   color: 'a String field holding a hex color',
   list: 'a list',

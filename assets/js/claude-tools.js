@@ -32,8 +32,9 @@ import { scopeFor, pathError, condError, canRepeat, OP_VALUES, providerPreview, 
 import { loadComments } from './comments.js';
 import { PROJECT_TOOLS, isProjectTool, runProjectTool } from './project-tools.js';
 import { candidates, firstImageDataUri, fetchImageDataUri } from './stock-images.js';
-import { pageRoots, revealPageOf, switchPage, addPage, KINDS, assignPages, setRootTarget } from './pages.js';
+import { pageRoots, revealPageOf, switchPage, addPage, KINDS, assignPages, setRootTarget, pageOf } from './pages.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
+import { setWidgetKind } from './widgets.js';
 
 const ICON_API = 'https://api.iconify.design';
 const IMAGE_API = 'https://api.openverse.org/v1/images/';
@@ -50,14 +51,16 @@ const ELEMENT_HELP = [
   '  container: { "type":"container", "layout":"column|row|wrap|stack|none", "gap":12, "padding":16, "fill":"#f3f4f6", "radius":12, "align":"left|center|right", "valign":"top|center|bottom", "children":[ ... ] }',
   '             layout "none" holds exactly one child; column/row/wrap lay children out; stack positions children freely by x/y.',
   '  text:      { "type":"text", "text":"...", "textStyle":"<style name>", "align":"left|center|right" }  — a text style gives font, size and color; fontSize / fontWeight / color ("var:<name>") on top of it override just those. Without a style: fontSize, fontWeight and a hex or "var:" color.',
-  '  image:     { "type":"image", "search":"mountain lake", "fit":"cover|contain", "height":180, "radius":12 }  — "search" takes the first free stock photo (Openverse); or "url":"https://…"; neither gives a grey placeholder.',
+  '  image:     { "type":"image", "search":"mountain lake", "fit":"cover|contain", "height":180, "radius":12, "alt":"Wood-fired margherita pizza" }  — "search" takes the first free stock photo (Openverse); or "url":"https://…"; neither gives a grey placeholder. "alt" says what the image shows (search engines and screen readers read it): give every meaningful image one — a photo bound to data can bind its alt too ("bind":{"alt":"item.name"}); for pure decoration give "decorative": true instead.',
   '  icon:      { "type":"icon", "icon":"mdi:home", "size":24, "color":"var:<color name>" }  — any Iconify id (use search_icons). Icons are tinted only by a color variable.',
   '  button:    { "type":"button", "text":"Sign in", "fill":"#2563eb", "color":"#ffffff", "radius":10 }  — a container with a centred label.',
   '  instance:  { "type":"instance", "component_id":"cmp1" }  — a live copy of a component.',
   'Any element also takes: name, width / height (px number, "fill" to fill the parent, or "hug" to fit content), x / y (only inside a stack or on the bare canvas), '
     + 'opacity (0–1), rotation, stroke / strokeWidth / strokeStyle ("solid|dashed|dotted"), shadows ([{x,y,blur,spread,color:"var:…",alpha,inset}] — inset:true for an inner shadow, e.g. a pressed button or an inset field; on a text they are text shadows, without spread or inset), layerBlur (px: blurs the element itself — soft glows and background shapes), backgroundBlur (px: blurs the content behind it — glassmorphism, with a see-through fill), strokeSides (list of sides for the stroke, e.g. ["bottom"] for a divider line), italic, decoration ("underline" / "lineThrough"), textCase ("upper" / "lower"), '
     + 'margin, visible, locked, scroll (containers), and "props" — raw node fields for anything else (see get_element for field names).',
-  'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","fill":"item.color_hex","color":"…"} fills an element from a field; '
+  'Tabs: a container with "tabs": { "active":0, "textStyle":"<style>", "activeColor":"var:…", "inactiveColor":"var:…", "indicatorColor":"var:…", "stretch":false } — its children are the tab panels (usually column containers, width "fill"), and each panel name is its tab label; the tab bar is drawn for you (do not build one). "stretch": true spreads the tabs over the full width. "tabs": false turns it back into a plain container.',
+  'On a web page, "tag" sets the HTML element for search engines and screen readers: a text is h1–h6, p or span (one h1 per page, headings in order); a container is header, nav, main, section, footer, article or aside (leave plain boxes alone — they are divs). Give each web screen "seo": {"title", "description"} too.',
+  'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","alt":"user.name","fill":"item.color_hex","color":"…"} fills an element from a field; '
     + '"showIf":{"path":"user.role","op":"==","value":"admin"} shows it only while the condition holds (op: truthy, falsy, ==, !=, >, <, >=, <=, empty, notEmpty — compare enums by value name); '
     + 'on a row/column/wrap container, "repeat":{"source":"exercises","as":"item"} draws its children once per item of a list — design them once, bound to item.<field>. '
     + 'Paths start at a mock set\'s name, an API provider\'s name (the design shows its preview mock data; exported screens read the provider), or an enclosing repeat\'s alias. Set any of these to null to remove it.',
@@ -110,6 +113,7 @@ const TOOLS = [
       valign: { type: 'string', enum: ['top', 'center', 'bottom'] },
       route: str('Route path, dashed-case, e.g. "/user-profile". Default: derived from the name.'),
       initial: bool('Make this the app\'s start screen.'),
+      seo: { type: 'object', description: 'Web pages: the page\'s search listing — {"title": "…" (about 60 characters), "description": "…" (one or two sentences, about 160)}. Give every web screen both.' },
       children: { type: 'array', items: ELEMENT },
     }),
   },
@@ -493,7 +497,7 @@ async function searchPhoto(query) {
 
 // Keys handled by name (everything else must go through "props").
 const SPEC_KEYS = new Set([
-  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat',
+  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs',
   'text', 'fontSize', 'fontWeight', 'color', 'textStyle', 'italic', 'decoration', 'textCase', 'strokeSides',
   'fill', 'gradient', 'radius', 'padding', 'margin', 'gap', 'layout', 'align', 'valign',
   'width', 'height', 'size', 'x', 'y', 'opacity', 'rotation', 'flipH', 'flipV',
@@ -530,6 +534,25 @@ async function applyProps(node, p) {
   // Text
   only('text', ['text']); only('textStyle', ['text']); only('italic', ['text']); only('decoration', ['text']); only('textCase', ['text']); only('fontSize', ['text']); only('fontWeight', ['text']);
   if (p.text !== undefined) node.text = String(p.text);
+  only('alt', ['image']); only('decorative', ['image']); only('tag', ['text', 'container']); only('seo', ['frame']);
+  // Web pages: the HTML element a text / container becomes, and a screen's search listing.
+  if (p.tag !== undefined) {
+    const tags = t === 'text' ? ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span'] : ['div', 'section', 'header', 'nav', 'main', 'footer', 'article', 'aside'];
+    if (p.tag === null || p.tag === "auto") delete node.htmlTag;
+    else if (!tags.includes(p.tag)) fail(`tag on a ${t} is one of ${tags.join(', ')} (or "auto")`);
+    else node.htmlTag = p.tag;
+  }
+  if (p.seo !== undefined) {
+    if (!p.seo || typeof p.seo !== 'object') fail('seo is { title, description }');
+    node.seo = { ...(node.seo || {}) };
+    for (const k of ['title', 'description']) {
+      if (p.seo[k] === undefined) continue;
+      const v = String(p.seo[k] || '').trim();
+      if (v) node.seo[k] = v; else delete node.seo[k];
+    }
+  }
+  if (p.alt !== undefined) { const alt = String(p.alt || '').trim(); if (alt) node.alt = alt; else delete node.alt; }
+  if (p.decorative !== undefined) { if (p.decorative) node.decorative = true; else delete node.decorative; }
   if (p.textStyle !== undefined) {
     if (p.textStyle === null) node.typoId = null;
     else {
@@ -679,10 +702,10 @@ async function applyProps(node, p) {
     else {
       if (typeof p.bind !== 'object' || Array.isArray(p.bind)) fail('bind is an object: { text, src, fill, color }');
       const scope = scopeFor(node);
-      const allowed = { text: ['text'], color: ['text'], src: ['image'], fill: ['container', 'image', 'frame'] };
+      const allowed = { text: ['text'], color: ['text'], src: ['image'], alt: ['image'], fill: ['container', 'image', 'frame'] };
       const next = { ...(node.bind || {}) };
       for (const [slot, path] of Object.entries(p.bind)) {
-        if (!allowed[slot]) fail(`bind has text, src, fill and color — not "${slot}"`);
+        if (!allowed[slot]) fail(`bind has text, src, alt, fill and color — not "${slot}"`);
         if (!allowed[slot].includes(t)) fail(`bind.${slot} doesn't apply to a ${t}`);
         if (path === null || path === '') { delete next[slot]; continue; }
         const err = pathError(scope, path, slot);
@@ -780,6 +803,30 @@ async function applyProps(node, p) {
       const current = node[key];
       if (current !== null && value !== null && typeof current !== typeof value) fail(`"${key}" is a ${typeof current}, not a ${typeof value}`);
       node[key] = clone(value);
+    }
+  }
+
+  // Tabs (widgets.js): last, so its column layout wins. Children are the panels.
+  if (p.tabs !== undefined) {
+    if (t !== 'container') fail('"tabs" applies to a container');
+    if (!p.tabs) { setWidgetKind(node, 'none'); return; }
+    const o = p.tabs === true ? {} : p.tabs;
+    if (typeof o !== 'object') fail('tabs is true, false or { active, textStyle, activeColor, inactiveColor, indicatorColor, stretch }');
+    setWidgetKind(node, 'tabs', null);
+    const w = node.widget;
+    if (o.active !== undefined) { if (!Number.isInteger(o.active) || o.active < 0) fail('tabs.active is a tab index (0 = first)'); w.active = o.active; }
+    if (o.stretch !== undefined) w.stretch = !!o.stretch;
+    if (o.textStyle !== undefined) {
+      const ty = o.textStyle && state.typography.find(s => s.name === o.textStyle);
+      if (o.textStyle && !ty) fail(`tabs.textStyle: no text style "${o.textStyle}"`);
+      w.typoId = ty ? ty.id : null;
+    }
+    for (const [key, field] of [['activeColor', 'activeColorId'], ['inactiveColor', 'inactiveColorId'], ['indicatorColor', 'indicatorColorId']]) {
+      if (o[key] === undefined) continue;
+      if (o[key] === null) { w[field] = null; continue; }
+      const c = colorRef(o[key], `tabs.${key}`);
+      if (!c.colorId) fail(`tabs.${key} must be a color variable ("var:<name>")`);
+      w[field] = c.colorId;
     }
   }
 }
@@ -1884,6 +1931,8 @@ function backdrop(el) {
 
 function lintScreen(frame) {
   const issues = [];
+  // A web page's images need alt text (search engines and screen readers read it).
+  const web = (state.pages.find(p => p.id === pageOf(frame)) || {}).kind === 'web';
   const z = state.zoom || 1;
   const fEl = document.getElementById('node-' + frame.id);
   if (!fEl) return issues;
@@ -1892,6 +1941,13 @@ function lintScreen(frame) {
   const elOf = (n) => document.getElementById('node-' + n.id);
   const rectOf = (n) => { const e = elOf(n); return e && e.getClientRects().length ? e.getBoundingClientRect() : null; };
   const flagged = new Set(); // report where a problem starts, not every descendant along with it
+
+  // A web screen's search listing (update_element with "seo" sets it).
+  if (web) {
+    const seo = frame.seo || {};
+    if (!(seo.title || '').trim()) add(frame, 'has no page title — give the screen "seo": {"title": "…"} (what the page is, about 60 characters; shown in search results)');
+    if (!(seo.description || '').trim()) add(frame, 'has no meta description — give the screen "seo": {"description": "…"} (one or two sentences, about 160 characters)');
+  }
 
   for (const n of subtree(frame)) {
     const r = rectOf(n);
@@ -1909,6 +1965,10 @@ function lintScreen(frame) {
         const need = px >= 24 || (px >= 18.66 && parseInt(cs.fontWeight, 10) >= 700) ? 3 : 4.5;
         if (ratio < need) add(n, `text "${n.text.slice(0, 30)}" has ${ratio.toFixed(1)}:1 contrast against its background (needs ${need}:1)`);
       }
+    }
+
+    if (web && n.type === 'image' && !n.decorative && !(n.alt || '').trim() && !(n.bind && n.bind.alt)) {
+      add(n, 'has no alt text — say what it shows ("alt"), bind it to a field ("bind":{"alt":"…"}), or mark it "decorative": true if it is only decoration');
     }
 
     if (flagged.has(n.parentId)) { flagged.add(n.id); continue; }

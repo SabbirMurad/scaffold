@@ -11,6 +11,8 @@ import { ensureFontLoaded } from './google-fonts.js';
 import { resolvedSrc } from './images.js';
 import { saveViewportSoon } from './viewport.js';
 import { assignPages, pageRoots, renderPages } from './pages.js';
+import { isTabs, drawTabs, activeTab } from './widgets.js';
+import { saveHistory } from './history.js';
 import { rootScope, repeatScopes, scopeFor, viewOf, boundColor, evalCond, registerScope, resetScopes } from './data.js';
 
 export function applyTransform() {
@@ -272,7 +274,7 @@ export function syncMeasuredSizes() {
     const fluid = n.wMode === 'fill' || n.wMode === 'hug' || n.hMode === 'fill' || n.hMode === 'hug';
     if (!fluid) return;
     const el = document.getElementById('node-' + n.id);
-    if (!el) return;
+    if (!el || !el.getClientRects().length) return; // not displayed (e.g. a hidden tab's panel): keep its size
     if (n.wMode === 'fill' || n.wMode === 'hug') n.w = el.offsetWidth;
     if (n.hMode === 'fill' || n.hMode === 'hug') n.h = el.offsetHeight;
     // The radius handles were placed using the pre-fill size; reposition them now.
@@ -515,6 +517,13 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
       kids.forEach(child => renderNode(child, el, scope, inRepeat));
     }
   }
+  // Tabs: the bar, and only the active panel. Clicking a tab picks it.
+  // The press goes on to the canvas, which selects the tabs (and redraws).
+  if (isTabs(node)) drawTabs(el, node, activeTab(node), state.readonly ? null : (i) => {
+    if (node.widget.active === i) return;
+    node.widget.active = i;
+    saveHistory();
+  });
 
   if (node.type === 'frame') applyScreenFold(el, node);
 
@@ -595,6 +604,7 @@ function applyGhostStyle(el, node, depth, scope = rootScope(), copy = false) {
   const copies = node.repeat ? repeatScopes(node, scope) : null;
   if (copies && copies.length) copies.forEach(s => kids.forEach(c => renderGhost(c, el, depth, s, copy)));
   else kids.forEach(c => renderGhost(c, el, depth, scope, copy));
+  if (isTabs(node)) drawTabs(el, node, activeTab(node, { followSelection: false }), null);
 }
 
 // A constant-size name tag above a frame/section. Pressing it acts on the node

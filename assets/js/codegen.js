@@ -5,6 +5,7 @@ import { generateScreenBody, generateComponentBody, componentClass, imageFile, i
 import { makeZip } from './zip.js';
 import { toDart as mockDart } from './mock.js';
 import { activePage, pageOf } from './pages.js';
+import { generateWebPage, generateWebComponent, generateVariablesCss, generateTypographyCss, usedComponents, componentTemplatePath, componentCssPath, usedWidgets, widgetScriptPath, widgetScript } from './webgen.js';
 
 // Screen frame id → its AppRoutes constant, for taps in generated views. Filled
 // while an export runs (screenItems decides the names).
@@ -630,6 +631,12 @@ class AppImage extends StatelessWidget {
   /// small avatars where the label would not fit.
   final Widget? errorWidget;
 
+  /// What the image shows, read out by screen readers (TalkBack / VoiceOver).
+  final String? semanticLabel;
+
+  /// A decorative image: screen readers skip it.
+  final bool excludeFromSemantics;
+
   const AppImage({
     super.key,
     required this.image,
@@ -638,6 +645,8 @@ class AppImage extends StatelessWidget {
     this.height,
     this.borderRadius,
     this.errorWidget,
+    this.semanticLabel,
+    this.excludeFromSemantics = false,
   });
 
   Widget _placeholder() => ImagePlaceholder(blurHash: image.blur_hash, width: width, height: height);
@@ -673,8 +682,12 @@ class AppImage extends StatelessWidget {
         errorWidget: (context, url, error) => _error(),
       );
     }
-    if (borderRadius == null) return picture;
-    return ClipRRect(borderRadius: borderRadius!, child: picture);
+    final Widget shaped = borderRadius == null ? picture : ClipRRect(borderRadius: borderRadius!, child: picture);
+    // One label for the whole image (its placeholder and error states included).
+    if (excludeFromSemantics) return ExcludeSemantics(child: shaped);
+    final label = semanticLabel;
+    if (label == null || label.isEmpty) return shaped;
+    return Semantics(label: label, image: true, child: ExcludeSemantics(child: shaped));
   }
 }
 `;
@@ -1074,10 +1087,12 @@ function webAssetFiles(screens) {
 
 // A web screen's file: pages/<screen>.html, inside a folder named after its
 // section when it's in one (as a phone screen's view lands in lib/view/<section>/).
-function webPagePath(fr) {
+function webPagePath(fr) { return `pages/${webFolder(fr)}${snake(fr.name)}.html`; }
+// …and its stylesheet: assets/css/pages/<section>/<screen>.css.
+function webPageCssPath(fr) { return `assets/css/pages/${webFolder(fr)}${snake(fr.name)}.css`; }
+function webFolder(fr) {
   const parent = fr.parentId ? getNode(fr.parentId) : null;
-  const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
-  return `pages/${folder}${snake(fr.name)}.html`;
+  return parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
 }
 
 // The Dart files an exported item lands at (shown in the export picker). Each
@@ -1088,12 +1103,13 @@ export function dartPaths(kind, name) {
     // The screen of that name on the open page (another page may have one too).
     const { screens, web } = collectExportables();
     const fr = screens.find(n => n.name === name);
-    if (web) return fr ? [webPagePath(fr)] : [];
+    if (web) return fr ? [webPagePath(fr), webPageCssPath(fr)] : [];
     const parent = fr && fr.parentId ? getNode(fr.parentId) : null;
     const folder = parent && parent.type === 'section' ? snake(parent.name) + '/' : '';
     return [`lib/view/${folder}${snake(name)}.dart`];
   }
   if (kind === 'theme') {
+    if (collectExportables().web) return ['assets/css/variable.css', 'assets/css/typography.css'];
     return state.typography.length
       ? ['lib/constants/colors.dart', 'lib/constants/typography.dart', 'lib/themes.dart']
       : ['lib/constants/colors.dart', 'lib/themes.dart'];
@@ -1115,7 +1131,32 @@ function buildExportFiles(selection = null, pageId = null) {
     // A web page: one empty .html file per screen for now.
     const screens = selection ? all.screens.filter(s => selection.screens?.has(s.name)) : all.screens;
     if (!screens.length) return { ok: false };
-    const files = screens.map(fr => ({ name: webPagePath(fr), content: '' }));
+    // Each screen: its page (pages/…html) and stylesheet (assets/css/pages/…css),
+    // then the shared colour tokens and text styles, then images and icons.
+    const isWeb = (fr) => (state.pages.find(p => p.id === pageOf(fr)) || {}).kind === 'web';
+    const files = [];
+    const shared = {
+      projectName: state.projectName,
+      href: (target) => isWeb(target) ? routeOf(target) : null, // a phone screen has no web address
+      imagePath: (n) => { const f = imageFile(n); return f ? `/assets/image/${f.name}` : null; },
+    };
+    const components = new Set(), widgets = new Set();
+    screens.forEach(fr => {
+      const cssPath = webPageCssPath(fr);
+      const { html, css } = generateWebPage(fr, { ...shared, route: routeOf(fr), cssHref: '/' + cssPath });
+      files.push({ name: webPagePath(fr), content: html }, { name: cssPath, content: css });
+      usedComponents(fr).forEach(id => components.add(id));
+      usedWidgets(fr).forEach(tag => widgets.add(tag));
+    });
+    // The Web Components they use, one script each.
+    widgets.forEach(tag => files.push({ name: widgetScriptPath(tag), content: widgetScript(tag) }));
+    // The components those pages use (nested ones included), one macro each.
+    components.forEach(id => {
+      const { html, css } = generateWebComponent(id, shared);
+      files.push({ name: componentTemplatePath(id), content: html }, { name: componentCssPath(id), content: css });
+    });
+    files.push({ name: 'assets/css/variable.css', content: generateVariablesCss() });
+    files.push({ name: 'assets/css/typography.css', content: generateTypographyCss() });
     files.push(...webAssetFiles(screens));
     return { ok: true, page: all.page, files, models: 0, enums: 0, providers: 0, screens: screens.length, theme: 0, skipped: 0 };
   }
@@ -1225,7 +1266,8 @@ function buildExportFiles(selection = null, pageId = null) {
   return { ok: true, page: all.page, files, models: models.length, enums: enums.length, providers: providers.length, screens: screens.length, theme: wantTheme ? 1 : 0, skipped: state.models.length - all.models.length };
 }
 
-const isAsset = (name) => name.startsWith('assets/');
+// Images and icons only — the web export's CSS / JS under assets/ are code, always written.
+const isAsset = (name) => /^assets\/(images?|icons?)\//.test(name);
 
 // The image and icon files a full export would include, for the export picker:
 // [{ path, kind: 'image' | 'icon', preview }] — preview is a data URL to show.

@@ -1,4 +1,5 @@
 import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
+import { isTabs, tabLabel } from './widgets.js';
 import { flexKind, isStack } from './nodes.js';
 import { isImageRef, refId, imageDataUri } from './images.js';
 import { rootScope, pathType, aliasOf, isUnary } from './data.js';
@@ -364,6 +365,16 @@ function buildImage(ctx, node, opts) {
   if (node.fit && node.fit !== 'cover') props.fit = FIT[node.fit] || 'BoxFit.cover';
   const br = borderRadiusExpr(ctx, node);
   if (br) props.borderRadius = br;
+  // Its alt text, read out by screen readers: from the data (the typed text where
+  // the data's is empty), or the typed text; a decorative image is skipped.
+  if (node.decorative) props.excludeFromSemantics = 'true';
+  else {
+    const boundAlt = node.bind && node.bind.alt ? boundTextExpr(ctx, node.bind.alt) : null;
+    const typed = (node.alt || '').trim();
+    if (boundAlt && typed) props.semanticLabel = `(${boundAlt}).isEmpty ? ${dartStr(typed)} : ${boundAlt}`;
+    else if (boundAlt) props.semanticLabel = boundAlt;
+    else if (typed) props.semanticLabel = dartStr(typed);
+  }
   const img = W('AppImage', props);
   // A circle is clipped round (borderRadiusExpr leaves circles out).
   return node.shape === 'circle' ? W('ClipOval', {}, { child: img }) : img;
@@ -435,6 +446,38 @@ function buildStack(ctx, node, kids) {
   return W('Stack', {}, { children });
 }
 
+// Tabs (widgets.js): a TabBar over the active panel. The panel hugs its content
+// (an AnimatedBuilder on the controller), where a TabBarView would need a fixed
+// height.
+function buildTabs(ctx, node, panels) {
+  const w = node.widget || {};
+  const bar = {};
+  if (!w.stretch) { bar.isScrollable = 'true'; bar.tabAlignment = 'TabAlignment.start'; }
+  const on = solidColor(ctx, w.activeColorId, null);
+  const off = solidColor(ctx, w.inactiveColorId, null);
+  const ind = solidColor(ctx, w.indicatorColorId, null) || on;
+  if (on) bar.labelColor = on;
+  if (off) bar.unselectedLabelColor = off;
+  if (ind) bar.indicatorColor = ind;
+  const t = w.typoId ? state.typography.find(s => s.id === w.typoId) : null;
+  if (t) { ctx.typo = true; bar.labelStyle = `VTextStyle.${t.name}`; }
+  bar.tabs = `[${panels.map((p, i) => `Tab(text: ${dartStr(tabLabel(p, i))})`).join(', ')}]`;
+  // Raw lines of a widget printed at `level` (its first line indented to match).
+  const lines = (wd, level) => printW(wd, level).split('\n').map((l, i) => (i ? l : '  '.repeat(level) + l));
+  const shown = { raw: ['(context, _) => [', ...panels.flatMap(p => { const l = lines(buildNode(ctx, p, {}), 1); l[l.length - 1] += ','; return l; }), '][tabs.index]'] };
+  const column = W('Column', { mainAxisSize: 'MainAxisSize.min', crossAxisAlignment: 'CrossAxisAlignment.stretch' }, {
+    children: [W('TabBar', bar), W('AnimatedBuilder', { animation: 'tabs', builder: shown })],
+  });
+  const body = lines(column, 1);
+  body[0] = '  return ' + body[0].trimStart();
+  body[body.length - 1] += ';';
+  const builder = { raw: ['(context) {', '  final tabs = DefaultTabController.of(context);', ...body, '}'] };
+  const active = Math.min(Math.max(w.active || 0, 0), Math.max(panels.length - 1, 0));
+  const props = { length: String(panels.length) };
+  if (active) props.initialIndex = String(active);
+  return W('DefaultTabController', props, { child: W('Builder', { builder }) });
+}
+
 // A container/frame box: build its content per layout, then wrap in a Container
 // when it needs a size, padding, margin, alignment, or decoration. `isRoot` (the
 // screen frame) skips its own size/background — those go on the Scaffold.
@@ -442,7 +485,8 @@ function buildBox(ctx, node, opts) {
   const kids = (node.children || []).map(id => getNode(id)).filter(c => c && c.visible);
   const fk = flexKind(node);
   let content;
-  if (fk === 'row' || fk === 'column') content = buildFlex(ctx, node, kids, fk);
+  if (isTabs(node)) content = buildTabs(ctx, node, kids);
+  else if (fk === 'row' || fk === 'column') content = buildFlex(ctx, node, kids, fk);
   else if (fk === 'wrap') content = buildWrap(ctx, node, kids);
   else if (isStack(node)) content = buildStack(ctx, node, kids);
   else content = kids.length ? buildNode(ctx, kids[0], {}) : null; // single-child wrapper

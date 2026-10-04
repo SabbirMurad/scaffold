@@ -8,6 +8,9 @@ import { ddTrigger } from './dropdown.js';
 import { ensureFontLoaded } from './google-fonts.js';
 import { saveHistory } from './history.js';
 import { scopeFor, pathOptions, pathType, canRepeat, aliasOf, OPS, isUnary } from './data.js';
+import { pageOf } from './pages.js';
+import { WIDGET_KINDS, widgetKind, setWidgetKind } from './widgets.js';
+import { makeNode } from './state.js';
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 
@@ -180,6 +183,55 @@ function bindBox(prefix, box, node) {
     bindPropNum(`p-${prefix}-v`, v => { box.t = box.b = Math.max(0, v); updateNodeEl(node); });
   }
 }
+// ── Web pages: SEO and HTML tags (for the web export) ──
+// Whether a node is on a web page (pages.js) — only those get these settings.
+const onWebPage = (node) => (state.pages.find(p => p.id === pageOf(node)) || {}).kind === 'web';
+
+// The HTML element a text or container becomes in the web export. "Auto" leaves
+// it to the generator (e.g. the biggest text style → h1, a plain box → div).
+const TEXT_TAGS = ['auto', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span'];
+const BOX_TAGS = ['auto', 'div', 'section', 'header', 'nav', 'main', 'footer', 'article', 'aside'];
+function htmlSection(node) {
+  if (!onWebPage(node) || !['text', 'container'].includes(node.type)) return '';
+  const tags = node.type === 'text' ? TEXT_TAGS : BOX_TAGS;
+  const opts = tags.map(t => ({ value: t, label: t === 'auto' ? 'Auto' : `<${t}>` }));
+  return `<div class="prop-section">
+    <div class="prop-section-title">HTML</div>
+    <div class="prop-row">
+      <span class="prop-label-wide">Tag</span>
+      ${ddTrigger({ value: node.htmlTag || 'auto', options: opts, data: { pp: 'html-tag' }, triggerClass: 'dd-block' })}
+    </div>
+    <div class="api-hint" style="margin-top:4px">${node.type === 'text'
+      ? 'Headings in order (one h1 per page, then h2, h3…) help search engines and screen readers.'
+      : 'Landmarks (header, nav, main, footer) tell search engines and screen readers what each part is.'}</div>
+  </div>`;
+}
+
+// A web screen's search listing: its <title>, meta description and the image
+// shown when the page is shared (og:image).
+const SEO_TITLE_MAX = 60, SEO_DESC_MAX = 160;
+function seoSection(frame) {
+  if (!onWebPage(frame)) return '';
+  const seo = frame.seo || {};
+  const images = [];
+  const walk = (n) => { if (!n) return; if (n.type === 'image' && n.src) images.push(n); (n.children || []).forEach(id => walk(getNode(id))); };
+  walk(frame);
+  const imgOpts = [{ value: '', label: 'None' }, ...images.map(n => ({ value: n.id, label: n.name || 'Image' }))];
+  const count = (v, max) => `<span class="seo-count${(v || '').length > max ? ' over' : ''}" data-max="${max}">${(v || '').length}/${max}</span>`;
+  return `<div class="prop-section">
+    <div class="prop-section-title">Search (SEO)</div>
+    <div class="prop-row seo-head"><span class="prop-label-wide">Title</span>${count(seo.title, SEO_TITLE_MAX)}</div>
+    <div class="prop-row"><input class="prop-input" id="p-seo-title" value="${esc(seo.title || '')}" placeholder="What the page is — shown in search results"></div>
+    <div class="prop-row seo-head"><span class="prop-label-wide">Description</span>${count(seo.description, SEO_DESC_MAX)}</div>
+    <div class="prop-row"><textarea class="prop-input" id="p-seo-desc" rows="3" style="resize:vertical" placeholder="One or two sentences on what's here — shown under the title">${esc(seo.description || '')}</textarea></div>
+    <div class="prop-row" style="margin-top:6px">
+      <span class="prop-label-wide">Share image</span>
+      ${ddTrigger({ value: seo.imageId || '', options: imgOpts, data: { pp: 'seo-image' }, triggerClass: 'dd-block' })}
+    </div>
+    <div class="api-hint" style="margin-top:4px">Every web page needs its own title and description; the share image shows when the page is linked on social media.</div>
+  </div>`;
+}
+
 const FIT_OPTIONS = [
   { value: 'cover', label: 'cover' }, { value: 'contain', label: 'contain' },
   { value: 'fill', label: 'fill' }, { value: 'fitWidth', label: 'fit width' },
@@ -194,6 +246,13 @@ propsFields.addEventListener('dd:change', e => {
   const v = e.detail.value;
   switch (e.target.dataset.pp) {
     case 'fit': node.fit = v; updateNodeEl(node); break;
+    case 'widget-kind': setWidgetKind(node, v, addTabPanel); saveHistory(); render(); break;
+    case 'tabs-typo': node.widget.typoId = v || null; saveHistory(); render(); break;
+    case 'tabs-on': node.widget.activeColorId = v || null; saveHistory(); render(); break;
+    case 'tabs-off': node.widget.inactiveColorId = v || null; saveHistory(); render(); break;
+    case 'tabs-ind': node.widget.indicatorColorId = v || null; saveHistory(); render(); break;
+    case 'html-tag': if (v && v !== 'auto') node.htmlTag = v; else delete node.htmlTag; saveHistory(); break;
+    case 'seo-image': node.seo = { ...(node.seo || {}) }; if (v) node.seo.imageId = v; else delete node.seo.imageId; saveHistory(); break;
     case 'sstyle': node.strokeStyle = v; updateNodeEl(node); renderProps(); break;
     case 'repeat-src':
       if (v) node.repeat = { source: v, as: aliasOf(node) }; else delete node.repeat;
@@ -635,6 +694,43 @@ const LAYOUT_CHOICES = [
   { value: 'stack', icon: 'stack', title: 'Stack' },
 ];
 
+// Interactive: what the container behaves as (widgets.js) — for now, Tabs.
+function widgetSection(node) {
+  const kind = widgetKind(node) || 'none';
+  const w = node.widget || {};
+  const dd = (pp, value, options) => ddTrigger({ value: value || '', options, data: { pp }, triggerClass: 'dd-block' });
+  const colors = (def) => [{ value: '', label: def }, ...state.colors.map(c => ({ value: c.id, label: c.name }))];
+  const typos = [{ value: '', label: 'Default' }, ...state.typography.map(t => ({ value: t.id, label: t.name, meta: `${t.fontSize} · ${t.fontWeight}` }))];
+  const row = (label, ctl) => `<div class="prop-row" style="margin-top:6px"><span class="prop-label-wide">${label}</span>${ctl}</div>`;
+  return `
+    <div class="prop-section">
+      <div class="prop-section-title">Interactive</div>
+      ${dd('widget-kind', kind, WIDGET_KINDS)}
+      ${kind === 'tabs' ? `
+      ${row('Text', dd('tabs-typo', w.typoId, typos))}
+      ${row('Active', dd('tabs-on', w.activeColorId, colors('Default')))}
+      ${row('Inactive', dd('tabs-off', w.inactiveColorId, colors('Default')))}
+      ${row('Indicator', dd('tabs-ind', w.indicatorColorId, colors('Active colour')))}
+      <div class="prop-row" style="margin-top:6px">
+        <span class="prop-label-wide">Stretch tabs</span>
+        <label class="switch" style="margin-left:auto"><input type="checkbox" id="p-tabs-stretch"${w.stretch ? ' checked' : ''}><span class="switch-track"></span></label>
+      </div>
+      <button type="button" class="prop-add" id="p-tabs-add" style="margin-top:8px">+ Add tab</button>
+      <div class="api-hint" style="margin-top:6px">Each layer inside is a tab's panel, and its layer name is the tab's label. Click a tab, or select something in its panel, to show it.</div>` : ''}
+    </div>`;
+}
+
+// A new tab panel for a Tabs container.
+function addTabPanel(parent, name) {
+  const p = makeNode('container', 0, 0, parent.w || 360, 160, parent.id);
+  Object.assign(p, { name, wMode: 'fill', hMode: 'hug', layout: 'column', gap: 12, fill: 'transparent', colorId: null,
+    padding: { t: 16, r: 16, b: 16, l: 16 } });
+  p.children = p.children || [];
+  state.nodes.push(p);
+  parent.children = [...(parent.children || []), p.id];
+  return p;
+}
+
 function layoutSection(node) {
   const cur = node.layout || 'none';
   // Scroll is a container-only on/off toggle; its axis follows the layout, so it's
@@ -832,6 +928,9 @@ export function renderProps() {
     </div>
     ${behaviorSection(node)}
     ${node.type === 'frame' ? screenSection(node) : ''}
+    ${node.type === 'frame' ? seoSection(node) : ''}
+    ${htmlSection(node)}
+    ${node.type === 'container' ? widgetSection(node) : ''}
     ${node.type === 'container' || node.type === 'frame' ? layoutSection(node) : ''}
     ${((node.type === 'container' || node.type === 'frame') && ['none', 'row', 'column'].includes(node.layout || 'none')) || node.type === 'row' || node.type === 'column' ? `
     <div class="prop-section">
@@ -922,6 +1021,20 @@ export function renderProps() {
         ${ddTrigger({ value: node.fit || 'cover', options: FIT_OPTIONS, data: { pp: 'fit' }, triggerClass: 'dd-block' })}
       </div>
       ${bindControl(node, 'src')}
+      <div class="prop-row" style="margin-top:8px">
+        <span class="prop-label-wide">Alt text</span>
+        <input class="prop-input" id="p-alt" type="text" placeholder="${node.decorative ? 'Decorative — none' : 'Describe the image'}" value="${esc(node.alt || '')}"${node.decorative ? ' disabled' : ''}>
+      </div>
+      ${node.decorative ? '' : bindControl(node, 'alt')}
+      <label class="prop-row prop-check" style="margin-top:6px">
+        <input type="checkbox" id="p-decorative"${node.decorative ? ' checked' : ''}>
+        <span>Decorative</span>
+      </label>
+      <div class="api-hint" style="margin-top:4px">${node.decorative
+        ? 'Only decoration: no alt text, so screen readers skip it (alt="").'
+        : node.bind && node.bind.alt
+          ? 'The text above is used where the data has none.'
+          : 'What the image shows, for search engines and screen readers. Mark it Decorative if it’s only decoration.'}</div>
     </div>` : ''}
     ${node.type === 'icon' ? `
     <div class="prop-section">
@@ -1050,6 +1163,18 @@ export function renderProps() {
     });
     const routeEl = document.getElementById('p-route');
     if (routeEl) routeEl.addEventListener('change', () => saveHistory());
+    // A web screen's title and description (with their length counters).
+    [['p-seo-title', 'title'], ['p-seo-desc', 'description']].forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        node.seo = { ...(node.seo || {}) };
+        if (el.value.trim()) node.seo[key] = el.value; else delete node.seo[key];
+        const counter = el.closest('.prop-row').previousElementSibling.querySelector('.seo-count');
+        if (counter) { counter.textContent = `${el.value.length}/${counter.dataset.max}`; counter.classList.toggle('over', el.value.length > +counter.dataset.max); }
+      });
+      el.addEventListener('change', () => saveHistory());
+    });
     const initEl = document.getElementById('p-initial');
     if (initEl) initEl.addEventListener('change', () => {
       // Only one screen can be the start screen.
@@ -1193,6 +1318,13 @@ export function renderProps() {
   }
 
   // Layout icon toggles (container only). setLayout re-renders + snapshots.
+  document.getElementById('p-tabs-stretch')?.addEventListener('change', (e) => { node.widget.stretch = e.target.checked; saveHistory(); render(); });
+  document.getElementById('p-tabs-add')?.addEventListener('click', () => {
+    const p = addTabPanel(node, `Tab ${(node.children || []).length + 1}`);
+    node.widget.active = node.children.length - 1;
+    state.selected.clear(); state.selected.add(p.id);
+    saveHistory(); render();
+  });
   document.querySelectorAll('[data-layout]').forEach(btn => btn.addEventListener('click', () => {
     if (btn.disabled) return;
     setLayout(node, btn.dataset.layout);
@@ -1251,6 +1383,17 @@ export function renderProps() {
     }));
     const ta = document.getElementById('p-text');
     if (ta) ta.addEventListener('input', () => { node.text = ta.value; updateNodeEl(node); });
+    // An image's alt text: what it shows, for search engines and screen readers.
+    const altEl = document.getElementById('p-alt');
+    if (altEl) {
+      altEl.addEventListener('input', () => { if (altEl.value.trim()) node.alt = altEl.value; else delete node.alt; });
+      altEl.addEventListener('change', () => saveHistory());
+    }
+    const decoEl = document.getElementById('p-decorative');
+    if (decoEl) decoEl.addEventListener('change', () => {
+      if (decoEl.checked) node.decorative = true; else delete node.decorative;
+      renderProps(); saveHistory();
+    });
     const sizeEl = document.getElementById('p-tsize');
     if (sizeEl) {
       sizeEl.addEventListener('input', () => {
