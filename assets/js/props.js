@@ -1040,8 +1040,14 @@ export function renderProps() {
     <div class="prop-section">
       <div class="prop-section-title">Icon</div>
       <button class="goto-colors-btn" id="p-replace-icon">Replace icon…</button>
+      <div class="prop-row" style="margin-top:8px">
+        <span class="prop-label-wide">Own colors</span>
+        <label class="switch" style="margin-left:auto"><input type="checkbox" id="p-icon-own"${node.keepColors ? ' checked' : ''}><span class="switch-track"></span></label>
+      </div>
+      <div class="api-hint" style="margin-top:6px">${node.keepColors ? 'Drawn in its own colors, like a logo — exported as is.' : 'Tinted with one color, like an icon. Turn on for a logo or a multi-color graphic.'}</div>
+      ${node.keepColors ? `<input class="prop-input" id="p-icon-alt" style="width:100%;margin-top:8px" placeholder="Alt text — e.g. the brand name" value="${esc(node.alt || '')}">` : ''}
     </div>
-    <div class="prop-section">
+    ${node.keepColors ? '' : `<div class="prop-section">
       <div class="prop-section-title">Color</div>
       ${state.colors.filter(c => c.fillType === 'solid').length === 0 ? `
       <div class="api-hint">No solid colors yet — icons show white.</div>` : `
@@ -1049,7 +1055,7 @@ export function renderProps() {
         <button class="color-pick none ${!node.colorId ? 'selected' : ''}" data-iconcolor="" title="Default (white)"></button>
         ${state.colors.filter(c => c.fillType === 'solid').map(c => `<button class="color-pick ${node.colorId === c.id ? 'selected' : ''}" data-iconcolor="${c.id}" title="${esc(c.name)}" style="background:${swatchBg(c)}"></button>`).join('')}
       </div>`}
-    </div>` : ''}
+    </div>`}` : ''}
     ${node.type === 'frame' || node.type === 'container' || node.type === 'image' ? `
     <div class="prop-section">
       <div class="prop-section-title">Fill</div>
@@ -1315,6 +1321,13 @@ export function renderProps() {
     document.querySelectorAll('[data-iconcolor]').forEach(btn => btn.addEventListener('click', () => {
       node.colorId = btn.dataset.iconcolor || null; updateNodeEl(node); renderProps();
     }));
+    document.getElementById('p-icon-own')?.addEventListener('change', (e) => {
+      if (e.target.checked) node.keepColors = true; else delete node.keepColors;
+      updateNodeEl(node); renderProps(); saveHistory();
+    });
+    const alt = document.getElementById('p-icon-alt');
+    alt?.addEventListener('input', () => { const v = alt.value.trim(); if (v) node.alt = v; else delete node.alt; });
+    alt?.addEventListener('change', () => saveHistory());
   }
 
   // Layout icon toggles (container only). setLayout re-renders + snapshots.

@@ -118,7 +118,7 @@ pub fn claude_ask(
             Ok(found) => found,
             Err(detail) => return fail(detail),
         };
-        if let Err(detail) = ensure_design_skill(&claude, say) {
+        if let Err(detail) = ensure_skills(&claude, say) {
             return fail(detail);
         }
         let prompt = match design_prompt(&workspace) {
@@ -306,50 +306,92 @@ pub(crate) fn mcp_config(dir: &Path, port: u16, token: &str) -> std::io::Result<
     Ok(path)
 }
 
-/// The design skill every design in Scaffold goes through.
-const DESIGN_SKILL: &str = "ui-ux-pro-max";
-/// Where it comes from when it has to be installed: the skill author's plugin
-/// marketplace (github.com/nextlevelbuilder/ui-ux-pro-max-skill).
-const SKILL_MARKETPLACE: &str = "nextlevelbuilder/ui-ux-pro-max-skill";
-const SKILL_PLUGIN: &str = "ui-ux-pro-max@ui-ux-pro-max-skill";
+/// A skill Claude Code needs for Scaffold, and the plugin marketplace it comes
+/// from when it has to be installed.
+struct Skill {
+    /// Its name: the skill's folder in ~/.claude/skills, and the plugin's name.
+    name: &'static str,
+    /// What the panel calls it while installing.
+    label: &'static str,
+    marketplace: &'static str,
+    /// `plugin@marketplace`, as `claude plugin install` takes it.
+    plugin: &'static str,
+    /// A required skill stops the turn when it can't be installed; an optional
+    /// one only says so, and the turn goes on without it.
+    required: bool,
+}
 
-/// Make sure Claude Code has the design skill before a turn: a copy in the
-/// person's own skills folder, or the plugin installed and enabled. Installs
-/// (or re-enables) the plugin through Claude Code's own `claude plugin`
-/// commands when it's missing, telling the panel through `say`. An error means
-/// the turn can't run: design work never goes ahead without the skill.
-fn ensure_design_skill(claude: &Path, say: impl Fn(&str)) -> Result<(), String> {
-    if own_skill_installed(DESIGN_SKILL) {
+/// The design skill every design in Scaffold goes through
+/// (github.com/nextlevelbuilder/ui-ux-pro-max-skill).
+const DESIGN_SKILL: Skill = Skill {
+    name: "ui-ux-pro-max",
+    label: "ui-ux-pro-max design skill",
+    marketplace: "nextlevelbuilder/ui-ux-pro-max-skill",
+    plugin: "ui-ux-pro-max@ui-ux-pro-max-skill",
+    required: true,
+};
+/// The logo skill, for when a design needs a logo, app icon or favicon
+/// (github.com/kaankiziltug/logo-design-skill).
+const LOGO_SKILL: Skill = Skill {
+    name: "logo-design",
+    label: "logo design skill",
+    marketplace: "kaankiziltug/logo-design-skill",
+    plugin: "logo-design@logo-design-skill",
+    required: false,
+};
+const SKILLS: [&Skill; 2] = [&DESIGN_SKILL, &LOGO_SKILL];
+
+/// Make sure Claude Code has Scaffold's skills before a turn. An error means
+/// the turn can't run: design work never goes ahead without the design skill.
+fn ensure_skills(claude: &Path, say: impl Fn(&str)) -> Result<(), String> {
+    for skill in SKILLS {
+        match ensure_skill(claude, skill, &say) {
+            Ok(()) => {}
+            Err(detail) if skill.required => return Err(detail),
+            Err(_) => say(&format!("Couldn't install the {} — going on without it.", skill.label)),
+        }
+    }
+    Ok(())
+}
+
+/// One skill: a copy in the person's own skills folder, or the plugin installed
+/// and enabled. Installs (or re-enables) the plugin through Claude Code's own
+/// `claude plugin` commands when it's missing, telling the panel through `say`.
+fn ensure_skill(claude: &Path, skill: &Skill, say: &impl Fn(&str)) -> Result<(), String> {
+    if own_skill_installed(skill.name) {
         return Ok(());
     }
-    match plugin_state(claude)? {
+    match plugin_state(claude, skill)? {
         PluginState::Enabled => return Ok(()),
         PluginState::Disabled(id) => {
-            say("Turning on the ui-ux-pro-max design skill…");
+            say(&format!("Turning on the {}…", skill.label));
             cli(claude, &["plugin", "enable", &id])?;
         }
         PluginState::Missing => {
-            say("Installing the ui-ux-pro-max design skill…");
+            say(&format!("Installing the {}…", skill.label));
             // Adding a marketplace that's already there fails harmlessly; the
             // install below is what has to succeed.
-            let added = cli(claude, &["plugin", "marketplace", "add", SKILL_MARKETPLACE]);
-            if let Err(error) = cli(claude, &["plugin", "install", SKILL_PLUGIN]) {
-                return Err(install_failed(added.err().unwrap_or(error)));
+            let added = cli(claude, &["plugin", "marketplace", "add", skill.marketplace]);
+            if let Err(error) = cli(claude, &["plugin", "install", skill.plugin]) {
+                return Err(install_failed(skill, added.err().unwrap_or(error)));
             }
         }
     }
-    match plugin_state(claude)? {
+    match plugin_state(claude, skill)? {
         PluginState::Enabled => Ok(()),
-        _ => Err(install_failed("Claude Code doesn't list it as enabled afterwards.".into())),
+        _ => Err(install_failed(skill, "Claude Code doesn't list it as enabled afterwards.".into())),
     }
 }
 
-fn install_failed(detail: String) -> String {
+fn install_failed(skill: &Skill, detail: String) -> String {
     format!(
-        "Scaffold designs with the ui-ux-pro-max skill, and couldn't install it.\n\n{detail}\n\n\
+        "Scaffold designs with the {name} skill, and couldn't install it.\n\n{detail}\n\n\
          To install it yourself, run these in a terminal and send your message again:\n\
-         claude plugin marketplace add {SKILL_MARKETPLACE}\n\
-         claude plugin install {SKILL_PLUGIN}"
+         claude plugin marketplace add {marketplace}\n\
+         claude plugin install {plugin}",
+        name = skill.name,
+        marketplace = skill.marketplace,
+        plugin = skill.plugin,
     )
 }
 
@@ -361,16 +403,16 @@ enum PluginState {
     Missing,
 }
 
-/// The design skill's plugin as Claude Code itself reports it.
-fn plugin_state(claude: &Path) -> Result<PluginState, String> {
+/// A skill's plugin as Claude Code itself reports it.
+fn plugin_state(claude: &Path, skill: &Skill) -> Result<PluginState, String> {
     let out = cli(claude, &["plugin", "list", "--json"])?;
     let list: Value = serde_json::from_str(&out)
         .map_err(|e| format!("Couldn't read Claude Code's plugin list: {e}"))?;
-    Ok(plugin_state_in(&list))
+    Ok(plugin_state_in(&list, skill.name))
 }
 
-fn plugin_state_in(list: &Value) -> PluginState {
-    let prefix = format!("{DESIGN_SKILL}@");
+fn plugin_state_in(list: &Value, name: &str) -> PluginState {
+    let prefix = format!("{name}@");
     let mut state = PluginState::Missing;
     for plugin in list.as_array().into_iter().flatten() {
         let Some(id) = plugin.get("id").and_then(Value::as_str) else { continue };
@@ -413,8 +455,8 @@ fn design_prompt(dir: &Path) -> std::io::Result<PathBuf> {
         &path,
         format!(
             "# Designing in Scaffold\n\n\
-             All design in Scaffold is done with the {DESIGN_SKILL} skill. It is installed \
-             (as `{DESIGN_SKILL}:{DESIGN_SKILL}` when it comes from its plugin).\n\n\
+             All design in Scaffold is done with the {design} skill. It is installed \
+             (as `{design}:{design}` when it comes from its plugin).\n\n\
              Before any design work, load it with the Skill tool, unless it is already loaded in this conversation, \
              and follow its workflow and rules for every design decision. Design work is anything that changes how the \
              app looks: new apps, screens, flows, sections or wireframes; adding, restyling or rearranging elements; \
@@ -426,7 +468,17 @@ fn design_prompt(dir: &Path) -> std::io::Result<PathBuf> {
              text styles, then the screens. Deliver design on the canvas, never HTML or code files.\n\
              3. Check the result against the skill's rules, then run check_design and fix every issue it reports.\n\n\
              Only work with no visual effect skips the skill: renaming, data models, mock data, API providers, \
-             comments, undo and export.\n"
+             comments, undo and export.\n\n\
+             ## Logos\n\n\
+             When a design needs a logo, logotype, wordmark, brand mark, app icon or favicon, design it with the \
+             {logo} skill (`{logo}:{logo}` from its plugin) together with the design skill: load it with the Skill tool \
+             and follow its process, using the project's colors and text styles. If it isn't installed, design the logo \
+             by the usual principles without it. Put each logo on the canvas as an icon element with its markup in \
+             \"svg\" (it stays vector, keeps its own colors and exports as an SVG file) and an \"alt\" naming the \
+             brand; outline lettering to paths first. Show \
+             concepts on the canvas rather than as files, unless the person asks for the files.\n",
+            design = DESIGN_SKILL.name,
+            logo = LOGO_SKILL.name,
         ),
     )?;
     Ok(path)
@@ -653,7 +705,7 @@ mod tests {
     #[test]
     fn the_design_skill_plugin_is_found_in_claude_codes_plugin_list() {
         // The shape `claude plugin list --json` prints (Claude Code 2.1.282).
-        let list = |json: &str| plugin_state_in(&serde_json::from_str(json).unwrap());
+        let list = |json: &str| plugin_state_in(&serde_json::from_str(json).unwrap(), DESIGN_SKILL.name);
         let other = r#"{"id":"rust-analyzer-lsp@claude-plugins-official","enabled":true}"#;
         assert_eq!(list(&format!("[{other}]")), PluginState::Missing);
         assert_eq!(list("[]"), PluginState::Missing);
@@ -677,6 +729,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(text.contains("All design in Scaffold is done with the ui-ux-pro-max skill"));
         assert!(text.contains("ui-ux-pro-max:ui-ux-pro-max"));
+        assert!(text.contains("logo-design:logo-design"));
+    }
+
+    #[test]
+    fn the_logo_skill_is_found_and_optional() {
+        let list = |json: &str| plugin_state_in(&serde_json::from_str(json).unwrap(), LOGO_SKILL.name);
+        assert_eq!(list(r#"[{"id":"logo-design@logo-design-skill","enabled":true}]"#), PluginState::Enabled);
+        assert_eq!(list(r#"[{"id":"ui-ux-pro-max@ui-ux-pro-max-skill","enabled":true}]"#), PluginState::Missing);
+        assert!(DESIGN_SKILL.required && !LOGO_SKILL.required);
     }
 
     #[test]

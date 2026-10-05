@@ -35,6 +35,7 @@ import { candidates, firstImageDataUri, fetchImageDataUri } from './stock-images
 import { pageRoots, revealPageOf, switchPage, addPage, KINDS, assignPages, setRootTarget, pageOf } from './pages.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
 import { setWidgetKind } from './widgets.js';
+import { safeSvg } from './svg-safe.js';
 
 const ICON_API = 'https://api.iconify.design';
 const IMAGE_API = 'https://api.openverse.org/v1/images/';
@@ -53,6 +54,7 @@ const ELEMENT_HELP = [
   '  text:      { "type":"text", "text":"...", "textStyle":"<style name>", "align":"left|center|right" }  — a text style gives font, size and color; fontSize / fontWeight / color ("var:<name>") on top of it override just those. Without a style: fontSize, fontWeight and a hex or "var:" color.',
   '  image:     { "type":"image", "search":"mountain lake", "fit":"cover|contain", "height":180, "radius":12, "alt":"Wood-fired margherita pizza" }  — "search" takes the first free stock photo (Openverse); or "url":"https://…"; neither gives a grey placeholder. "alt" says what the image shows (search engines and screen readers read it): give every meaningful image one — a photo bound to data can bind its alt too ("bind":{"alt":"item.name"}); for pure decoration give "decorative": true instead.',
   '  icon:      { "type":"icon", "icon":"mdi:home", "size":24, "color":"var:<color name>" }  — any Iconify id (use search_icons). Icons are tinted only by a color variable.',
+  '             A logo or other graphic you drew: { "type":"icon", "svg":"<svg viewBox=…>…</svg>", "height":48, "alt":"Brand name" } — it stays vector (exported as an SVG file) and keeps its own colors ("keepColors": false tints it like an icon). Outline lettering to paths: text in an SVG only draws in fonts the computer has.',
   '  button:    { "type":"button", "text":"Sign in", "fill":"#2563eb", "color":"#ffffff", "radius":10 }  — a container with a centred label.',
   '  instance:  { "type":"instance", "component_id":"cmp1" }  — a live copy of a component.',
   'Any element also takes: name, width / height (px number, "fill" to fill the parent, or "hug" to fit content), x / y (only inside a stack or on the bare canvas), '
@@ -497,7 +499,7 @@ async function searchPhoto(query) {
 
 // Keys handled by name (everything else must go through "props").
 const SPEC_KEYS = new Set([
-  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs',
+  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs', 'svg', 'keepColors',
   'text', 'fontSize', 'fontWeight', 'color', 'textStyle', 'italic', 'decoration', 'textCase', 'strokeSides',
   'fill', 'gradient', 'radius', 'padding', 'margin', 'gap', 'layout', 'align', 'valign',
   'width', 'height', 'size', 'x', 'y', 'opacity', 'rotation', 'flipH', 'flipV',
@@ -534,7 +536,7 @@ async function applyProps(node, p) {
   // Text
   only('text', ['text']); only('textStyle', ['text']); only('italic', ['text']); only('decoration', ['text']); only('textCase', ['text']); only('fontSize', ['text']); only('fontWeight', ['text']);
   if (p.text !== undefined) node.text = String(p.text);
-  only('alt', ['image']); only('decorative', ['image']); only('tag', ['text', 'container']); only('seo', ['frame']);
+  only('alt', ['image', 'icon']); only('decorative', ['image']); only('tag', ['text', 'container']); only('seo', ['frame']);
   // Web pages: the HTML element a text / container becomes, and a screen's search listing.
   if (p.tag !== undefined) {
     const tags = t === 'text' ? ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span'] : ['div', 'section', 'header', 'nav', 'main', 'footer', 'article', 'aside'];
@@ -778,6 +780,22 @@ async function applyProps(node, p) {
     node.svg = svg; node.iconId = p.icon;
     if (p.size === undefined && p.width === undefined) node.w = Math.max(8, Math.round(node.h * svgAspect(svg)));
   }
+  // An SVG you drew (a logo, an illustration): kept as SVG — exported to the
+  // icon folder — and in its own colours unless keepColors is false.
+  only('svg', ['icon']); only('keepColors', ['icon']);
+  if (p.svg !== undefined) {
+    if (p.icon !== undefined) fail('give an icon "icon" (an Iconify id) or "svg" (markup) — not both');
+    if (typeof p.svg !== 'string' || !/<svg[\s>]/i.test(p.svg)) fail('svg is the markup of one <svg> element');
+    const markup = safeSvg(p.svg);
+    if (!markup) fail('svg has nothing drawable left after cleaning (scripts, links and external references are removed)');
+    node.svg = markup; node.iconId = null;
+    if (p.keepColors === undefined) node.keepColors = true;
+    const aspect = svgAspect(markup);
+    if (p.size === undefined && p.width === undefined && p.height === undefined) { node.h = 64; node.w = Math.round(64 * aspect); }
+    else if (p.width === undefined) node.w = Math.max(8, Math.round(node.h * aspect));
+    else if (p.height === undefined) node.h = Math.max(8, Math.round(node.w / aspect));
+  }
+  if (p.keepColors !== undefined) { if (p.keepColors) node.keepColors = true; else delete node.keepColors; }
   if (p.fit !== undefined) {
     if (!['cover', 'contain', 'fill'].includes(p.fit)) fail('fit is cover, contain or fill');
     node.fit = p.fit;

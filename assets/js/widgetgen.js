@@ -406,8 +406,10 @@ function buildIcon(ctx, node, opts) {
   if (!node.svg) return W('SizedBox', { width: sw(ctx, node.w), height: sh(ctx, node.h) });
   ctx.svg = true;
   const path = iconAssetPath(ctx, node);
-  const tint = solidColor(ctx, node.colorId, null);
+  // A logo / graphic in its own colours isn't tinted.
+  const tint = node.keepColors ? null : solidColor(ctx, node.colorId, null);
   const props = { width: sw(ctx, node.w), height: sh(ctx, node.h), fit: 'BoxFit.contain' };
+  if (node.keepColors && node.alt) props.semanticsLabel = dartStr(node.alt);
   // The design icons are monochrome (currentColor); recolour via a source-in filter.
   if (tint) props.colorFilter = `ColorFilter.mode(${tint}, BlendMode.srcIn)`;
   return W('SvgPicture.asset', props, { pos: [dartStr(path)] });

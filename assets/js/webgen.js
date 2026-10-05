@@ -174,17 +174,11 @@ export function generateWebPage(frame, opts) {
     ...comps.map(id => `<link rel="stylesheet" href="/${componentCssPath(id)}">`),
     `<link rel="stylesheet" href="${opts.cssHref}">`,
     // Interactive elements (Web Components): deferred, after the page is parsed.
+    // Scripts are files only — the template's Content-Security-Policy
+    // (script-src 'self') blocks inline ones.
     ...usedWidgets(frame).map(tag => `<script type="module" src="/${widgetScriptPath(tag)}"></script>`),
   ].filter(Boolean).map(l => '  ' + l).join('\n');
 
-  // Data images: paintImage() from the project's own utils (never generated).
-  const script = ctx.paintsImages ? `
-  <script type="module">
-    import { paintImage } from '/assets/js/utils/image.js';
-    document.querySelectorAll('[data-image]').forEach((el) => {
-      paintImage(el, { uuid: el.dataset.image, blur_hash: el.dataset.blurHash || undefined });
-    });
-  </script>` : '';
   const html = `${componentImports(comps)}${contextNote(frame)}<!DOCTYPE html>
 <html lang="en"${theme ? ` data-theme="${kebab(theme.name)}"` : ''}>
 
@@ -193,7 +187,7 @@ ${head}
 </head>
 
 <body class="${bodyClass}">
-${children}${script}
+${children}
 </body>
 
 </html>
@@ -300,6 +294,13 @@ export function usedWidgets(root) {
     if (!n || seen.has(n.id) || n.visible === false) return;
     seen.add(n.id);
     if (isTabs(n)) out.add('app-tabs');
+    // Page behaviour (app-page.js): "go back", and data images to paint.
+    if (n.action && n.action.type === 'back') out.add('app-page');
+    if (n.type === 'image' && n.bind && n.bind.src) {
+      const ref = dataRef(n, n.bind.src);
+      const m = ref && state.models.find(x => x.name === ref.type.base);
+      if (m && m.builtin === 'image') out.add('app-page');
+    }
     if (n.type === 'instance') walk(getMasterNode(n.componentId));
     kids(n).forEach(walk);
   };
@@ -315,7 +316,7 @@ function linkTag(ctx, n, cls, attrs = '') {
   const a = n.action;
   const href = navHref(ctx, n);
   if (href) return { open: `<a class="${cls}" href="${href}"${attrs}>`, close: '</a>' };
-  if (a && a.type === 'back') return { open: `<button type="button" class="${cls}" onclick="history.back()"${attrs}>`, close: '</button>' };
+  if (a && a.type === 'back') return { open: `<button type="button" class="${cls}" data-back${attrs}>`, close: '</button>' };
   return null;
 }
 // Where a navigate action goes, as an href (with {% if %} for conditional
@@ -428,7 +429,7 @@ export function generateWebComponent(componentId, opts) {
   const classes = `${cls}{% if class_name %} {{ class_name | safe }}{% endif %}`;
   // Tapping it: its own link, or the one the instance passes in.
   const open = master.action && master.action.type === 'back'
-    ? `<button type="button" class="${classes}" onclick="history.back()">`
+    ? `<button type="button" class="${classes}" data-back>`
     : `{% if href %}<a class="${classes}" href="{{ href | safe }}">{% else %}<${tag} class="${classes}">{% endif %}`;
   const close = master.action && master.action.type === 'back' ? '</button>' : `{% if href %}</a>{% else %}</${tag}>{% endif %}`;
   const deps = usedComponents(master).filter(id => id !== componentId);
@@ -452,6 +453,8 @@ function linkWrap(ctx, n, cls, inner) {
 // and other short, bold or big lines are headings (h2 for big, h3 for the
 // rest); sentences — longer, or ending in a full stop — are paragraphs.
 function textTag(ctx, n) {
+  // A "go back" text is a <button>, which can only hold inline text.
+  if (n.action && n.action.type === 'back') return 'span';
   if (n.htmlTag) return n.htmlTag;
   const size = textSize(n);
   const s = (n.text || '').trim();
@@ -521,7 +524,6 @@ function dataImageEl(ctx, n, cls, css, depth, ref, fit) {
   const size = `width="${Math.round(n.w)}" height="${Math.round(n.h)}"`;
   const model = state.models.find(m => m.name === ref.type.base);
   if (model && model.builtin === 'image') {
-    ctx.paintsImages = true;
     css.overflow = 'hidden';
     delete css['object-fit'];
     ctx.rules.push(rule(cls, css));
@@ -543,6 +545,12 @@ function dataImageEl(ctx, n, cls, css, depth, ref, fit) {
 function iconEl(ctx, n, cls, css, depth) {
   if (!n.svg) return '';
   const file = `/assets/icon/${iconFile(n).name}`;
+  // A logo / graphic in its own colours: the SVG itself, as an image with alt text.
+  if (n.keepColors) {
+    ctx.rules.push(rule(cls, { ...css, display: 'block', 'flex-shrink': '0', 'object-fit': 'contain' }));
+    const img = `<img class="${cls}" src="${file}" alt="${escAttr((n.alt || '').trim())}" width="${Math.round(n.w)}" height="${Math.round(n.h)}" decoding="async">`;
+    return pad(depth) + linkWrap(ctx, n, cls, img);
+  }
   Object.assign(css, {
     display: 'inline-block', 'flex-shrink': '0',
     'background-color': varRef(n.colorId, { solidOnly: true }) || '#ffffff',
@@ -884,4 +892,22 @@ class AppTabs extends HTMLElement {
 if (!customElements.get('app-tabs')) customElements.define('app-tabs', AppTabs);
 `,
 };
+WIDGET_SCRIPTS['app-page'] = `// Page behaviour for pages generated by Scaffold, kept out of the HTML so a
+// Content-Security-Policy without 'unsafe-inline' scripts allows it:
+//   [data-image]  a picture from the image pipeline: paintImage() paints its
+//                 blur hash, then the photo (assets/js/utils/image.js).
+//   [data-back]   a "go back" button.
+import { paintImage } from '/assets/js/utils/image.js';
+
+document.querySelectorAll('[data-image]').forEach((el) => {
+  paintImage(el, { uuid: el.dataset.image, blur_hash: el.dataset.blurHash || undefined });
+});
+
+document.addEventListener('click', (e) => {
+  const back = e.target.closest('[data-back]');
+  if (!back) return;
+  e.preventDefault();
+  history.back();
+});
+`;
 export const widgetScript = (tag) => WIDGET_SCRIPTS[tag] || '';
