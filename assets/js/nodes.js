@@ -35,6 +35,20 @@ export function isScreenFrame(node) {
   const p = getNode(node.parentId);
   return !!p && p.type === 'section';
 }
+// An overlay: a top-level frame shown over a screen instead of being one —
+// frame.overlay = { kind: 'dialog' | 'sheet' | 'menu', dismissible }. Tapping an
+// element that "navigates to" it opens it (as a dialog, a bottom sheet, or a
+// dropdown menu under the element); a "close" action inside it closes it.
+export const OVERLAY_KINDS = [
+  { value: 'dialog', label: 'Dialog' },
+  { value: 'sheet', label: 'Bottom sheet' },
+  { value: 'menu', label: 'Dropdown menu' },
+];
+export const isOverlayFrame = (n) => isScreenFrame(n) && !!(n.overlay && n.overlay.kind);
+// A screen with a route of its own: a top-level frame that isn't an overlay.
+export const isRouteScreen = (n) => isScreenFrame(n) && !isOverlayFrame(n);
+export const overlayLabel = (n) => (OVERLAY_KINDS.find(k => k.value === (n.overlay && n.overlay.kind)) || {}).label || '';
+
 // Holds exactly one child (pads + aligns it): a frame or container with no
 // auto-layout. Once a layout is chosen it lays its own children out instead.
 export function isSingleChild(node) {

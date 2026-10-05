@@ -221,6 +221,13 @@ impl Server {
                 if modern {
                     value["resultType"] = json!("complete");
                     value["_meta"] = json!({ "io.modelcontextprotocol/serverInfo": server_info() });
+                    // A list result says how it may be cached; without both fields
+                    // Claude Code rejects the list and the session has no tools.
+                    // The tools come from the open editor, so: this session's, fresh.
+                    if method == "tools/list" {
+                        value["ttlMs"] = json!(0);
+                        value["cacheScope"] = json!("private");
+                    }
                 }
                 json!({ "jsonrpc": "2.0", "id": id, "result": value })
             }
@@ -304,4 +311,60 @@ fn error(id: Value, code: i64, message: &str, data: Option<Value>) -> Value {
         e["data"] = d;
     }
     json!({ "jsonrpc": "2.0", "id": id, "error": e })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    /// A stand-in for the editor's bridge: answers every request with one tool.
+    fn fake_editor() -> u16 {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut out = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                    let _ = line;
+                    let reply = json!({ "tools": [{ "name": "get_design", "inputSchema": { "type": "object" } }] });
+                    if writeln!(out, "{reply}").is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        port
+    }
+
+    fn server(port: u16) -> Server {
+        Server { bridge: Bridge { port, token: "t".into(), conn: None }, legacy: false }
+    }
+
+    #[test]
+    fn a_modern_tool_list_says_how_it_may_be_cached() {
+        // Claude Code 2.1.289 (protocol 2026-07-28) rejects a tools/list result
+        // without ttlMs and cacheScope, and the session then has no tools at all.
+        let mut s = server(fake_editor());
+        let req = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": { "_meta": { VERSION_KEY: MODERN } } });
+        let reply = s.handle_line(&req.to_string()).unwrap();
+        let result = &reply["result"];
+        assert_eq!(result["ttlMs"], json!(0));
+        assert_eq!(result["cacheScope"], json!("private"));
+        assert_eq!(result["resultType"], json!("complete"));
+        let names: Vec<&str> = result["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names, ["get_design", PERMISSION_TOOL]);
+    }
+
+    #[test]
+    fn an_older_client_gets_the_list_as_before() {
+        let mut s = server(fake_editor());
+        let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } });
+        assert_eq!(s.handle_line(&init.to_string()).unwrap()["result"]["protocolVersion"], json!("2025-06-18"));
+        let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
+        let result = &s.handle_line(&list.to_string()).unwrap()["result"];
+        assert!(result.get("ttlMs").is_none() && result.get("cacheScope").is_none());
+        assert_eq!(result["tools"].as_array().unwrap().len(), 2);
+    }
 }

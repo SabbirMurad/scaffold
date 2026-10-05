@@ -6,12 +6,15 @@
 // and stripped of editor chrome, so what plays is exactly what's on the canvas.
 
 import { state, getNode, getMasterNode } from './state.js';
-import { tapTab } from './widgets.js';
+import { tapWidget, startAutoplay } from './widgets.js';
 import { showToast } from './utils.js';
 import { routeTarget, scopeOfElement } from './data.js';
-import { isFlex } from './nodes.js';
+import { isFlex, isOverlayFrame } from './nodes.js';
 import { pageOf } from './pages.js';
 import { routeOf } from './codegen.js';
+
+// Stops the autoplaying carousels on the Play screen shown (startAutoplay).
+let stopAutoplay = () => {};
 
 let overlay, stage, device, screen, titleEl, backBtn, restartBtn, statusBar, homeInd, browserBar;
 // The screen playing is on a web page: shown in a browser window, not a phone.
@@ -85,7 +88,7 @@ function buildClone(frameId) {
 function nodeAction(n) {
   const a = n && n.action;
   if (!a) return null;
-  if (a.type === 'back') return a;
+  if (a.type === 'back' || a.type === 'close') return a;
   if (a.type !== 'navigate') return null;
   const targets = [a.targetFrameId, ...(a.routes || []).map(r => r && r.target)];
   return targets.some(id => id && getNode(id)) ? a : null;
@@ -114,6 +117,7 @@ function show(frameId, anim, isBack) {
   const cls = anim === 'none' ? '' : (anim === 'fade' ? 'play-anim-fade' : (isBack ? 'play-anim-back' : 'play-anim-fwd'));
   if (cls) clone.classList.add(cls);
   screen.appendChild(clone);
+  stopAutoplay(); stopAutoplay = startAutoplay(clone); // carousels that slide by themselves
   // A web screen sits centred when the browser is wider than it, with its own
   // background colour filling the sides.
   if (web) {
@@ -420,14 +424,73 @@ function endSwipe() {
 // Follow a node's action, honoring its stack mode. A conditional route picks its
 // target from the data the tapped element was drawn with (its repeat item).
 function navigate(action, el) {
-  if (action.type === 'back') { goBack(); return; }
+  if (action.type === 'close') { closeOverlay(); return; }
+  if (action.type === 'back') { closeOverlays(); goBack(); return; }
   const target = routeTarget(action, scopeOfElement(el));
   if (!target) { showToast('No route matches this data'); return; }
+  // An overlay frame opens over the screen instead of replacing it.
+  if (isOverlayFrame(getNode(target))) { openOverlay(target, el); return; }
+  closeOverlays();
   const mode = action.mode || 'push';
   if (mode === 'push') stack.push(currentId);
   else if (mode === 'clear') stack = [];
   // 'replace' leaves the stack as-is.
   show(target, action.transition, false);
+}
+
+// ── Overlays (dialogs, sheets, menus — nodes.js) ────────────────────────────
+// Each open overlay is a layer over the screen (inside the device, so it scales
+// with it): a scrim, and the overlay frame's clone placed by its kind.
+let overlays = [];
+
+function openOverlay(frameId, fromEl) {
+  const frame = getNode(frameId);
+  const clone = buildClone(frameId);
+  if (!frame || !clone) return;
+  const kind = frame.overlay.kind;
+  const layer = document.createElement('div');
+  layer.className = 'play-overlay-layer';
+  Object.assign(layer.style, { position: 'absolute', left: screen.offsetLeft + 'px', top: screen.offsetTop + 'px',
+    width: screen.offsetWidth + 'px', height: screen.offsetHeight + 'px', zIndex: String(20 + overlays.length), overflow: 'hidden' });
+  const scrim = document.createElement('div');
+  Object.assign(scrim.style, { position: 'absolute', inset: '0', background: kind === 'menu' ? 'transparent' : 'rgba(0,0,0,0.4)',
+    opacity: '0', transition: 'opacity .18s' });
+  scrim.addEventListener('click', () => { if (frame.overlay.dismissible !== false) closeOverlay(); });
+  layer.appendChild(scrim);
+  clone.style.position = 'absolute';
+  clone.style.transition = 'transform .22s ease, opacity .18s';
+  if (kind === 'dialog') {
+    Object.assign(clone.style, { left: '50%', top: '50%', transform: 'translate(-50%, -50%) scale(.96)', opacity: '0' });
+    requestAnimationFrame(() => { clone.style.transform = 'translate(-50%, -50%)'; clone.style.opacity = '1'; });
+  } else if (kind === 'sheet') {
+    Object.assign(clone.style, { left: '50%', top: 'auto', bottom: '0', transform: 'translate(-50%, 100%)', maxWidth: '100%' });
+    requestAnimationFrame(() => { clone.style.transform = 'translate(-50%, 0)'; });
+  } else {
+    // A menu sits under the element tapped (above it when there's no room).
+    const scale = screen.getBoundingClientRect().width / (screen.offsetWidth || 1) || 1;
+    const sr = screen.getBoundingClientRect();
+    const er = fromEl ? fromEl.getBoundingClientRect() : sr;
+    const left = Math.max(8, Math.min((er.left - sr.left) / scale, screen.offsetWidth - frame.w - 8));
+    let top = (er.bottom - sr.top) / scale + 4;
+    if (top + frame.h > screen.offsetHeight - 8) top = Math.max(8, (er.top - sr.top) / scale - frame.h - 4);
+    Object.assign(clone.style, { left: left + 'px', top: top + 'px', opacity: '0', boxShadow: clone.style.boxShadow || '0 8px 24px rgba(0,0,0,.18)' });
+    requestAnimationFrame(() => { clone.style.opacity = '1'; });
+  }
+  layer.appendChild(clone);
+  layer.addEventListener('click', onScreenClick); // taps inside the overlay act as on the screen
+  device.appendChild(layer);
+  requestAnimationFrame(() => { scrim.style.opacity = '1'; });
+  overlays.push(layer);
+}
+
+// Close the top overlay (a "close" action, or a tap outside it).
+function closeOverlay() {
+  const layer = overlays.pop();
+  if (layer) layer.remove();
+}
+function closeOverlays() {
+  overlays.forEach(l => l.remove());
+  overlays = [];
 }
 
 function goBack() {
@@ -436,6 +499,7 @@ function goBack() {
 }
 
 function restart() {
+  closeOverlays();
   stack = [];
   show(startId, 'none', false);
 }
@@ -449,6 +513,8 @@ function open(frameId) {
 }
 
 function close() {
+  closeOverlays();
+  stopAutoplay();
   overlay.hidden = true;
   overlay.classList.remove('web-full');
   webFull = true; // next time a web screen opens full view again
@@ -472,7 +538,7 @@ function launch() {
 // with a navigate action wins (mirrors how an onTap bubbles in Flutter).
 function onScreenClick(e) {
   if (suppressClick) { suppressClick = false; return; }
-  if (tapTab(e.target)) return; // a tab of a Tabs element
+  if (tapWidget(e.target)) return; // a tab, or a carousel's arrow or dot
   const TAPPABLE = '[data-id], [data-play-id]';
   let el = e.target.closest(TAPPABLE);
   while (el) {

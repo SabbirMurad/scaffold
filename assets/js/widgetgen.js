@@ -1,6 +1,6 @@
 import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
-import { isTabs, tabLabel } from './widgets.js';
-import { flexKind, isStack } from './nodes.js';
+import { isTabs, isCarousel, isAccordion, tabLabel, openSections } from './widgets.js';
+import { flexKind, isStack, isOverlayFrame } from './nodes.js';
 import { isImageRef, refId, imageDataUri } from './images.js';
 import { rootScope, pathType, aliasOf, isUnary } from './data.js';
 
@@ -480,6 +480,48 @@ function buildTabs(ctx, node, panels) {
   return W('DefaultTabController', props, { child: W('Builder', { builder }) });
 }
 
+// Carousel (widgets.js): AppCarousel (lib/widget/app_carousel.dart) — a
+// PageView of the slides, as tall as the tallest one, with arrows, dots and
+// autoplay as set.
+function buildCarousel(ctx, node, slides) {
+  const w = node.widget || {};
+  ctx.carousel = true;
+  const height = Math.max(1, ...slides.map(p => p.h || 0));
+  const props = { height: sh(ctx, height) };
+  const active = Math.min(Math.max(w.active || 0, 0), Math.max(slides.length - 1, 0));
+  if (active) props.initialPage = String(active);
+  if (w.arrows === false) props.showArrows = 'false';
+  if (w.dots === false) props.showDots = 'false';
+  if (w.loop === false) props.loop = 'false';
+  if (w.autoplay > 0) props.autoplay = `const Duration(seconds: ${Math.round(w.autoplay)})`;
+  const dot = solidColor(ctx, w.dotColorId, null), on = solidColor(ctx, w.activeDotColorId, null);
+  if (dot) props.dotColor = dot;
+  if (on) props.activeDotColor = on;
+  if (node.gap) props.spacing = sh(ctx, node.gap);
+  return W('AppCarousel', props, { children: slides.map(p => buildNode(ctx, p, {})) });
+}
+
+// Accordion (widgets.js): AppAccordion (lib/widget/app_accordion.dart) — a
+// heading per section (its layer name), opening the section below it.
+function buildAccordion(ctx, node, sections) {
+  const w = node.widget || {};
+  ctx.accordion = true;
+  const props = {};
+  const open = openSections(node, { followSelection: false });
+  if (!(open.length === 1 && open[0] === 0)) props.initiallyOpen = `const {${open.join(', ')}}`;
+  if (w.single === false) props.single = 'false';
+  const t = w.typoId ? state.typography.find(x => x.id === w.typoId) : null;
+  if (t) { ctx.typo = true; props.titleStyle = `VTextStyle.${t.name}`; }
+  const icon = solidColor(ctx, w.iconColorId, null), divider = solidColor(ctx, w.dividerColorId, null);
+  if (icon) props.iconColor = icon;
+  if (divider) props.dividerColor = divider;
+  // A list literal of AppAccordionItem, as raw lines (printW prints calls only).
+  const lines = (wd, level) => printW(wd, level).split('\n').map((l, i) => (i ? l : '  '.repeat(level) + l));
+  const items = sections.map((p, i) => W('AppAccordionItem', { title: dartStr(tabLabel(p, i).replace(/^Tab /, 'Section ')), child: buildNode(ctx, p, {}) }));
+  props.items = { raw: ['[', ...items.flatMap(it => { const l = lines(it, 1); l[l.length - 1] += ','; return l; }), ']'] };
+  return W('AppAccordion', props);
+}
+
 // A container/frame box: build its content per layout, then wrap in a Container
 // when it needs a size, padding, margin, alignment, or decoration. `isRoot` (the
 // screen frame) skips its own size/background — those go on the Scaffold.
@@ -488,6 +530,8 @@ function buildBox(ctx, node, opts) {
   const fk = flexKind(node);
   let content;
   if (isTabs(node)) content = buildTabs(ctx, node, kids);
+  else if (isCarousel(node)) content = buildCarousel(ctx, node, kids);
+  else if (isAccordion(node)) content = buildAccordion(ctx, node, kids);
   else if (fk === 'row' || fk === 'column') content = buildFlex(ctx, node, kids, fk);
   else if (fk === 'wrap') content = buildWrap(ctx, node, kids);
   else if (isStack(node)) content = buildStack(ctx, node, kids);
@@ -566,13 +610,41 @@ function buildNode(ctx, node, opts = {}) {
   else if (node.type === 'icon') w = buildIcon(ctx, node, opts);
   else w = buildBox(ctx, node, opts);
   w = applyEffects(ctx, node, w);
-  const onTap = tapExpr(ctx, node);
-  if (onTap) w = W('GestureDetector', { onTap }, { child: w });
+  w = withTap(ctx, node, w);
   if (node.showIf && node.showIf.path) {
     const cond = condExpr(ctx, node.showIf);
     if (cond) w = W('Visibility', { visible: cond }, { child: w });
   }
   return w;
+}
+
+// Wrap a widget in its tap. A tap that opens a menu runs in a Builder, so its
+// `context` is this widget's own and the menu opens under it.
+function withTap(ctx, node, w) {
+  ctx.anchoredTap = false;
+  const onTap = tapExpr(ctx, node);
+  if (!onTap) return w;
+  const tap = W('GestureDetector', { onTap }, { child: w });
+  if (!ctx.anchoredTap) return tap;
+  const lines = printW(tap, 0).split('\n');
+  return W('Builder', { builder: { raw: ['(context) => ' + lines[0], ...lines.slice(1)] } });
+}
+
+// An overlay frame's widget class and file (lib/widget/overlay/<name>.dart).
+export function overlayClass(frame) {
+  const words = String(frame.name || 'overlay').split(/[^A-Za-z0-9]+/).filter(Boolean);
+  let cls = words.map(w => w[0].toUpperCase() + w.slice(1)).join('') || 'App';
+  if (/^[0-9]/.test(cls)) cls = 'O' + cls;
+  return cls.endsWith('Overlay') ? cls : cls + 'Overlay';
+}
+export const overlayFile = (frame) => String(frame.name || 'overlay').trim().replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'overlay';
+
+// An overlay frame's design: the frame box itself (its size, fill, corners).
+export function generateOverlayBody(frame, { routeName = null } = {}) {
+  const ctx = newCtx(routeName);
+  const w = buildNode(ctx, frame, {});
+  return { code: printW(w, 2), ctx };
 }
 
 // ───────── Components ─────────
@@ -623,8 +695,7 @@ function instanceWidget(ctx, node, opts) {
     : componentWidget(ctx, node.componentId) || buildNode(ctx, master, { ...opts, asMaster: true });
   ctx.inline--;
   w = applyEffects(ctx, node, w);
-  const onTap = tapExpr(ctx, node);
-  if (onTap) w = W('GestureDetector', { onTap }, { child: w });
+  w = withTap(ctx, node, w);
   if (node.showIf && node.showIf.path) {
     const cond = condExpr(ctx, node.showIf);
     if (cond) w = W('Visibility', { visible: cond }, { child: w });
@@ -738,13 +809,23 @@ function repeated(ctx, node, kids, build) {
   return [{ forEach: { as, src: src.nullable ? `${src.expr} ?? []` : src.expr, children } }];
 }
 
-// A tap: navigate (through conditional routes first) or go back.
+// A tap: navigate (through conditional routes first), go back, or open / close
+// an overlay (a dialog, sheet or menu frame — nodes.js).
 function tapExpr(ctx, node) {
   const a = node.action;
   if (!a || !ctx.routeName) return null;
   if (a.type === 'back') { ctx.routes = true; return '() => AppRoutes.pop()'; }
+  if (a.type === 'close') return '() => Navigator.of(context).pop()';
   if (a.type !== 'navigate') return null;
   const go = (id) => {
+    const target = id ? getNode(id) : null;
+    if (target && isOverlayFrame(target)) {
+      ctx.overlays.add(target.id);
+      const kind = target.overlay.kind;
+      if (kind === 'menu') ctx.anchoredTap = true; // the menu opens under this element: it needs its own context
+      const show = { dialog: 'showAppDialog', sheet: 'showAppSheet', menu: 'showAppMenu' }[kind];
+      return `${show}(context, const ${overlayClass(target)}()${target.overlay.dismissible === false ? ', dismissible: false' : ''});`;
+    }
     const name = id && ctx.routeName(id);
     if (!name) return null;
     ctx.routes = true;
@@ -774,7 +855,8 @@ function newCtx(routeName) {
     scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
       [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
     mocks: new Set(), providers: new Set(), enums: new Set(), components: new Set(),
-    hexColor: false, routes: false, innerShadow: false, appImage: false, imageModel: false, routeName,
+    hexColor: false, routes: false, innerShadow: false, appImage: false, imageModel: false, carousel: false, accordion: false,
+    overlays: new Set(), anchoredTap: false, routeName,
   };
 }
 

@@ -472,11 +472,23 @@ fn design_prompt(dir: &Path) -> std::io::Result<PathBuf> {
              ## Logos\n\n\
              When a design needs a logo, logotype, wordmark, brand mark, app icon or favicon, design it with the \
              {logo} skill (`{logo}:{logo}` from its plugin) together with the design skill: load it with the Skill tool \
-             and follow its process, using the project's colors and text styles. If it isn't installed, design the logo \
-             by the usual principles without it. Put each logo on the canvas as an icon element with its markup in \
-             \"svg\" (it stays vector, keeps its own colors and exports as an SVG file) and an \"alt\" naming the \
-             brand; outline lettering to paths first. Show \
-             concepts on the canvas rather than as files, unless the person asks for the files.\n",
+             and follow its process for the thinking and the craft, using the project's colors and text styles. If it \
+             isn't installed, design the logo by the usual principles without it.\n\n\
+             The person sees and picks logos on the canvas, never in a folder: they are a designer working in Scaffold, \
+             and the working folder is hidden from them. The skill's own steps say to save files and show a concept sheet \
+             or board; in Scaffold those steps change:\n\
+             - Draw and render in the working folder only to check your own work. Never point the person to a file or \
+             folder there.\n\
+             - Wherever the skill says to show concepts, a concept sheet, test sheets, a board or a presentation, put it \
+             on the canvas instead, then stop and ask as the skill says: add_elements with no parent_id, placed in empty \
+             space beside the screens, one container named \"Logo concepts\" (a row, gap 48, padding 48, a light fill, \
+             radius 24). Inside it, one column per concept: the mark as an icon element with its markup in \"svg\" (it \
+             stays vector and keeps its own colors) and an \"alt\" naming the brand, its lockup with the name the same \
+             way, and a text with the concept's letter, name and one-line idea. Outline lettering to paths first: text \
+             inside an SVG only draws in fonts the computer has. Then tell the person to look at the \"Logo concepts\" \
+             board on the canvas.\n\
+             - Once they pick one, put it in the design: replace the placeholder logo in the screens with the chosen \
+             mark or lockup, and keep the board until they say to remove it. Give files only when they ask for files.\n",
             design = DESIGN_SKILL.name,
             logo = LOGO_SKILL.name,
         ),
@@ -730,6 +742,8 @@ mod tests {
         assert!(text.contains("All design in Scaffold is done with the ui-ux-pro-max skill"));
         assert!(text.contains("ui-ux-pro-max:ui-ux-pro-max"));
         assert!(text.contains("logo-design:logo-design"));
+        // Logos are shown on the canvas, not as files in the hidden working folder.
+        assert!(text.contains("Logo concepts") && text.contains("never in a folder"));
     }
 
     #[test]

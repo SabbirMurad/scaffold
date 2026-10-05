@@ -35,6 +35,7 @@ import { candidates, firstImageDataUri, fetchImageDataUri } from './stock-images
 import { pageRoots, revealPageOf, switchPage, addPage, KINDS, assignPages, setRootTarget, pageOf } from './pages.js';
 import { listComments, createComment, replyComment, resolveComment, updateProject } from './projects.js';
 import { setWidgetKind } from './widgets.js';
+import { isOverlayFrame } from './nodes.js';
 import { safeSvg } from './svg-safe.js';
 
 const ICON_API = 'https://api.iconify.design';
@@ -61,6 +62,9 @@ const ELEMENT_HELP = [
     + 'opacity (0–1), rotation, stroke / strokeWidth / strokeStyle ("solid|dashed|dotted"), shadows ([{x,y,blur,spread,color:"var:…",alpha,inset}] — inset:true for an inner shadow, e.g. a pressed button or an inset field; on a text they are text shadows, without spread or inset), layerBlur (px: blurs the element itself — soft glows and background shapes), backgroundBlur (px: blurs the content behind it — glassmorphism, with a see-through fill), strokeSides (list of sides for the stroke, e.g. ["bottom"] for a divider line), italic, decoration ("underline" / "lineThrough"), textCase ("upper" / "lower"), '
     + 'margin, visible, locked, scroll (containers), and "props" — raw node fields for anything else (see get_element for field names).',
   'Tabs: a container with "tabs": { "active":0, "textStyle":"<style>", "activeColor":"var:…", "inactiveColor":"var:…", "indicatorColor":"var:…", "stretch":false } — its children are the tab panels (usually column containers, width "fill"), and each panel name is its tab label; the tab bar is drawn for you (do not build one). "stretch": true spreads the tabs over the full width. "tabs": false turns it back into a plain container.',
+  'Overlays: a dialog, bottom sheet or dropdown menu is a frame of its own, made like a screen with "overlay":"dialog|sheet|menu" (or {"kind":"dialog","dismissible":false} so only its own close button closes it). Size the frame to the overlay itself (e.g. 360×220 for a dialog, 240×auto for a menu), give it a fill and radius, and put it beside the screens. Open it with set_interaction navigate to its id from a button; inside it, give a close button set_interaction "close". It never becomes a route or page of its own.',
+  'Accordion: a container with "accordion": { "single":true, "open":[0], "textStyle":"<style>", "iconColor":"var:…", "dividerColor":"var:…" } — its children are the sections (column containers, width "fill"), and each section name is its heading (write the question or title there); the heading rows and chevrons are drawn for you. Ideal for FAQs, settings groups and long details. "single": false lets several be open; "open" lists which start open.',
+  'Carousel: a container with "carousel": { "arrows":true, "dots":true, "loop":true, "autoplay":0, "dotColor":"var:…", "activeDotColor":"var:…", "active":0 } — its children are the slides (usually containers with width "fill" and the same height), shown one at a time; arrows and dots are drawn for you. "autoplay" is seconds per slide (0 = off; it pauses on hover and for people who reduce motion). Use it for hero banners, testimonials, galleries and onboarding — not to hide content people need, since only one slide shows at a time.',
   'On a web page, "tag" sets the HTML element for search engines and screen readers: a text is h1–h6, p or span (one h1 per page, headings in order); a container is header, nav, main, section, footer, article or aside (leave plain boxes alone — they are divs). Give each web screen "seo": {"title", "description"} too.',
   'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","alt":"user.name","fill":"item.color_hex","color":"…"} fills an element from a field; '
     + '"showIf":{"path":"user.role","op":"==","value":"admin"} shows it only while the condition holds (op: truthy, falsy, ==, !=, >, <, >=, <=, empty, notEmpty — compare enums by value name); '
@@ -115,6 +119,7 @@ const TOOLS = [
       valign: { type: 'string', enum: ['top', 'center', 'bottom'] },
       route: str('Route path, dashed-case, e.g. "/user-profile". Default: derived from the name.'),
       initial: bool('Make this the app\'s start screen.'),
+      overlay: { description: 'Make this frame an overlay shown over screens instead of a screen: "dialog", "sheet" (bottom sheet) or "menu" (dropdown), or {"kind", "dismissible"}. It gets no route; open it with set_interaction navigate.' },
       seo: { type: 'object', description: 'Web pages: the page\'s search listing — {"title": "…" (about 60 characters), "description": "…" (one or two sentences, about 160)}. Give every web screen both.' },
       children: { type: 'array', items: ELEMENT },
     }),
@@ -185,8 +190,8 @@ const TOOLS = [
       + 'Paths are mock-data paths in scope for the element (a mock set, or an enclosing repeat\'s item).',
     inputSchema: obj({
       id: str(),
-      action: { type: 'string', enum: ['navigate', 'back', 'none'] },
-      target_screen_id: str('For navigate: the screen (frame) id.'),
+      action: { type: 'string', enum: ['navigate', 'back', 'close', 'none'], description: 'navigate also opens an overlay (a frame set as a dialog, bottom sheet or dropdown menu) over the screen; close closes the overlay the element is in.' },
+      target_screen_id: str('For navigate: the screen (frame) id — or an overlay frame, which then opens over the screen.'),
       mode: { type: 'string', enum: ['push', 'replace', 'clear'], description: 'Default push.' },
       transition: { type: 'string', enum: ['platform', 'fade', 'slideRight', 'none'], description: 'Default platform.' },
       routes: { type: 'array', items: { type: 'object' }, description: 'Conditional routes: [{ when: {path, op, value}, target_screen_id }].' },
@@ -499,7 +504,7 @@ async function searchPhoto(query) {
 
 // Keys handled by name (everything else must go through "props").
 const SPEC_KEYS = new Set([
-  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs', 'svg', 'keepColors',
+  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs', 'carousel', 'accordion', 'overlay', 'svg', 'keepColors',
   'text', 'fontSize', 'fontWeight', 'color', 'textStyle', 'italic', 'decoration', 'textCase', 'strokeSides',
   'fill', 'gradient', 'radius', 'padding', 'margin', 'gap', 'layout', 'align', 'valign',
   'width', 'height', 'size', 'x', 'y', 'opacity', 'rotation', 'flipH', 'flipV',
@@ -543,6 +548,17 @@ async function applyProps(node, p) {
     if (p.tag === null || p.tag === "auto") delete node.htmlTag;
     else if (!tags.includes(p.tag)) fail(`tag on a ${t} is one of ${tags.join(', ')} (or "auto")`);
     else node.htmlTag = p.tag;
+  }
+  // A top-level frame shown over a screen (nodes.js): a dialog, sheet or menu.
+  if (p.overlay !== undefined) {
+    if (!isScreenFrame(node)) fail('"overlay" applies to a top-level frame');
+    if (p.overlay === null || p.overlay === false || p.overlay === 'none') delete node.overlay;
+    else {
+      const o = typeof p.overlay === 'string' ? { kind: p.overlay } : p.overlay;
+      if (!o || !['dialog', 'sheet', 'menu'].includes(o.kind)) fail('overlay is "dialog", "sheet" or "menu" (or { kind, dismissible }), or null for a screen');
+      node.overlay = { kind: o.kind, dismissible: o.dismissible !== false };
+      node.isInitial = false;
+    }
   }
   if (p.seo !== undefined) {
     if (!p.seo || typeof p.seo !== 'object') fail('seo is { title, description }');
@@ -824,10 +840,66 @@ async function applyProps(node, p) {
     }
   }
 
+  // Accordion (widgets.js): last, like tabs. Children are the sections.
+  if (p.accordion !== undefined) {
+    if (t !== 'container') fail('"accordion" applies to a container');
+    if (p.tabs || p.carousel) fail('a container is one of tabs, carousel or accordion');
+    if (!p.accordion) { if (node.widget && node.widget.kind === 'accordion') setWidgetKind(node, 'none'); }
+    else {
+      const o = p.accordion === true ? {} : p.accordion;
+      if (typeof o !== 'object') fail('accordion is true, false or { open, single, textStyle, iconColor, dividerColor }');
+      setWidgetKind(node, 'accordion', null);
+      const w = node.widget;
+      if (o.single !== undefined) w.single = !!o.single;
+      if (o.open !== undefined) {
+        if (!Array.isArray(o.open) || !o.open.every(i => Number.isInteger(i) && i >= 0)) fail('accordion.open is a list of section indexes, e.g. [0]');
+        w.open = w.single === false ? o.open : o.open.slice(0, 1);
+      }
+      if (o.textStyle !== undefined) {
+        const ty = o.textStyle && state.typography.find(x => x.name === o.textStyle);
+        if (o.textStyle && !ty) fail(`accordion.textStyle: no text style "${o.textStyle}"`);
+        w.typoId = ty ? ty.id : null;
+      }
+      for (const [key, field] of [['iconColor', 'iconColorId'], ['dividerColor', 'dividerColorId']]) {
+        if (o[key] === undefined) continue;
+        if (o[key] === null) { w[field] = null; continue; }
+        const c = colorRef(o[key], `accordion.${key}`);
+        if (!c.colorId) fail(`accordion.${key} must be a color variable ("var:<name>")`);
+        w[field] = c.colorId;
+      }
+    }
+  }
+
+  // Carousel (widgets.js): last, like tabs. Children are the slides.
+  if (p.carousel !== undefined) {
+    if (t !== 'container') fail('"carousel" applies to a container');
+    if (p.tabs) fail('a container is tabs or a carousel, not both');
+    if (!p.carousel) { if (node.widget && node.widget.kind === 'carousel') setWidgetKind(node, 'none'); }
+    else {
+      const o = p.carousel === true ? {} : p.carousel;
+      if (typeof o !== 'object') fail('carousel is true, false or { active, arrows, dots, loop, autoplay, dotColor, activeDotColor }');
+      setWidgetKind(node, 'carousel', null);
+      const w = node.widget;
+      if (o.active !== undefined) { if (!Number.isInteger(o.active) || o.active < 0) fail('carousel.active is a slide index (0 = first)'); w.active = o.active; }
+      for (const key of ['arrows', 'dots', 'loop']) if (o[key] !== undefined) w[key] = !!o[key];
+      if (o.autoplay !== undefined) {
+        if (!isNum(o.autoplay) || o.autoplay < 0 || o.autoplay > 60) fail('carousel.autoplay is seconds per slide, 0–60 (0 = off)');
+        w.autoplay = Math.round(o.autoplay);
+      }
+      for (const [key, field] of [['dotColor', 'dotColorId'], ['activeDotColor', 'activeDotColorId']]) {
+        if (o[key] === undefined) continue;
+        if (o[key] === null) { w[field] = null; continue; }
+        const c = colorRef(o[key], `carousel.${key}`);
+        if (!c.colorId) fail(`carousel.${key} must be a color variable ("var:<name>")`);
+        w[field] = c.colorId;
+      }
+    }
+  }
+
   // Tabs (widgets.js): last, so its column layout wins. Children are the panels.
   if (p.tabs !== undefined) {
     if (t !== 'container') fail('"tabs" applies to a container');
-    if (!p.tabs) { setWidgetKind(node, 'none'); return; }
+    if (!p.tabs) { if (node.widget && node.widget.kind === 'tabs') setWidgetKind(node, 'none'); return; }
     const o = p.tabs === true ? {} : p.tabs;
     if (typeof o !== 'object') fail('tabs is true, false or { active, textStyle, activeColor, inactiveColor, indicatorColor, stretch }');
     setWidgetKind(node, 'tabs', null);
@@ -1329,12 +1401,15 @@ function setInteraction(args) {
     node.action = { type: 'navigate', targetFrameId: args.target_screen_id ? screen(args.target_screen_id) : null, mode, transition };
     if (routes.length) node.action.routes = routes;
   } else if (args.action === 'back') node.action = { type: 'back', targetFrameId: null, mode, transition };
+  else if (args.action === 'close') node.action = { type: 'close', targetFrameId: null, mode: 'push', transition: 'platform' };
   else node.action = { type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' };
   commit([node.id]);
   const routed = node.action.routes ? ` (${plural(node.action.routes.length, 'conditional route')} first)` : '';
+  const target = node.action.targetFrameId ? getNode(node.action.targetFrameId) : null;
   const what = args.action === 'navigate'
-    ? (node.action.targetFrameId ? `goes to "${getNode(node.action.targetFrameId).name}"${routed}` : `follows ${plural(node.action.routes.length, 'conditional route')}`)
-    : args.action === 'back' ? 'goes back' : 'does nothing';
+    ? (target ? (isOverlayFrame(target) ? `opens the "${target.name}" ${target.overlay.kind === 'sheet' ? 'bottom sheet' : target.overlay.kind}` : `goes to "${target.name}"`) + routed
+      : `follows ${plural(node.action.routes.length, 'conditional route')}`)
+    : args.action === 'back' ? 'goes back' : args.action === 'close' ? 'closes the overlay it is in' : 'does nothing';
   return { ok: true, summary: `Tapping "${node.name}" ${what}` };
 }
 
@@ -1961,7 +2036,7 @@ function lintScreen(frame) {
   const flagged = new Set(); // report where a problem starts, not every descendant along with it
 
   // A web screen's search listing (update_element with "seo" sets it).
-  if (web) {
+  if (web && !isOverlayFrame(frame)) { // an overlay is part of the pages that open it, not a page
     const seo = frame.seo || {};
     if (!(seo.title || '').trim()) add(frame, 'has no page title — give the screen "seo": {"title": "…"} (what the page is, about 60 characters; shown in search results)');
     if (!(seo.description || '').trim()) add(frame, 'has no meta description — give the screen "seo": {"description": "…"} (one or two sentences, about 160 characters)');

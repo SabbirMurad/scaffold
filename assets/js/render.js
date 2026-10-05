@@ -1,7 +1,7 @@
 import { state, getNode, getColorById, getTypoById, getMasterNode, isMaster } from './state.js';
 import { safeSvg } from './svg-safe.js';
 import { colorCss } from './colors.js';
-import { SINGLE_CHILD_TYPES, MULTI_CHILD_TYPES, flexKind, isFlex, isSingleChild } from './nodes.js';
+import { SINGLE_CHILD_TYPES, MULTI_CHILD_TYPES, flexKind, isFlex, isSingleChild, isOverlayFrame, overlayLabel } from './nodes.js';
 import { canvas, zoomLabel, canvasWrap } from './utils.js';
 import { drawRulers } from './rulers.js';
 import { renderLayers } from './layers.js';
@@ -11,7 +11,7 @@ import { ensureFontLoaded } from './google-fonts.js';
 import { resolvedSrc } from './images.js';
 import { saveViewportSoon } from './viewport.js';
 import { assignPages, pageRoots, renderPages } from './pages.js';
-import { isTabs, drawTabs, activeTab } from './widgets.js';
+import { isWidget, drawWidget, activeTab, pickInModel } from './widgets.js';
 import { saveHistory } from './history.js';
 import { rootScope, repeatScopes, scopeFor, viewOf, boundColor, evalCond, registerScope, resetScopes } from './data.js';
 
@@ -519,10 +519,8 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
   }
   // Tabs: the bar, and only the active panel. Clicking a tab picks it.
   // The press goes on to the canvas, which selects the tabs (and redraws).
-  if (isTabs(node)) drawTabs(el, node, activeTab(node), state.readonly ? null : (i) => {
-    if (node.widget.active === i) return;
-    node.widget.active = i;
-    saveHistory();
+  if (isWidget(node)) drawWidget(el, node, activeTab(node), state.readonly ? null : (i) => {
+    if (pickInModel(node, i)) saveHistory();
   });
 
   if (node.type === 'frame') applyScreenFold(el, node);
@@ -604,7 +602,7 @@ function applyGhostStyle(el, node, depth, scope = rootScope(), copy = false) {
   const copies = node.repeat ? repeatScopes(node, scope) : null;
   if (copies && copies.length) copies.forEach(s => kids.forEach(c => renderGhost(c, el, depth, s, copy)));
   else kids.forEach(c => renderGhost(c, el, depth, scope, copy));
-  if (isTabs(node)) drawTabs(el, node, activeTab(node, { followSelection: false }), null);
+  if (isWidget(node)) drawWidget(el, node, activeTab(node, { followSelection: false }), null);
 }
 
 // A constant-size name tag above a frame/section. Pressing it acts on the node
@@ -614,7 +612,7 @@ function addFrameLabel(node, parent) {
   const label = document.createElement('div');
   label.className = 'frame-label' + (node.type === 'section' ? ' section-label' : '') + (state.selected.has(node.id) ? ' selected' : '');
   label.id = 'frame-label-' + node.id;
-  label.textContent = node.name || 'Frame';
+  label.textContent = (node.name || 'Frame') + (isOverlayFrame(node) ? ` · ${overlayLabel(node)}` : ''); // an overlay says what it is
   label.style.left = node.x + 'px';
   label.style.top = node.y + 'px';
   label.addEventListener('mousedown', e => {

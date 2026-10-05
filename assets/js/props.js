@@ -10,6 +10,7 @@ import { saveHistory } from './history.js';
 import { scopeFor, pathOptions, pathType, canRepeat, aliasOf, OPS, isUnary } from './data.js';
 import { pageOf } from './pages.js';
 import { WIDGET_KINDS, widgetKind, setWidgetKind } from './widgets.js';
+import { OVERLAY_KINDS, isOverlayFrame, overlayLabel } from './nodes.js';
 import { makeNode } from './state.js';
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
@@ -250,7 +251,16 @@ propsFields.addEventListener('dd:change', e => {
     case 'tabs-typo': node.widget.typoId = v || null; saveHistory(); render(); break;
     case 'tabs-on': node.widget.activeColorId = v || null; saveHistory(); render(); break;
     case 'tabs-off': node.widget.inactiveColorId = v || null; saveHistory(); render(); break;
+    case 'acc-typo': node.widget.typoId = v || null; saveHistory(); render(); break;
+    case 'acc-icon': node.widget.iconColorId = v || null; saveHistory(); render(); break;
+    case 'acc-div': node.widget.dividerColorId = v || null; saveHistory(); render(); break;
+    case 'car-dot': node.widget.dotColorId = v || null; saveHistory(); render(); break;
+    case 'car-dot-on': node.widget.activeDotColorId = v || null; saveHistory(); render(); break;
     case 'tabs-ind': node.widget.indicatorColorId = v || null; saveHistory(); render(); break;
+    case 'overlay-kind':
+      if (v === 'screen') delete node.overlay;
+      else { node.overlay = { dismissible: true, ...(node.overlay || {}), kind: v }; node.isInitial = false; }
+      saveHistory(); render(); break;
     case 'html-tag': if (v && v !== 'auto') node.htmlTag = v; else delete node.htmlTag; saveHistory(); break;
     case 'seo-image': node.seo = { ...(node.seo || {}) }; if (v) node.seo.imageId = v; else delete node.seo.imageId; saveHistory(); break;
     case 'sstyle': node.strokeStyle = v; updateNodeEl(node); renderProps(); break;
@@ -406,6 +416,27 @@ function incomingScreenCount(node) {
 }
 
 // Route + start-screen controls, shown for frame nodes.
+// A top-level frame is a screen, or an overlay shown over one (nodes.js).
+function overlaySection(node) {
+  const kind = (node.overlay && node.overlay.kind) || 'screen';
+  const opts = [{ value: 'screen', label: 'Screen' }, ...OVERLAY_KINDS];
+  return `
+    <div class="prop-section">
+      <div class="prop-section-title">Shows as</div>
+      ${ddTrigger({ value: kind, options: opts, data: { pp: 'overlay-kind' }, triggerClass: 'dd-block' })}
+      ${kind !== 'screen' ? `
+      <div class="prop-row" style="margin-top:8px">
+        <span class="prop-label-wide">Tap outside closes</span>
+        <label class="switch" style="margin-left:auto"><input type="checkbox" id="p-ov-dismiss"${node.overlay.dismissible !== false ? ' checked' : ''}><span class="switch-track"></span></label>
+      </div>
+      <div class="api-hint" style="margin-top:6px">${{
+        dialog: 'Opens centred over the screen, which dims behind it.',
+        sheet: 'Slides up from the bottom of the screen.',
+        menu: 'Opens under the element that was tapped.',
+      }[kind]} Link an element to this frame (Interactions → Navigate, or the Connect tool) to open it; give a button inside it the “Close overlay” action.</div>` : ''}
+    </div>`;
+}
+
 function screenSection(node) {
   const inbound = incomingScreenCount(node);
   const inboundText = inbound === 0
@@ -594,11 +625,12 @@ const ACTIONS = [
   { value: 'none', label: 'Nothing' },
   { value: 'navigate', label: 'Navigate to screen' },
   { value: 'back', label: 'Go back' },
+  { value: 'close', label: 'Close overlay' },
 ];
 const NAV_MODES = [{ value: 'push', label: 'Push' }, { value: 'replace', label: 'Replace' }, { value: 'clear', label: 'Clear stack' }];
 const TRANSITIONS = [{ value: 'platform', label: 'Platform' }, { value: 'fade', label: 'Fade' }, { value: 'slideRight', label: 'Slide' }, { value: 'none', label: 'None' }];
 const NO_ACTION = () => ({ type: 'none', targetFrameId: null, mode: 'push', transition: 'platform' });
-const actionType = (node) => (node.action && ['navigate', 'back'].includes(node.action.type) ? node.action.type : 'none');
+const actionType = (node) => (node.action && ['navigate', 'back', 'close'].includes(node.action.type) ? node.action.type : 'none');
 const isScreen = (n) => n.type === 'frame' && (!n.parentId || getNode(n.parentId)?.type === 'section');
 
 const panelTitle = () => document.querySelector('#props-panel .panel-title');
@@ -628,13 +660,20 @@ function renderInteractionsPanel() {
 
   let details = '';
   if (type === 'navigate') {
+    // An overlay target opens over the screen: no stack or transition to pick.
+    const target = a.targetFrameId ? getNode(a.targetFrameId) : null;
+    const toOverlay = target && isOverlayFrame(target);
     details = `
-      ${dataRow('Go to', dd('act-target', a.targetFrameId || '', [{ value: '', label: '— choose a screen —' }, ...screens.map(f => ({ value: f.id, label: f.name }))]))}
+      ${dataRow('Go to', dd('act-target', a.targetFrameId || '', [{ value: '', label: '— choose a screen —' },
+        ...screens.map(f => ({ value: f.id, label: isOverlayFrame(f) ? `${f.name} (${overlayLabel(f).toLowerCase()})` : f.name }))]))}
+      ${toOverlay ? hint(`Opens “${esc(target.name)}” as a ${overlayLabel(target).toLowerCase()} over this screen.`) : `
       ${dataRow('Stack', dd('act-mode', a.mode || 'push', NAV_MODES))}
-      ${dataRow('Transition', dd('act-trans', a.transition || 'platform', TRANSITIONS))}
+      ${dataRow('Transition', dd('act-trans', a.transition || 'platform', TRANSITIONS))}`}
       ${!screens.length ? hint('Add a screen to navigate to.') : ''}`;
   } else if (type === 'back') {
     details = hint('Returns to the previous screen — in Play, and as <code>AppRoutes.pop()</code> in the exported app.');
+  } else if (type === 'close') {
+    details = hint('Closes the dialog, sheet or menu this element is in.');
   } else {
     details = hint('Tapping does nothing. Pick an action, or drag from this layer to a screen.');
   }
@@ -670,6 +709,8 @@ function setAction(node, field, v) {
       node.action = { type: 'navigate', targetFrameId: a.targetFrameId || null, mode: a.mode || 'push', transition: a.transition || 'platform', ...(a.routes ? { routes: a.routes } : {}) };
     } else if (v === 'back') {
       node.action = { type: 'back', targetFrameId: null, mode: 'push', transition: 'platform' };
+    } else if (v === 'close') {
+      node.action = { type: 'close', targetFrameId: null, mode: 'push', transition: 'platform' };
     } else {
       node.action = NO_ACTION();
     }
@@ -717,8 +758,31 @@ function widgetSection(node) {
       </div>
       <button type="button" class="prop-add" id="p-tabs-add" style="margin-top:8px">+ Add tab</button>
       <div class="api-hint" style="margin-top:6px">Each layer inside is a tab's panel, and its layer name is the tab's label. Click a tab, or select something in its panel, to show it.</div>` : ''}
+      ${kind === 'carousel' ? `
+      ${toggle('Arrows', 'p-car-arrows', w.arrows !== false)}
+      ${toggle('Dots', 'p-car-dots', w.dots !== false)}
+      ${toggle('Loop', 'p-car-loop', w.loop !== false)}
+      <div class="prop-row" style="margin-top:6px">
+        <span class="prop-label-wide">Autoplay (s)</span>
+        <input class="prop-input" id="p-car-autoplay" type="number" min="0" max="60" step="1" value="${w.autoplay || 0}" style="width:64px;flex:0 0 auto;margin-left:auto">
+      </div>
+      ${w.dots !== false ? `${row('Dot', dd('car-dot', w.dotColorId, colors('Grey')))}
+      ${row('Active dot', dd('car-dot-on', w.activeDotColorId, colors('Dark')))}` : ''}
+      <button type="button" class="prop-add" id="p-tabs-add" style="margin-top:8px">+ Add slide</button>
+      <div class="api-hint" style="margin-top:6px">Each layer inside is a slide. Use the arrows or dots, or select something in a slide, to show it. Autoplay 0 is off; it pauses while hovered and for people who reduce motion.</div>` : ''}
+      ${kind === 'accordion' ? `
+      ${toggle('One open at a time', 'p-acc-single', w.single !== false)}
+      ${row('Heading', dd('acc-typo', w.typoId, typos))}
+      ${row('Icon', dd('acc-icon', w.iconColorId, colors('Text colour')))}
+      ${row('Divider', dd('acc-div', w.dividerColorId, colors('Faint grey')))}
+      <button type="button" class="prop-add" id="p-tabs-add" style="margin-top:8px">+ Add section</button>
+      <div class="api-hint" style="margin-top:6px">Each layer inside is a section, and its layer name is the heading. Click a heading to choose which start open, or select something in a section to open it.</div>` : ''}
     </div>`;
 }
+const toggle = (label, id, on) => `<div class="prop-row" style="margin-top:6px">
+        <span class="prop-label-wide">${label}</span>
+        <label class="switch" style="margin-left:auto"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span class="switch-track"></span></label>
+      </div>`;
 
 // A new tab panel for a Tabs container.
 function addTabPanel(parent, name) {
@@ -927,7 +991,8 @@ export function renderProps() {
       ${node.parentId ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">in <span style="color:var(--accent)">${esc(getNode(node.parentId)?.name || '?')}</span></div>` : ''}
     </div>
     ${behaviorSection(node)}
-    ${node.type === 'frame' ? screenSection(node) : ''}
+    ${isScreen(node) ? overlaySection(node) : ''}
+    ${node.type === 'frame' && !isOverlayFrame(node) ? screenSection(node) : ''}
     ${node.type === 'frame' ? seoSection(node) : ''}
     ${htmlSection(node)}
     ${node.type === 'container' ? widgetSection(node) : ''}
@@ -1331,10 +1396,20 @@ export function renderProps() {
   }
 
   // Layout icon toggles (container only). setLayout re-renders + snapshots.
+  // Carousel switches and autoplay.
+  [['p-car-arrows', 'arrows'], ['p-car-dots', 'dots'], ['p-car-loop', 'loop'], ['p-acc-single', 'single']].forEach(([id, key]) =>
+    document.getElementById(id)?.addEventListener('change', (e) => { node.widget[key] = e.target.checked; saveHistory(); render(); }));
+  document.getElementById('p-car-autoplay')?.addEventListener('change', (e) => {
+    node.widget.autoplay = Math.min(Math.max(Math.round(Number(e.target.value) || 0), 0), 60);
+    saveHistory(); render();
+  });
+  document.getElementById('p-ov-dismiss')?.addEventListener('change', (e) => { node.overlay.dismissible = e.target.checked; saveHistory(); });
   document.getElementById('p-tabs-stretch')?.addEventListener('change', (e) => { node.widget.stretch = e.target.checked; saveHistory(); render(); });
   document.getElementById('p-tabs-add')?.addEventListener('click', () => {
-    const p = addTabPanel(node, `Tab ${(node.children || []).length + 1}`);
-    node.widget.active = node.children.length - 1;
+    const word = { carousel: 'Slide', accordion: 'Section' }[node.widget.kind] || 'Tab';
+    const p = addTabPanel(node, `${word} ${(node.children || []).length + 1}`);
+    if (node.widget.kind === 'accordion') node.widget.open = node.widget.single === false ? [...(node.widget.open || []), node.children.length - 1] : [node.children.length - 1];
+    else node.widget.active = node.children.length - 1;
     state.selected.clear(); state.selected.add(p.id);
     saveHistory(); render();
   });
