@@ -1,4 +1,5 @@
 import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
+import { safeSvg } from './svg-safe.js';
 import { isTabs, isCarousel, isAccordion, tabLabel, openSections } from './widgets.js';
 import { lottieFile } from './lottie.js';
 import { flexKind, isStack, isOverlayFrame } from './nodes.js';
@@ -400,7 +401,9 @@ function iconAssetPath(ctx, node) {
 export function iconFile(node) {
   const base = node.iconId || ('icon_' + hashStr(node.svg));
   const name = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'icon';
-  return { name: `${name}.svg`, svg: node.svg };
+  // Exported as cleaned markup too (svg-safe.js): an icon file shouldn't carry
+  // script or outside references, whoever opens it.
+  return { name: `${name}.svg`, svg: typeof DOMParser === 'function' ? safeSvg(node.svg) : node.svg };
 }
 function buildIcon(ctx, node, opts) {
   // No SVG assigned yet → just reserve the space.
