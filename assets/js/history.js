@@ -38,7 +38,8 @@ const LAYOUT_TYPES = ['frame', 'container', 'section', 'row', 'column', 'wrap', 
 // uses. Every read of these is type-gated or has a default fallback, so pruning is
 // safe; the in-memory shape and undo snapshots keep the full object.
 const FIELD_OWNERS = {
-  src: ['image'], fit: ['image'],
+  src: ['image'], fit: ['image', 'lottie'],
+  lottieId: ['lottie'], loop: ['lottie'], autoplay: ['lottie'], speed: ['lottie'], poster: ['lottie'],
   svg: ['icon'], iconId: ['icon'],
   text: ['text'], italic: ['text'], decoration: ['text'], textCase: ['text'], fontSize: ['text'], fontWeight: ['text'], color: ['text'], typoId: ['text'], autoSize: ['text'],
   fontSizeOverride: ['text'], fontWeightOverride: ['text'],
@@ -91,6 +92,10 @@ export function serializeDocument() {
   const obj = {};
   KEYS.forEach(k => { obj[k] = state[k]; });
   obj.nodes = (state.nodes || []).map(pruneNode);
+  // Animation files: saved with the document, but not in undo snapshots (they're
+  // only ever added — see lottie.js). Files no node plays any more are left out.
+  const used = new Set(state.nodes.filter(n => n.type === 'lottie' && n.lottieId).map(n => n.lottieId));
+  obj.lotties = Object.fromEntries(Object.entries(state.lotties || {}).filter(([id]) => used.has(id)));
   return obj;
 }
 
@@ -99,6 +104,7 @@ export function serializeDocument() {
 export function loadDocument(doc) {
   if (!doc) return;
   KEYS.forEach(k => { if (k in doc) state[k] = doc[k]; });
+  state.lotties = doc.lotties && typeof doc.lotties === 'object' ? doc.lotties : {};
   repairCounters(); // a document saved with stale counters must not reuse ids
   repairScreens();  // …nor a screen taller than its own frame
   state.history = [];

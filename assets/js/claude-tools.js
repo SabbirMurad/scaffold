@@ -37,6 +37,7 @@ import { listComments, createComment, replyComment, resolveComment, updateProjec
 import { setWidgetKind } from './widgets.js';
 import { isOverlayFrame } from './nodes.js';
 import { safeSvg } from './svg-safe.js';
+import { preparePlayerSource, readLottie, addLottie } from './lottie.js';
 
 const ICON_API = 'https://api.iconify.design';
 const IMAGE_API = 'https://api.openverse.org/v1/images/';
@@ -56,6 +57,7 @@ const ELEMENT_HELP = [
   '  image:     { "type":"image", "search":"mountain lake", "fit":"cover|contain", "height":180, "radius":12, "alt":"Wood-fired margherita pizza" }  — "search" takes the first free stock photo (Openverse); or "url":"https://…"; neither gives a grey placeholder. "alt" says what the image shows (search engines and screen readers read it): give every meaningful image one — a photo bound to data can bind its alt too ("bind":{"alt":"item.name"}); for pure decoration give "decorative": true instead.',
   '  icon:      { "type":"icon", "icon":"mdi:home", "size":24, "color":"var:<color name>" }  — any Iconify id (use search_icons). Icons are tinted only by a color variable.',
   '             A logo or other graphic you drew: { "type":"icon", "svg":"<svg viewBox=…>…</svg>", "height":48, "alt":"Brand name" } — it stays vector (exported as an SVG file) and keeps its own colors ("keepColors": false tints it like an icon). Outline lettering to paths: text in an SVG only draws in fonts the computer has.',
+  '  lottie:    { "type":"lottie", "json": <Lottie JSON>, "width":160, "loop":true, "autoplay":true, "speed":1, "still":0.5, "alt":"…" }  — a Lottie animation: "json" is the animation itself (an object or its text), or "url" a .json file online; it keeps its own proportions. It plays in Play and the exported app (the canvas shows the "still" frame, 0–1, which is also what people who reduce motion see). Give it "alt" if it means something, or "decorative": true. Use animations sparingly: a loader, a success tick, an empty state.',
   '  button:    { "type":"button", "text":"Sign in", "fill":"#2563eb", "color":"#ffffff", "radius":10 }  — a container with a centred label.',
   '  instance:  { "type":"instance", "component_id":"cmp1" }  — a live copy of a component.',
   'Any element also takes: name, width / height (px number, "fill" to fill the parent, or "hug" to fit content), x / y (only inside a stack or on the bare canvas), '
@@ -504,7 +506,7 @@ async function searchPhoto(query) {
 
 // Keys handled by name (everything else must go through "props").
 const SPEC_KEYS = new Set([
-  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs', 'carousel', 'accordion', 'overlay', 'svg', 'keepColors',
+  'type', 'name', 'children', 'component_id', 'props', 'bind', 'showIf', 'repeat', 'alt', 'decorative', 'tag', 'seo', 'tabs', 'carousel', 'accordion', 'overlay', 'svg', 'keepColors', 'json', 'loop', 'autoplay', 'speed', 'still',
   'text', 'fontSize', 'fontWeight', 'color', 'textStyle', 'italic', 'decoration', 'textCase', 'strokeSides',
   'fill', 'gradient', 'radius', 'padding', 'margin', 'gap', 'layout', 'align', 'valign',
   'width', 'height', 'size', 'x', 'y', 'opacity', 'rotation', 'flipH', 'flipV',
@@ -541,7 +543,7 @@ async function applyProps(node, p) {
   // Text
   only('text', ['text']); only('textStyle', ['text']); only('italic', ['text']); only('decoration', ['text']); only('textCase', ['text']); only('fontSize', ['text']); only('fontWeight', ['text']);
   if (p.text !== undefined) node.text = String(p.text);
-  only('alt', ['image', 'icon']); only('decorative', ['image']); only('tag', ['text', 'container']); only('seo', ['frame']);
+  only('alt', ['image', 'icon', 'lottie']); only('decorative', ['image', 'lottie']); only('tag', ['text', 'container']); only('seo', ['frame']);
   // Web pages: the HTML element a text / container becomes, and a screen's search listing.
   if (p.tag !== undefined) {
     const tags = t === 'text' ? ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span'] : ['div', 'section', 'header', 'nav', 'main', 'footer', 'article', 'aside'];
@@ -789,8 +791,34 @@ async function applyProps(node, p) {
     else node.isInitial = false;
   }
 
+  // Animations (lottie.js): the file — given, or fetched — and how it plays.
+  only('json', ['lottie']); only('loop', ['lottie']); only('autoplay', ['lottie']); only('speed', ['lottie']); only('still', ['lottie']);
+  if (t === 'lottie' && (p.json !== undefined || p.url !== undefined)) {
+    let text = p.json;
+    if (text === undefined) {
+      try {
+        const res = await fetch(String(p.url));
+        if (!res.ok) throw new Error();
+        text = await res.text();
+      } catch { fail(`Couldn't download the animation at ${p.url}`); }
+    }
+    let info;
+    try { info = readLottie(text); } catch (e) { fail(e.message); }
+    node.lottieId = addLottie(info.json);
+    // Its own proportions, at most 240px, unless a size was given.
+    if (p.width === undefined && p.height === undefined && p.size === undefined) {
+      const k = Math.min(1, 240 / Math.max(info.w, info.h));
+      node.w = Math.round(info.w * k); node.h = Math.round(info.h * k);
+    } else if (p.height === undefined && node.wMode === 'fixed') node.h = Math.round(node.w * info.h / info.w);
+    else if (p.width === undefined && node.hMode === 'fixed') node.w = Math.round(node.h * info.w / info.h);
+  }
+  if (p.loop !== undefined) node.loop = !!p.loop;
+  if (p.autoplay !== undefined) node.autoplay = !!p.autoplay;
+  if (p.speed !== undefined) { if (!isNum(p.speed) || p.speed < 0.25 || p.speed > 4) fail('speed is 0.25–4'); node.speed = p.speed; }
+  if (p.still !== undefined) { if (!isNum(p.still) || p.still < 0 || p.still > 1) fail('still is where the still frame is, 0–1'); node.poster = p.still; }
+
   // Icons and images
-  only('icon', ['icon']); only('url', ['image']); only('search', ['image']); only('fit', ['image']);
+  only('icon', ['icon']); only('url', ['image', 'lottie']); only('search', ['image']); only('fit', ['image', 'lottie']);
   if (p.icon !== undefined) {
     const svg = await fetchIcon(p.icon);
     node.svg = svg; node.iconId = p.icon;
@@ -816,7 +844,7 @@ async function applyProps(node, p) {
     if (!['cover', 'contain', 'fill'].includes(p.fit)) fail('fit is cover, contain or fill');
     node.fit = p.fit;
   }
-  if (p.url !== undefined || p.search !== undefined) {
+  if (t === 'image' && (p.url !== undefined || p.search !== undefined)) {
     const url = p.url !== undefined ? String(p.url) : await searchPhoto(String(p.search));
     const { src, size } = await loadImage(url);
     node.src = src;
@@ -998,11 +1026,14 @@ async function build(spec, parent, index, made) {
   let props = { ...spec };
   delete props.type; delete props.children;
   if (['row', 'column', 'wrap', 'stack'].includes(type)) { props.layout = props.layout || type; type = 'container'; }
-  if (!['frame', 'container', 'text', 'image', 'icon'].includes(type)) {
-    fail(`Unknown element type "${spec.type}" — container, text, image, icon, button, instance (or frame, nested)`);
+  if (!['frame', 'container', 'text', 'image', 'icon', 'lottie'].includes(type)) {
+    fail(`Unknown element type "${spec.type}" — container, text, image, icon, lottie, button, instance (or frame, nested)`);
+  }
+  if (type === 'lottie' && props.json === undefined && props.url === undefined) {
+    fail('A lottie element needs "json" (the Lottie animation itself) or "url" (a .json file online)');
   }
 
-  const dims = { frame: [DEVICE.w, 200], container: [200, 120], text: [200, 24], image: [200, 180], icon: [24, 24] }[type];
+  const dims = { frame: [DEVICE.w, 200], container: [200, 120], text: [200, 24], image: [200, 180], icon: [24, 24], lottie: [200, 200] }[type];
   node = makeNode(type, 0, 0, dims[0], dims[1], parent ? parent.id : null);
   Object.assign(node, at(dims[0], dims[1]));
 
@@ -1980,6 +2011,7 @@ async function exportCode(args = {}) {
   ].filter(Boolean);
   if (problems.length) fail(`Fix the errors first — in ${problems.join(', ')} (names must follow the naming rules and be unique)`);
   await resolveRefsForExport(state.nodes);
+  await preparePlayerSource(); // the web export ships the animation player
   const r = exportModelsCode(null, page.id);
   if (!r.ok) fail(page.kind === 'web' ? `Nothing to export on "${page.name}" yet — add a screen to it` : 'Nothing to export yet — add a screen, model, provider or color');
   const parts = [];

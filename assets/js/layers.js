@@ -120,7 +120,7 @@ function layerIconHtml(node) {
   if (url) {
     return `<span class="layer-icon layer-icon-svg" style="-webkit-mask-image:url(${url});mask-image:url(${url})"></span>`;
   }
-  const glyph = { row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', text: 'T' }[node.type] || '\u25AD';
+  const glyph = { row: '\u2630', column: '\u2637', wrap: '\u25A6', stack: '\u29C9', text: 'T', lottie: '\u25B6' }[node.type] || '\u25AD';
   return `<span class="layer-icon">${glyph}</span>`;
 }
 

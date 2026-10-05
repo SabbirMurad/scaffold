@@ -1,4 +1,5 @@
 import { state, getNode, makeNode, seedDefaults } from './state.js';
+import { preparePlayerSource } from './lottie.js';
 import { canvasWrap, frameMenu, closeMenus, showToast, esc } from './utils.js';
 import { canvasToWorld, canAcceptChild, isSingleChild } from './nodes.js';
 import { saveHistory, serializeDocument, loadDocument, commitCurrent } from './history.js';
@@ -290,6 +291,7 @@ document.getElementById('export-confirm')?.addEventListener('click', async () =>
   }
   // Image nodes hold `img:` refs; fetch their bytes so codegen can bundle assets.
   await resolveRefsForExport(state.nodes);
+  await preparePlayerSource(); // the web export ships the animation player
   const r = exportModelsCode(selection);
   closeExport();
   if (!r.ok) { showToast('Nothing to export'); return; }

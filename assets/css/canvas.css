@@ -400,3 +400,8 @@ body.comment-mode #pages-card { display: none; }
 .play-anim-fwd  { animation: play-anim-fwd 0.26s ease; }
 .play-anim-back { animation: play-anim-back 0.26s ease; }
 .play-anim-fade { animation: play-anim-fade 0.22s ease; }
+
+/* Lottie animations (lottie.js): the player's SVG fills the box; a missing
+   file shows as a dashed placeholder. */
+.node.lottie > svg { display: block; }
+.node.lottie.lottie-missing { outline: 1px dashed var(--text3); outline-offset: -1px; background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(127, 127, 127, 0.08) 8px 16px); }

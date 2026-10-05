@@ -1,6 +1,6 @@
 import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
 import { componentName, instancesOf, detachInstance, placeInstance, goToNode, renameComponent } from './operations.js';
-import { noSelection, propsFields, esc } from './utils.js';
+import { noSelection, propsFields, esc, showToast } from './utils.js';
 import { swatchBg } from './colors.js';
 import { updateNodeEl, render } from './render.js';
 import { renderLayers } from './layers.js';
@@ -10,6 +10,7 @@ import { saveHistory } from './history.js';
 import { scopeFor, pathOptions, pathType, canRepeat, aliasOf, OPS, isUnary } from './data.js';
 import { pageOf } from './pages.js';
 import { WIDGET_KINDS, widgetKind, setWidgetKind } from './widgets.js';
+import { lottieJson, readLottie, addLottie, previewLottie, seekLottie } from './lottie.js';
 import { OVERLAY_KINDS, isOverlayFrame, overlayLabel } from './nodes.js';
 import { makeNode } from './state.js';
 
@@ -261,6 +262,7 @@ propsFields.addEventListener('dd:change', e => {
       if (v === 'screen') delete node.overlay;
       else { node.overlay = { dismissible: true, ...(node.overlay || {}), kind: v }; node.isInitial = false; }
       saveHistory(); render(); break;
+    case 'lt-fit': node.fit = v; saveHistory(); render(); break;
     case 'html-tag': if (v && v !== 'auto') node.htmlTag = v; else delete node.htmlTag; saveHistory(); break;
     case 'seo-image': node.seo = { ...(node.seo || {}) }; if (v) node.seo.imageId = v; else delete node.seo.imageId; saveHistory(); break;
     case 'sstyle': node.strokeStyle = v; updateNodeEl(node); renderProps(); break;
@@ -735,6 +737,40 @@ const LAYOUT_CHOICES = [
   { value: 'stack', icon: 'stack', title: 'Stack' },
 ];
 
+// A Lottie animation (lottie.js): its file, how it plays, the still frame it
+// shows on the canvas (and wherever it can't play), and its alt text.
+function lottieSection(node) {
+  const json = lottieJson(node.lottieId);
+  let info = '';
+  try { if (json) { const d = readLottie(json); info = `${d.w}×${d.h} · ${(d.frames / d.fps).toFixed(1)} s at ${Math.round(d.fps)} fps`; } } catch { /* shown as missing */ }
+  const fits = [{ value: 'contain', label: 'Contain' }, { value: 'cover', label: 'Cover' }, { value: 'fill', label: 'Fill (stretch)' }];
+  return `
+    <div class="prop-section">
+      <div class="prop-section-title">Animation</div>
+      <div class="api-hint">${json ? esc(info) : 'Its file is missing — replace it.'}</div>
+      <div class="prop-row" style="margin-top:8px;gap:8px">
+        <button type="button" class="goto-colors-btn" id="p-lt-replace" style="flex:1">Replace file…</button>
+        <button type="button" class="goto-colors-btn" id="p-lt-preview" style="flex:1"${json ? '' : ' disabled'}>Preview</button>
+      </div>
+      <input type="file" id="p-lt-file" accept=".json,application/json" hidden>
+      ${toggle('Loop', 'p-lt-loop', node.loop !== false)}
+      ${toggle('Play on its own', 'p-lt-autoplay', node.autoplay !== false)}
+      <div class="prop-row" style="margin-top:6px">
+        <span class="prop-label-wide">Speed</span>
+        <input class="prop-input" id="p-lt-speed" type="number" min="0.25" max="4" step="0.25" value="${node.speed || 1}" style="width:64px;flex:0 0 auto;margin-left:auto">
+      </div>
+      <div class="prop-row" style="margin-top:6px">
+        <span class="prop-label-wide">Still frame</span>
+        <input type="range" id="p-lt-poster" min="0" max="100" step="1" value="${Math.round((node.poster || 0) * 100)}" style="flex:1">
+      </div>
+      <div class="prop-row" style="margin-top:6px"><span class="prop-label-wide">Fit</span>
+        ${ddTrigger({ value: node.fit || 'contain', options: fits, data: { pp: 'lt-fit' }, triggerClass: 'dd-block' })}</div>
+      <input class="prop-input" id="p-lt-alt" style="width:100%;margin-top:10px" placeholder="Alt text — what the animation shows" value="${esc(node.alt || '')}"${node.decorative ? ' disabled' : ''}>
+      <label class="prop-check" style="margin-top:6px"><input type="checkbox" id="p-lt-decorative"${node.decorative ? ' checked' : ''}><span>Decorative (screen readers skip it)</span></label>
+      <div class="api-hint" style="margin-top:6px">The canvas holds the still frame; Play and the exported app play it. People who turn on reduced motion see the still frame.</div>
+    </div>`;
+}
+
 // Interactive: what the container behaves as (widgets.js) — for now, Tabs.
 function widgetSection(node) {
   const kind = widgetKind(node) || 'none';
@@ -1101,6 +1137,7 @@ export function renderProps() {
           ? 'The text above is used where the data has none.'
           : 'What the image shows, for search engines and screen readers. Mark it Decorative if it’s only decoration.'}</div>
     </div>` : ''}
+    ${node.type === 'lottie' ? lottieSection(node) : ''}
     ${node.type === 'icon' ? `
     <div class="prop-section">
       <div class="prop-section-title">Icon</div>
@@ -1404,6 +1441,39 @@ export function renderProps() {
     saveHistory(); render();
   });
   document.getElementById('p-ov-dismiss')?.addEventListener('change', (e) => { node.overlay.dismissible = e.target.checked; saveHistory(); });
+  // A Lottie animation's settings (lottieSection).
+  if (node.type === 'lottie') {
+    const elOf = () => document.getElementById('node-' + node.id);
+    document.getElementById('p-lt-replace')?.addEventListener('click', () => document.getElementById('p-lt-file').click());
+    document.getElementById('p-lt-file')?.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        node.lottieId = addLottie(await file.text());
+        saveHistory(); render();
+      } catch (err) { showToast(err.message || 'That file couldn\'t be read'); }
+    });
+    const preview = document.getElementById('p-lt-preview');
+    preview?.addEventListener('click', () => {
+      const on = preview.dataset.on !== '1';
+      if (previewLottie(elOf(), on)) { preview.dataset.on = on ? '1' : ''; preview.textContent = on ? 'Stop' : 'Preview'; }
+    });
+    [['p-lt-loop', 'loop'], ['p-lt-autoplay', 'autoplay']].forEach(([id, key]) =>
+      document.getElementById(id)?.addEventListener('change', (e) => { node[key] = e.target.checked; saveHistory(); render(); }));
+    document.getElementById('p-lt-speed')?.addEventListener('change', (e) => {
+      node.speed = Math.min(Math.max(Number(e.target.value) || 1, 0.25), 4); saveHistory(); render();
+    });
+    const poster = document.getElementById('p-lt-poster');
+    poster?.addEventListener('input', () => { node.poster = Number(poster.value) / 100; seekLottie(elOf(), node.poster); });
+    poster?.addEventListener('change', () => saveHistory());
+    const alt = document.getElementById('p-lt-alt');
+    alt?.addEventListener('input', () => { const v = alt.value.trim(); if (v) node.alt = v; else delete node.alt; });
+    alt?.addEventListener('change', () => saveHistory());
+    document.getElementById('p-lt-decorative')?.addEventListener('change', (e) => {
+      if (e.target.checked) node.decorative = true; else delete node.decorative;
+      saveHistory(); renderProps();
+    });
+  }
   document.getElementById('p-tabs-stretch')?.addEventListener('change', (e) => { node.widget.stretch = e.target.checked; saveHistory(); render(); });
   document.getElementById('p-tabs-add')?.addEventListener('click', () => {
     const word = { carousel: 'Slide', accordion: 'Section' }[node.widget.kind] || 'Tab';

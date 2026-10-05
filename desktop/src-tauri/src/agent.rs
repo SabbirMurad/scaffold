@@ -319,6 +319,9 @@ struct Skill {
     /// A required skill stops the turn when it can't be installed; an optional
     /// one only says so, and the turn goes on without it.
     required: bool,
+    /// A skill that isn't a Claude Code plugin: a .tar.gz of its repository and
+    /// the skill's folder inside it, copied to ~/.claude/skills/<name>.
+    archive: Option<(&'static str, &'static str)>,
 }
 
 /// The design skill every design in Scaffold goes through
@@ -329,6 +332,7 @@ const DESIGN_SKILL: Skill = Skill {
     marketplace: "nextlevelbuilder/ui-ux-pro-max-skill",
     plugin: "ui-ux-pro-max@ui-ux-pro-max-skill",
     required: true,
+    archive: None,
 };
 /// The logo skill, for when a design needs a logo, app icon or favicon
 /// (github.com/kaankiziltug/logo-design-skill).
@@ -338,8 +342,22 @@ const LOGO_SKILL: Skill = Skill {
     marketplace: "kaankiziltug/logo-design-skill",
     plugin: "logo-design@logo-design-skill",
     required: false,
+    archive: None,
 };
-const SKILLS: [&Skill; 2] = [&DESIGN_SKILL, &LOGO_SKILL];
+/// The animation skill, for Lottie animations (github.com/diffusionstudio/lottie).
+/// Not a plugin: its folder is copied from the repository's archive.
+const LOTTIE_SKILL: Skill = Skill {
+    name: "text-to-lottie",
+    label: "animation skill",
+    marketplace: "",
+    plugin: "",
+    required: false,
+    archive: Some((
+        "https://codeload.github.com/diffusionstudio/lottie/tar.gz/refs/heads/main",
+        "lottie-main/skills/text-to-lottie",
+    )),
+};
+const SKILLS: [&Skill; 3] = [&DESIGN_SKILL, &LOGO_SKILL, &LOTTIE_SKILL];
 
 /// Make sure Claude Code has Scaffold's skills before a turn. An error means
 /// the turn can't run: design work never goes ahead without the design skill.
@@ -361,6 +379,10 @@ fn ensure_skill(claude: &Path, skill: &Skill, say: &impl Fn(&str)) -> Result<(),
     if own_skill_installed(skill.name) {
         return Ok(());
     }
+    if let Some((url, folder)) = skill.archive {
+        say(&format!("Installing the {}…", skill.label));
+        return install_from_archive(skill.name, url, folder);
+    }
     match plugin_state(claude, skill)? {
         PluginState::Enabled => return Ok(()),
         PluginState::Disabled(id) => {
@@ -381,6 +403,54 @@ fn ensure_skill(claude: &Path, skill: &Skill, say: &impl Fn(&str)) -> Result<(),
         PluginState::Enabled => Ok(()),
         _ => Err(install_failed(skill, "Claude Code doesn't list it as enabled afterwards.".into())),
     }
+}
+
+/// Download a repository archive (curl and tar come with Windows 10+, macOS and
+/// Linux) and copy one skill folder out of it into ~/.claude/skills/<name>.
+fn install_from_archive(name: &str, url: &str, folder: &str) -> Result<(), String> {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).ok_or("no home folder")?;
+    let target = PathBuf::from(home).join(".claude").join("skills").join(name);
+    let work = std::env::temp_dir().join(format!("scaffold-skill-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let archive = work.join("skill.tar.gz");
+    let result = (|| {
+        run_tool("curl", &["-fsSL", "--max-time", "120", "-o", &archive.to_string_lossy(), url])?;
+        run_tool("tar", &["-xzf", &archive.to_string_lossy(), "-C", &work.to_string_lossy(), folder])?;
+        let source = work.join(folder);
+        if !source.join("SKILL.md").is_file() {
+            return Err(format!("the download has no {folder}/SKILL.md"));
+        }
+        let _ = std::fs::remove_dir_all(&target);
+        copy_dir(&source, &target).map_err(|e| format!("couldn't copy it to {}: {e}", target.display()))
+    })();
+    let _ = std::fs::remove_dir_all(&work);
+    result
+}
+
+fn run_tool(program: &str, args: &[&str]) -> Result<(), String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args).stdin(Stdio::null());
+    no_window(&mut cmd);
+    let out = cmd.output().map_err(|e| format!("`{program}` could not be started: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(format!("`{program}` failed: {}", String::from_utf8_lossy(&out.stderr).trim()))
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), dest)?;
+        }
+    }
+    Ok(())
 }
 
 fn install_failed(skill: &Skill, detail: String) -> String {
@@ -488,9 +558,19 @@ fn design_prompt(dir: &Path) -> std::io::Result<PathBuf> {
              inside an SVG only draws in fonts the computer has. Then tell the person to look at the \"Logo concepts\" \
              board on the canvas.\n\
              - Once they pick one, put it in the design: replace the placeholder logo in the screens with the chosen \
-             mark or lockup, and keep the board until they say to remove it. Give files only when they ask for files.\n",
+             mark or lockup, and keep the board until they say to remove it. Give files only when they ask for files.\n\n\
+             ## Animations\n\n\
+             When a design needs an animation (a loader, a success or error tick, an empty state, an animated logo or \
+             icon, a small illustration in motion), make a Lottie animation with the {lottie} skill: load it with the \
+             Skill tool and follow its motion and design guidance, using the project's colors. Its own workflow builds a \
+             player project and a dev server to preview in; in Scaffold, skip all of that. Write the Lottie JSON, check it \
+             is valid, and put it on the canvas with add_elements as a \"lottie\" element with the animation in \"json\" \
+             (the canvas shows its \"still\" frame; Play and the exported app play it). Give it \"alt\" if it means \
+             something, or \"decorative\": true. Keep animations few and small. If the skill isn't installed, write the \
+             animation without it.\n",
             design = DESIGN_SKILL.name,
             logo = LOGO_SKILL.name,
+            lottie = LOTTIE_SKILL.name,
         ),
     )?;
     Ok(path)
@@ -751,7 +831,9 @@ mod tests {
         let list = |json: &str| plugin_state_in(&serde_json::from_str(json).unwrap(), LOGO_SKILL.name);
         assert_eq!(list(r#"[{"id":"logo-design@logo-design-skill","enabled":true}]"#), PluginState::Enabled);
         assert_eq!(list(r#"[{"id":"ui-ux-pro-max@ui-ux-pro-max-skill","enabled":true}]"#), PluginState::Missing);
-        assert!(DESIGN_SKILL.required && !LOGO_SKILL.required);
+        assert!(DESIGN_SKILL.required && !LOGO_SKILL.required && !LOTTIE_SKILL.required);
+        // The animation skill isn't a plugin: it's copied from its repository.
+        assert!(LOTTIE_SKILL.archive.is_some_and(|(url, folder)| url.starts_with("https://") && folder.ends_with("/text-to-lottie")));
     }
 
     #[test]

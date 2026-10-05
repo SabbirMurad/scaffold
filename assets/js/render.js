@@ -12,6 +12,7 @@ import { resolvedSrc } from './images.js';
 import { saveViewportSoon } from './viewport.js';
 import { assignPages, pageRoots, renderPages } from './pages.js';
 import { isWidget, drawWidget, activeTab, pickInModel } from './widgets.js';
+import { mountLottie, sweepLotties } from './lottie.js';
 import { saveHistory } from './history.js';
 import { rootScope, repeatScopes, scopeFor, viewOf, boundColor, evalCond, registerScope, resetScopes } from './data.js';
 
@@ -25,6 +26,7 @@ export function applyTransform() {
 
 export function render() {
   canvas.querySelectorAll('.node, .frame-label').forEach(e => e.remove());
+  sweepLotties(); // the animations of the elements just removed
   // Only the open page is drawn (pages.js). Sections are big region backdrops
   // that group frames, so paint them first (behind) — any root frame not inside
   // a section still sits on top of them.
@@ -114,6 +116,15 @@ function applyPosition(el, node) {
     el.style.left = node.x + 'px';
     el.style.top = node.y + 'px';
   }
+}
+
+// A Lottie animation, held on its still frame (lottie.js; Play plays it), clipped
+// to its corners.
+function applyLottie(el, node) {
+  applyFill(el, node);
+  applyRadius(el, node);
+  el.style.overflow = 'hidden';
+  mountLottie(el, node);
 }
 
 // Visual transform: rotation (degrees) and horizontal/vertical mirroring.
@@ -459,6 +470,8 @@ export function renderNode(node, parent, scope = rootScope(), inRepeat = false) 
     const bc = boundColor(node, scope); if (bc) el.style.color = bc;
   } else if (node.type === 'icon') {
     applyIcon(el, node, true);
+  } else if (node.type === 'lottie') {
+    applyLottie(el, node);
   } else if (node.type === 'section') {
     // Section chrome (faint fill + outline) is styled entirely in CSS (.node.section);
     // it deliberately carries no fill/stroke/radius so its frames show through.
@@ -584,6 +597,8 @@ function applyGhostStyle(el, node, depth, scope = rootScope(), copy = false) {
     const bc = boundColor(node, scope); if (bc) el.style.color = bc;
   } else if (node.type === 'icon') {
     applyIcon(el, node, true);
+  } else if (node.type === 'lottie') {
+    applyLottie(el, node);
   } else if (node.type === 'section') {
     // no chrome
   } else if (node.type === 'instance') {

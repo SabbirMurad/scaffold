@@ -7,6 +7,7 @@
 
 import { state, getNode, getMasterNode } from './state.js';
 import { tapWidget, startAutoplay } from './widgets.js';
+import { playLotties } from './lottie.js';
 import { showToast } from './utils.js';
 import { routeTarget, scopeOfElement } from './data.js';
 import { isFlex, isOverlayFrame } from './nodes.js';
@@ -118,6 +119,7 @@ function show(frameId, anim, isBack) {
   if (cls) clone.classList.add(cls);
   screen.appendChild(clone);
   stopAutoplay(); stopAutoplay = startAutoplay(clone); // carousels that slide by themselves
+  playLotties(clone, lottieNodeOf); // animations play here (the canvas holds them still)
   // A web screen sits centred when the browser is wider than it, with its own
   // background colour filling the sides.
   if (web) {
@@ -477,6 +479,7 @@ function openOverlay(frameId, fromEl) {
     requestAnimationFrame(() => { clone.style.opacity = '1'; });
   }
   layer.appendChild(clone);
+  playLotties(clone, lottieNodeOf);
   layer.addEventListener('click', onScreenClick); // taps inside the overlay act as on the screen
   device.appendChild(layer);
   requestAnimationFrame(() => { scrim.style.opacity = '1'; });
@@ -484,6 +487,9 @@ function openOverlay(frameId, fromEl) {
 }
 
 // Close the top overlay (a "close" action, or a tap outside it).
+// The node a drawn animation belongs to.
+const lottieNodeOf = (el) => getNode(el.dataset.id || el.dataset.playId);
+
 function closeOverlay() {
   const layer = overlays.pop();
   if (layer) layer.remove();

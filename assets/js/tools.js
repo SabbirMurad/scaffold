@@ -11,6 +11,7 @@ import { importFigma } from './figpaste.js';
 import { finalizeImages } from './images.js';
 import { canvasToWorld, isSingleChild } from './nodes.js';
 import { drawTargetAt, worldOrigin, showDrop } from './canvas.js';
+import { readLottie, addLottie } from './lottie.js';
 
 // Tool to restore after a temporary space-bar pan (null = not space-panning)
 let spacePanPrev = null;
@@ -354,10 +355,18 @@ async function dropFiles(files, clientX, clientY) {
   let skipped = 0;
   for (const file of files) {
     const svg = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name);
-    if (!svg && !IMAGE_TYPES.includes(file.type)) { skipped++; continue; }
+    const anim = file.type === 'application/json' || /\.json$/i.test(file.name); // .lottie (zipped) files aren't read
+    if (!svg && !anim && !IMAGE_TYPES.includes(file.type)) { skipped++; continue; }
     let node;
     try {
-      if (svg) {
+      if (anim) {
+        // A Lottie animation (lottie.js): its file stored once, the layer sized
+        // to the animation (at most 320px).
+        const info = readLottie(await readFile(file, 'text'));
+        const k = Math.min(1, 320 / Math.max(info.w, info.h));
+        node = makeNode('lottie', 0, 0, Math.round(info.w * k), Math.round(info.h * k));
+        node.lottieId = addLottie(info.json);
+      } else if (svg) {
         const text = await readFile(file, 'text');
         if (!isSvg(text)) { skipped++; continue; }
         const part = svgPart(text);
@@ -369,16 +378,19 @@ async function dropFiles(files, clientX, clientY) {
         node = makeNode('image', 0, 0, part.w, part.h);
         node.src = part.src;
       }
-    } catch { skipped++; continue; }
+    } catch (err) {
+      if (anim && err && err.message) showToast(err.message); // why the animation was refused
+      skipped++; continue;
+    }
     node.name = file.name.replace(/\.[^.]+$/, '') || node.name;
     placeDropped(node, clientX, clientY, ids.length);
     ids.push(node.id);
   }
   if (ids.length) {
     finishPaste(ids);
-    showToast(`Added ${ids.length} ${ids.length === 1 ? 'file' : 'files'}` + (skipped ? ` — ${skipped} skipped (PNG, JPG, GIF, WebP or SVG only)` : ''));
-  } else if (skipped) {
-    showToast('Only PNG, JPG, GIF, WebP and SVG files can be added');
+    showToast(`Added ${ids.length} ${ids.length === 1 ? 'file' : 'files'}` + (skipped ? ` — ${skipped} skipped (PNG, JPG, GIF, WebP, SVG or Lottie JSON only)` : ''));
+  } else if (skipped && files.length > 1) {
+    showToast('Only PNG, JPG, GIF, WebP, SVG and Lottie JSON files can be added');
   }
 }
 

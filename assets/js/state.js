@@ -14,6 +14,8 @@ export const state = {
   // master root node lives in `nodes`, flagged with a matching componentId. Instances
   // are `type:'instance'` nodes that live-mirror a master (see render.js).
   components: [],
+  // Lottie animation files (lottie.js): id → JSON text, shared by the nodes that play them.
+  lotties: {},
   nextComponentId: 1,
   // Color tab: reusable color variables (solid or gradient). Fully theme-aware —
   // themes live in `state.themes` and each color has one shared name but a
@@ -226,6 +228,7 @@ export function makeNode(type, x, y, w, h, parentId = null) {
     stack:     { fill: 'transparent', stroke: '#c7c7c7', strokeW: 1, strokeOpacity: 1, strokeStyle: 'dashed', opacity: 1, name: 'Stack' },
     image:     { fill: 'transparent', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Image' },
     icon:      { fill: 'transparent', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Icon' },
+    lottie:    { fill: 'transparent', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Animation' },
     text:      { fill: 'transparent', stroke: 'transparent', strokeW: 0, strokeOpacity: 1, strokeStyle: 'solid', opacity: 1, name: 'Text', text: 'Text', fontSize: 16, fontWeight: '400', color: '#1a1a1a' },
   };
   const d = defaults[type] || defaults.container;
@@ -301,6 +304,11 @@ export function makeNode(type, x, y, w, h, parentId = null) {
   };
   // Image is a leaf node — it can't contain anything, so it carries no children.
   if (type === 'image') delete node.children;
+  // An animation (lottie.js) is a leaf too: its file, how it plays, its still frame.
+  if (type === 'lottie') {
+    delete node.children;
+    Object.assign(node, { lottieId: null, loop: true, autoplay: true, speed: 1, poster: 0, fit: 'contain' });
+  }
   if (type === 'container') node.name = 'Container_' + state.nextContainerNum++;
   // Sections become folders in generated code, so name them like a snake_case dir.
   if (type === 'section') node.name = 'section_' + state.nextSectionNum++;

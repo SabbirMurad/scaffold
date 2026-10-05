@@ -1,5 +1,6 @@
 import { state, getNode, getComponent, getMasterNode, isMaster } from './state.js';
 import { isTabs, isCarousel, isAccordion, tabLabel, openSections } from './widgets.js';
+import { lottieFile } from './lottie.js';
 import { flexKind, isStack, isOverlayFrame } from './nodes.js';
 import { isImageRef, refId, imageDataUri } from './images.js';
 import { rootScope, pathType, aliasOf, isUnary } from './data.js';
@@ -415,6 +416,21 @@ function buildIcon(ctx, node, opts) {
   return W('SvgPicture.asset', props, { pos: [dartStr(path)] });
 }
 
+// A Lottie animation: AppLottie (lib/widget/app_lottie.dart) playing its file
+// from assets/lottie/, with its speed, loop, autoplay and still frame.
+function buildLottie(ctx, node, opts) {
+  if (!node.lottieId) return W('SizedBox', { width: sw(ctx, node.w), height: sh(ctx, node.h) });
+  ctx.lottie = true;
+  const p = { width: sw(ctx, node.w), height: sh(ctx, node.h) };
+  if (node.fit && node.fit !== 'contain') p.fit = `BoxFit.${node.fit}`;
+  if (node.loop === false) p.repeat = 'false';
+  if (node.autoplay === false) p.autoplay = 'false';
+  if (node.speed && node.speed !== 1) p.speed = d(node.speed);
+  if (node.poster) p.still = d(node.poster);
+  if (!node.decorative && node.alt) p.semanticLabel = dartStr(node.alt);
+  return W('AppLottie', p, { pos: [dartStr(`assets/lottie/${lottieFile(node.lottieId)}`)] });
+}
+
 // ── layout builders ──
 function buildFlex(ctx, node, kids, fk) {
   const props = {
@@ -608,6 +624,7 @@ function buildNode(ctx, node, opts = {}) {
   if (node.type === 'text') w = buildText(ctx, node);
   else if (node.type === 'image') w = buildImage(ctx, node, opts);
   else if (node.type === 'icon') w = buildIcon(ctx, node, opts);
+  else if (node.type === 'lottie') w = buildLottie(ctx, node, opts);
   else w = buildBox(ctx, node, opts);
   w = applyEffects(ctx, node, w);
   w = withTap(ctx, node, w);
@@ -855,7 +872,7 @@ function newCtx(routeName) {
     scope: Object.fromEntries(Object.entries(rootScope()).map(([name, v]) =>
       [name, v.source === 'provider' ? { type: v.type, provider: name } : { type: v.type, set: name }])),
     mocks: new Set(), providers: new Set(), enums: new Set(), components: new Set(),
-    hexColor: false, routes: false, innerShadow: false, appImage: false, imageModel: false, carousel: false, accordion: false,
+    hexColor: false, routes: false, innerShadow: false, appImage: false, imageModel: false, carousel: false, accordion: false, lottie: false,
     overlays: new Set(), anchoredTap: false, routeName,
   };
 }
