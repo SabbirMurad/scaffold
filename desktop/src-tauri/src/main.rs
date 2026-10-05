@@ -78,6 +78,7 @@ fn main() {
             agent::claude_status,
             agent::claude_ask,
             agent::claude_stop,
+            agent::claude_attach,
             bridge::tool_reply,
             updater::app_version,
             updater::update_check,

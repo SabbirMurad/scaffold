@@ -223,6 +223,67 @@ fn start(
     Ok(())
 }
 
+/// Save an image the person pasted or dropped into the panel in the project's
+/// working folder (attachments/), where Claude opens it with its Read tool.
+/// `data` is the image as base64. Returns the saved file's path.
+#[tauri::command]
+pub fn claude_attach(app: AppHandle, project: String, name: String, data: String) -> Result<String, String> {
+    let bytes = base64_decode(&data).ok_or("That image couldn't be read")?;
+    if bytes.len() > MAX_ATTACHMENT {
+        return Err("That image is over 10 MB".into());
+    }
+    let ext = image_kind(&bytes).ok_or("Only PNG, JPEG, GIF and WebP images can be attached")?;
+    let dir = workspace(&app, &project)?.join("attachments");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .take(40)
+        .collect();
+    let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("{millis}-{}.{ext}", stem.trim_matches('-')));
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+const MAX_ATTACHMENT: usize = 10 * 1024 * 1024;
+
+/// The image format, by its first bytes (not its name): what Claude can read.
+fn image_kind(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', ..] => Some("png"),
+        [0xFF, 0xD8, 0xFF, ..] => Some("jpg"),
+        [b'G', b'I', b'F', b'8', ..] => Some("gif"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("webp"),
+        _ => None,
+    }
+}
+
+/// Standard base64 (with or without a data: URL prefix, padding, or line breaks).
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let body = text.rsplit_once("base64,").map_or(text, |(_, b)| b);
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    };
+    let mut out = Vec::with_capacity(body.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in body.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=') {
+        acc = (acc << 6) | u32::from(value(c)?);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
 /// Stop the turn in progress. Edits already made stay on the canvas.
 #[tauri::command]
 pub fn claude_stop(app: AppHandle, running: State<'_, Running>) {
@@ -834,6 +895,19 @@ mod tests {
         assert!(DESIGN_SKILL.required && !LOGO_SKILL.required && !LOTTIE_SKILL.required);
         // The animation skill isn't a plugin: it's copied from its repository.
         assert!(LOTTIE_SKILL.archive.is_some_and(|(url, folder)| url.starts_with("https://") && folder.ends_with("/text-to-lottie")));
+    }
+
+    #[test]
+    fn attached_images_are_decoded_and_recognised() {
+        // A 1×1 PNG, as the panel sends it (a data: URL).
+        let png = base64_decode("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==").unwrap();
+        assert_eq!(png.len(), 70);
+        assert_eq!(image_kind(&png), Some("png"));
+        assert_eq!(base64_decode("TWFu").unwrap(), b"Man");
+        assert_eq!(base64_decode("TWE=").unwrap(), b"Ma");
+        assert!(base64_decode("not*base64").is_none());
+        assert_eq!(image_kind(b"%PDF-1.7"), None); // only images Claude can read
+        assert_eq!(image_kind(b"RIFF    WEBPVP8 "), Some("webp"));
     }
 
     #[test]

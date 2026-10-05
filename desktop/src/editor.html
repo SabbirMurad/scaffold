@@ -223,9 +223,13 @@
         <span class="claude-status-hint"><span class="claude-status-time"></span><button type="button" class="claude-status-stop">esc to interrupt</button>)</span>
       </div>
       <!-- Terminal-style prompt: Enter sends, Shift+Enter adds a line -->
+      <!-- Images to send with the next message (pasted, dropped or picked) -->
+      <div class="claude-attachments" id="claude-attachments" hidden></div>
       <div class="claude-composer">
         <span class="claude-caret" aria-hidden="true">&gt;</span>
         <textarea id="ai-prompt" rows="1" spellcheck="false" aria-label="Message Claude" placeholder="Describe a screen or a change…"></textarea>
+        <button type="button" class="claude-attach-btn" id="claude-attach" title="Attach an image (or paste / drop one)" aria-label="Attach an image">+</button>
+        <input type="file" id="claude-attach-file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
       </div>
     </div>
   </div>

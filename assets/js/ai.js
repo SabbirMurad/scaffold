@@ -160,6 +160,13 @@ function addMessage(msg) {
     el.innerHTML = renderMarkdown(msg.text);
   } else {
     el.textContent = msg.text;
+    // A message with images shows their thumbnails under its text.
+    if (msg.images && msg.images.length) {
+      const row = document.createElement('div');
+      row.className = 'claude-msg-images';
+      msg.images.forEach(src => { const im = document.createElement('img'); im.src = src; im.alt = ''; row.appendChild(im); });
+      el.appendChild(row);
+    }
   }
   const stick = nearBottom();
   messagesEl.appendChild(el);
@@ -273,12 +280,91 @@ function stop() {
   tauri.core.invoke('claude_stop');
 }
 
+// ── images to send ───────────────────────────────────────────────────────────
+// Pasted, dropped or picked images wait above the prompt as thumbnails. On send
+// each is saved in the project's working folder (claude_attach) and the message
+// tells Claude where, so it opens them with its Read tool. The transcript shows
+// the thumbnails, not the paths.
+const MAX_IMAGES = 6;
+const MAX_SIDE = 2000;           // larger images are scaled down (what Claude reads well)
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+let pending = [];                // [{ name, data (data URL), thumb (small data URL) }]
+
+async function addImages(files) {
+  for (const file of files) {
+    if (!IMAGE_TYPES.includes(file.type)) { showToast('Only PNG, JPEG, GIF and WebP images can be attached'); continue; }
+    if (pending.length >= MAX_IMAGES) { showToast(`Up to ${MAX_IMAGES} images per message`); break; }
+    try { pending.push(await prepareImage(file)); } catch { showToast('That image couldn’t be read'); }
+  }
+  drawPending();
+}
+
+// The image as it will be sent (at most MAX_SIDE on its long side) and a thumbnail.
+async function prepareImage(file) {
+  const url = await new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onload = () => resolve(rd.result);
+    rd.onerror = reject;
+    rd.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = url;
+  });
+  const draw = (max, type, quality) => {
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL(type, quality);
+  };
+  const big = Math.max(img.naturalWidth, img.naturalHeight) > MAX_SIDE;
+  return {
+    name: (file.name || 'pasted').replace(/\.[^.]+$/, '') || 'pasted',
+    data: big ? draw(MAX_SIDE, file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.9) : url,
+    thumb: draw(96, 'image/jpeg', 0.7),
+  };
+}
+
+function drawPending() {
+  const strip = document.getElementById('claude-attachments');
+  if (!strip) return;
+  strip.hidden = !pending.length;
+  strip.innerHTML = pending.map((p, i) => `
+    <span class="claude-attach-chip"><img src="${p.thumb}" alt="">
+      <button type="button" data-remove="${i}" title="Remove" aria-label="Remove image">×</button></span>`).join('');
+  strip.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => {
+    pending.splice(Number(b.dataset.remove), 1);
+    drawPending();
+    promptEl.focus();
+  }));
+}
+
+// Save the pending images for Claude; the lines to add to the message.
+async function attachPending() {
+  const paths = [];
+  for (const p of pending) {
+    paths.push(await tauri.core.invoke('claude_attach', { project: project() || '', name: p.name, data: p.data }));
+  }
+  return paths.length
+    ? `\n\n[${paths.length === 1 ? 'An image is' : `${paths.length} images are`} attached — open ${paths.length === 1 ? 'it' : 'each'} with the Read tool:]\n${paths.map(x => `- ${x}`).join('\n')}`
+    : '';
+}
+
 async function send() {
   if (busy) return;
   const text = promptEl.value.trim();
-  if (!text) return;
+  if (!text && !pending.length) return;
+  let attached = '';
+  try { attached = await attachPending(); } catch (error) { say('error', String(error)); return; }
+  const images = pending.map(p => p.thumb);
+  pending = [];
+  drawPending();
 
-  addMessage({ role: 'user', text });
+  addMessage({ role: 'user', text: text || (images.length === 1 ? '(image)' : '(images)'), images });
   scrollDown();
   promptEl.value = '';
   autoGrow();
@@ -289,7 +375,7 @@ async function send() {
   resetWorkPage(); // Claude starts on the page being viewed now
   setBusy(true);
   startStatus('Thinking…');
-  await ask(text);
+  await ask((text || 'Here is a reference image.') + attached);
 }
 
 async function ask(text) {
@@ -461,6 +547,31 @@ export function initAi() {
     promptEl.focus();
   });
   promptEl?.addEventListener('input', autoGrow);
+  // Images: pasted into the prompt, dropped on the panel, or picked with +.
+  promptEl?.addEventListener('paste', e => {
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    if (!e.clipboardData.getData('text/plain')) e.preventDefault(); // an image only: nothing to paste as text
+    addImages(files);
+  });
+  panel.addEventListener('dragover', e => {
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation(); // not the canvas's drop
+    panel.classList.add('drop-hover');
+  });
+  panel.addEventListener('dragleave', e => { if (!panel.contains(e.relatedTarget)) panel.classList.remove('drop-hover'); });
+  panel.addEventListener('drop', e => {
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    panel.classList.remove('drop-hover');
+    addImages([...e.dataTransfer.files]);
+    promptEl.focus();
+  });
+  const pick = document.getElementById('claude-attach-file');
+  document.getElementById('claude-attach')?.addEventListener('click', () => pick?.click());
+  pick?.addEventListener('change', () => { addImages([...pick.files]); pick.value = ''; promptEl.focus(); });
   promptEl?.addEventListener('keydown', e => {
     // As in Claude Code: Esc interrupts a turn in progress; otherwise it closes the panel.
     if (e.key === 'Escape') { e.stopPropagation(); if (busy) stop(); else close(); }

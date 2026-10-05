@@ -235,6 +235,27 @@ body.claude-open #claude-panel { transform: translateX(0); }
   color: var(--text); font: inherit; caret-color: var(--text);
 }
 .claude-composer textarea::placeholder { color: var(--text2); opacity: 0.7; }
+/* Attach an image: a quiet + beside the prompt. */
+.claude-attach-btn {
+  flex-shrink: 0; width: 20.7px; height: 20.7px; padding: 0; border: none; border-radius: 4px;
+  background: none; color: var(--text2); font: 600 16px/20.7px var(--term, inherit); cursor: pointer;
+}
+.claude-attach-btn:hover { color: var(--text); background: var(--bg3, rgba(255, 255, 255, 0.06)); }
+/* Images waiting to be sent, above the prompt; × removes one. */
+.claude-attachments { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 0; border-top: 1px solid var(--border); }
+.claude-attachments[hidden] { display: none; }
+.claude-attachments + .claude-composer { border-top: none; }
+.claude-attach-chip { position: relative; width: 48px; height: 48px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border2, var(--border)); }
+.claude-attach-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.claude-attach-chip button {
+  position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; padding: 0; border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 12px; line-height: 16px; cursor: pointer;
+}
+/* A sent message's images, under its text. */
+.claude-msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.claude-msg-images img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border2, var(--border)); }
+/* Files dragged over the panel. */
+#claude-panel.drop-hover { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
 #profile-card, #actions-card, #theme-switch {
   flex-shrink: 0; pointer-events: auto;
