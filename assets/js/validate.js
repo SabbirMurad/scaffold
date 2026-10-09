@@ -25,5 +25,5 @@ export function updateExportButton() {
   if (!btn) return;
   const bad = anyError();
   btn.classList.toggle('has-error', bad);
-  btn.dataset.tooltip = bad ? 'Fix errors to export' : 'Export';
+  btn.dataset.tooltip = bad ? 'Export — fix errors to export code' : 'Export';
 }

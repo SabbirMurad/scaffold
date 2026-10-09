@@ -13,6 +13,7 @@ import { WIDGET_KINDS, widgetKind, setWidgetKind } from './widgets.js';
 import { lottieJson, readLottie, addLottie, previewLottie, seekLottie } from './lottie.js';
 import { OVERLAY_KINDS, isOverlayFrame, overlayLabel } from './nodes.js';
 import { makeNode } from './state.js';
+import { EXPORT_FORMATS, EXPORT_SCALES, exportFrame } from './frame-export.js';
 
 const STROKE_STYLES = ['solid', 'dashed', 'dotted', 'double'];
 
@@ -247,6 +248,9 @@ propsFields.addEventListener('dd:change', e => {
   if (!node) return;
   const v = e.detail.value;
   switch (e.target.dataset.pp) {
+    // Not the design: kept here, and the panel redrawn to show the pick.
+    case 'export-format': exportChoice.format = v; renderProps(); return;
+    case 'export-scale': exportChoice.scale = v; renderProps(); return;
     case 'fit': node.fit = v; updateNodeEl(node); break;
     case 'widget-kind': setWidgetKind(node, v, addTabPanel); saveHistory(); render(); break;
     case 'tabs-typo': node.widget.typoId = v || null; saveHistory(); render(); break;
@@ -437,6 +441,43 @@ function overlaySection(node) {
         menu: 'Opens under the element that was tapped.',
       }[kind]} Link an element to this frame (Interactions → Navigate, or the Connect tool) to open it; give a button inside it the “Close overlay” action.</div>` : ''}
     </div>`;
+}
+
+// ───────── Export ─────────
+// A frame saved as a picture or a PDF (frame-export.js). The format and scale
+// chosen last are kept for the next frame.
+const exportChoice = { format: 'png', scale: '2' };
+function exportSection(node) {
+  return `
+    <div class="prop-section">
+      <div class="prop-section-title">Export</div>
+      <div class="prop-row export-row">
+        ${ddTrigger({ value: exportChoice.format, options: EXPORT_FORMATS, data: { pp: 'export-format' }, triggerClass: 'dd-block' })}
+        ${ddTrigger({ value: exportChoice.scale, options: EXPORT_SCALES, data: { pp: 'export-scale' }, triggerClass: 'dd-block' })}
+      </div>
+      <button type="button" class="export-frame-btn" id="p-export">Export ${esc(node.name || 'frame')}</button>
+    </div>`;
+}
+
+function wireExport(node) {
+  const btn = document.getElementById('p-export');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = 'Exporting…';
+    try {
+      const { name, reduced, inApp } = await exportFrame(node, exportChoice.format, exportChoice.scale);
+      const where = inApp ? ` to Downloads` : '';
+      showToast(reduced ? `Saved ${name}${where} — at a smaller scale, the frame is too big for ${exportChoice.scale}×` : `Saved ${name}${where}`);
+    } catch (e) {
+      console.warn('export:', e);
+      showToast(e.message || 'Couldn’t export the frame');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
 }
 
 function screenSection(node) {
@@ -1235,7 +1276,9 @@ export function renderProps() {
       ${textOverrides(node)}
       ${bindControl(node, 'color')}
     </div>` : ''}
+    ${node.type === 'frame' ? exportSection(node) : ''}
   `;
+  wireExport(node);
 
   // "Bind to data" buttons open a picker under their property; × closes an unused one.
   propsFields.querySelectorAll('[data-bind-open]').forEach(btn => btn.addEventListener('click', () => {

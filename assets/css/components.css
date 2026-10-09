@@ -54,7 +54,7 @@
 
 /* Left sidebar — transparent column holding two floating cards */
 #layers-panel {
-  position: fixed; top: 36px; left: 36px; bottom: 28px; width: var(--panel-w);
+  position: fixed; top: 36px; left: 36px; bottom: 20px; width: var(--panel-w);
   display: flex; flex-direction: column; gap: 12px; z-index: 70;
 }
 /* Outside Design, the sidebar only holds the tabs (+ the Color editor), so it
@@ -104,7 +104,7 @@ body:not(.design-mode) #layers-panel { bottom: auto; max-height: calc(100vh - 64
    viewport; the cards flow inside it so the panel always clears the profile card
    no matter how tall it gets. pointer-events pass through the empty gap. */
 #right-rail {
-  position: fixed; top: 36px; right: 18px; bottom: 28px; width: var(--panel-w);
+  position: fixed; top: 36px; right: 18px; bottom: 20px; width: var(--panel-w);
   display: flex; flex-direction: column; gap: 10px; z-index: 70; pointer-events: none;
   transition: right 0.25s ease;
 }
@@ -274,6 +274,8 @@ body.claude-open #claude-panel { transform: translateX(0); }
 #theme-switch { display: flex; align-items: center; gap: 4px; padding: 6px; }
 #theme-switch .tool-btn { width: 34px; height: 34px; }
 #theme-switch .tool-btn svg { width: 18px; height: 18px; }
+/* In the desktop app the profile sits in the window's top bar (desktop/src/tabs.html). */
+.in-tabs #profile-card { display: none; }
 #profile { display: flex; align-items: center; gap: 10px; padding: 12px; }
 /* Logout sits at the far right of the profile card (override the nav row's flex:1). */
 #profile #nav-logout { flex: 0 0 auto; width: 34px; margin-left: auto; }
@@ -301,6 +303,10 @@ body.claude-open #claude-panel { transform: translateX(0); }
 #profile-name { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #profile-email { font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Project header (name + collapse toggle). In the desktop app the project's tab
+   has the name (double-click renames) and the Home tab the project list, so the
+   row isn't shown. */
+.in-tabs #top-card { display: none; }
 /* Project header (name + collapse toggle) */
 #project-header { display: flex; align-items: center; gap: 4px; padding: 12px 8px 12px 10px; flex-shrink: 0; }
 #project-name {
@@ -1117,6 +1123,32 @@ body.sidebar-collapsed #typo-board { padding-left: 20px; }
   background: var(--surface2); color: var(--text2); cursor: pointer;
   font-family: var(--sans); font-size: 12px; transition: all 0.1s;
 }
+/* Export choice (the Export button): Presentation or Code, mid-screen. */
+.export-choice-box { max-width: 440px; }
+.export-choice-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.export-option {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface2); font-family: var(--sans);
+  transition: border-color 0.12s, background 0.12s;
+}
+.export-option:hover, .export-option:focus-visible { border-color: var(--accent); background: var(--surface3); outline: none; }
+.export-option-icon {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 42px; height: 42px;
+  border-radius: 10px; background: var(--surface3); color: var(--accent);
+}
+.export-option-icon svg { width: 22px; height: 22px; }
+.export-option-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.export-option-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.export-option-sub { font-size: 12px; line-height: 1.4; color: var(--text3); }
+.export-row { display: flex; gap: 6px; }
+.export-row .dd-trigger { flex: 1; min-width: 0; }
+.export-frame-btn {
+  width: 100%; margin-top: 8px; padding: 8px; border: 1px solid var(--border2); border-radius: 7px;
+  background: var(--surface2); color: var(--text); cursor: pointer; font-family: var(--sans); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: border-color 0.1s, background 0.1s;
+}
+.export-frame-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--surface3); }
+.export-frame-btn:disabled { opacity: 0.6; cursor: default; }
 .goto-colors-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--surface3); }
 
 /* Color picker swatches in the properties panel (frame/container) */

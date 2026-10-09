@@ -19,6 +19,7 @@ import { getProject, saveProjectDoc, updateProject, requestAccess,
   setPublicLink, getPublicProject } from './projects.js';
 import { initMock, renderMock } from './mock.js';
 import { exportModelsCode, collectExportables, dartPaths, exportAssets } from './codegen.js';
+import { exportPresentation } from './presentation.js';
 import { updateExportButton } from './validate.js';
 import { initDropdowns, ddTrigger } from './dropdown.js';
 import { initIconPicker } from './icons-picker.js';
@@ -39,6 +40,7 @@ import { confirmModal } from './confirm.js';
 import { restoreViewport, saveViewport, setServerViews } from './viewport.js';
 import { initPages, seedPages, pageKind } from './pages.js';
 import { deleteSelected } from './operations.js';
+import { goHome, signedOut, setTabTitle, inTabs, closeThisTab } from './tabs.js';
 
 // Initialize event systems
 // Pages panel (pages.js): switching keeps each page's own pan/zoom.
@@ -264,11 +266,77 @@ function openExportModal() {
   fillExportAssets();
 }
 
-document.getElementById('btn-export-code')?.addEventListener('click', (e) => {
+// Export offers two things (a choice in the middle of the screen): a
+// presentation — a PDF deck of the page's screens and how they connect, for
+// clients and investors (presentation.js) — or the code, as before.
+const exportBtn = document.getElementById('btn-export-code');
+const exportChoice = document.createElement('div');
+exportChoice.id = 'export-choice';
+exportChoice.className = 'modal-overlay';
+exportChoice.hidden = true;
+exportChoice.innerHTML = `
+  <div class="modal export-choice-box" role="dialog" aria-modal="true" aria-labelledby="export-choice-title">
+    <div class="modal-head">
+      <h3 id="export-choice-title">Export</h3>
+      <button type="button" class="modal-close" data-export-close aria-label="Close">&times;</button>
+    </div>
+    <div class="export-choice-list">
+      <button type="button" class="export-option" data-export="presentation">
+        <span class="export-option-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8.5 20h7"/><path d="M7 12.5l3-3 2.5 2.5L17 7.5"/></svg>
+        </span>
+        <span class="export-option-text">
+          <span class="export-option-title">Presentation</span>
+          <span class="export-option-sub">A PDF deck to show clients and investors: the screens and how they connect</span>
+        </span>
+      </button>
+      <button type="button" class="export-option" data-export="code">
+        <span class="export-option-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 7.5L4 12l4.5 4.5M15.5 7.5L20 12l-4.5 4.5M13.5 5l-3 14"/></svg>
+        </span>
+        <span class="export-option-text">
+          <span class="export-option-title">Code</span>
+          <span class="export-option-sub">The page as a project to build on: Flutter for a phone page, HTML for a web page</span>
+        </span>
+      </button>
+    </div>
+  </div>`;
+document.body.appendChild(exportChoice);
+const closeExportChoice = () => { exportChoice.hidden = true; };
+
+exportBtn?.addEventListener('click', (e) => {
   e.preventDefault();
-  // The icon isn't natively disabled (so its hover hint shows); guard here instead.
-  if (e.currentTarget.classList.contains('has-error')) { showToast('Fix errors before exporting'); return; }
-  openExportModal();
+  exportChoice.hidden = false;
+  exportChoice.querySelector('.export-option')?.focus();
+});
+// Closes from ×, Esc, or a click on the dimmed backdrop.
+exportChoice.addEventListener('click', (e) => {
+  if (e.target === exportChoice || e.target.closest('[data-export-close]')) closeExportChoice();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !exportChoice.hidden) closeExportChoice(); });
+
+let presenting = false;
+exportChoice.addEventListener('click', async (e) => {
+  const item = e.target.closest('[data-export]');
+  if (!item) return;
+  closeExportChoice();
+  if (item.dataset.export === 'code') {
+    // The icon isn't natively disabled (so its hover hint shows); guard here instead.
+    if (exportBtn.classList.contains('has-error')) { showToast('Fix errors before exporting code'); return; }
+    openExportModal();
+    return;
+  }
+  if (presenting) return;
+  presenting = true;
+  try {
+    const { name, inApp } = await exportPresentation(showToast);
+    showToast(`Saved ${name}${inApp ? ' to Downloads' : ''}`);
+  } catch (err) {
+    console.warn('presentation:', err);
+    showToast(err.message || 'Couldn’t make the presentation');
+  } finally {
+    presenting = false;
+  }
 });
 
 // "Toggle all" in a group flips every checkbox in that group.
@@ -313,7 +381,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && exportMo
 // Nav icons.
 document.getElementById('nav-home')?.addEventListener('click', async () => {
   await flushThumbnail(); // the projects list shows the latest preview
-  window.location.href = '/dashboard.html';
+  goHome(); // the dashboard tab in the app (this one stays open), the page on the web
 });
 
 // ───────── Project persistence ─────────
@@ -511,6 +579,7 @@ if (projectNameInput) {
   projectNameInput.value = state.projectName;
   projectNameInput.addEventListener('input', () => {
     state.projectName = projectNameInput.value;
+    setTabTitle(state.projectName);
     if (!currentProjectId) return;
     clearTimeout(renameTimer);
     renameTimer = setTimeout(() => {
@@ -519,6 +588,13 @@ if (projectNameInput) {
     }, 700);
   });
 }
+
+// In the app the project's tab shows its name and renames it (double-click,
+// desktop/src/tabs.html): this page is told the new name.
+window.__TAURI__?.webview?.getCurrentWebview().listen('tab-renamed', ({ payload }) => {
+  state.projectName = String(payload);
+  if (projectNameInput) projectNameInput.value = state.projectName;
+});
 
 // Collapse / expand the left sidebar
 document.getElementById('sidebar-toggle')?.addEventListener('click', () => document.body.classList.add('sidebar-collapsed'));
@@ -655,6 +731,8 @@ function showAccessScreen(kind, projectId) {
     </div>`;
 
   const dashBtn = '<a class="access-btn ghost" href="/dashboard.html">Back to dashboard</a>';
+  // In the app this project's tab just closes (the dashboard is its own tab).
+  el.addEventListener('click', (e) => { if (inTabs && e.target.closest('a.access-btn[href="/dashboard.html"]')) { e.preventDefault(); closeThisTab(); } });
 
   if (kind === 'signin') {
     const target = encodeURIComponent(`/editor.html?id=${encodeURIComponent(projectId)}`);
@@ -715,7 +793,7 @@ async function boot() {
   if (projectId) {
     if (!getAuth()) { showAccessScreen('signin', projectId); return; }
     const res = await getProject(projectId);
-    if (res.status === 401) { window.location.href = '/auth.html'; return; }
+    if (res.status === 401) { signedOut(); return; }
     if (res.status === 403) { showAccessScreen('denied', projectId); return; }
     if (res.status === 404) { showAccessScreen('notfound', projectId); return; }
     if (res.ok && res.data) {
@@ -731,6 +809,7 @@ async function boot() {
       currentVersion = res.data.document && res.data.document.version != null
         ? res.data.document.version : null;
       if (res.data.project && res.data.project.name) state.projectName = res.data.project.name;
+      setTabTitle(state.projectName);
       if (res.data.document && res.data.document.content) {
         serverContent = res.data.document.content;
         loadDocument(serverContent);

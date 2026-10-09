@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tabs</title>
+<script src="/app-config.js"></script>
+<link rel="stylesheet" href="/assets/css/base.css">
+<style>
+  /* The window's top bar (desktop/src-tauri/src/tabs.rs — windows have no title
+     bar of their own): the tabs, empty space to drag the window by (double-click
+     maximizes), and the window buttons. 36px tall: tabs.rs places the pages under it. */
+  html, body { height: 36px; margin: 0; overflow: hidden; background: var(--bg); user-select: none; -webkit-user-select: none; }
+  #bar { display: flex; height: 36px; border-bottom: 1px solid var(--border); box-sizing: border-box; }
+  .logo { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 40px; height: 35px; }
+  .logo img { width: 18px; height: 18px; pointer-events: auto; }
+  #strip { display: flex; align-items: flex-end; gap: 0; flex: 0 1 auto; min-width: 0; height: 35px; padding: 0; overflow: hidden; }
+  .drag { flex: 1 1 auto; min-width: 48px; }
+  /* Window buttons, sized and coloured as Windows' own. */
+  .controls { display: flex; flex-shrink: 0; height: 35px; }
+  .controls button {
+    width: 46px; height: 35px; border: none; padding: 0; background: none; color: var(--text2);
+    display: flex; align-items: center; justify-content: center; cursor: default;
+  }
+  .controls button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+  .controls button.close:hover { background: #c42b1c; color: #fff; }
+  .controls svg { width: 10px; height: 10px; }
+  /* The signed-in person, left of the window buttons: opens Account on Home. */
+  #me {
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 35px;
+    border: none; padding: 0; margin-right: 2px; background: none; cursor: default;
+  }
+  #me[hidden] { display: none; }
+  #me img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; background: var(--surface3); transition: box-shadow 0.1s; }
+  #me:hover img { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18); }
+  /* Settings, right of the picture: opens Settings on Home. */
+  #settings {
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 28px;
+    margin: 0 6px 0 0; align-self: center; border: none; border-radius: 6px; padding: 0; background: none; color: var(--text2); cursor: default;
+  }
+  #settings[hidden] { display: none; }
+  #settings:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+  #settings span { width: 16px; height: 16px; background: currentColor;
+    -webkit-mask: url(/assets/icons/settings.svg) center / contain no-repeat; mask: url(/assets/icons/settings.svg) center / contain no-repeat; }
+  .tab {
+    position: relative; display: flex; align-items: center; gap: 8px; flex: 0 1 180px; min-width: 64px; height: 30px;
+    padding: 0 8px 0 12px; border-radius: 9px 9px 0 0; color: var(--text2); font-size: 12.5px; cursor: default;
+    box-sizing: border-box; transition: background 0.1s;
+  }
+  .tab:hover { background: var(--surface2); }
+  .tab.active { background: var(--surface); color: var(--text); }
+  .tab.home { flex: 0 0 auto; padding: 0 12px; }
+  /* A thin line between neighbouring tabs, as in a browser — not beside the open
+     tab or the one under the pointer, which stand out already. */
+  .tab + .tab::before {
+    content: ''; position: absolute; left: 0; top: 8px; bottom: 6px; width: 1px;
+    background: rgba(255, 255, 255, 0.14); transition: opacity 0.1s;
+  }
+  .tab.active::before, .tab.active + .tab::before,
+  .tab:hover::before, .tab:hover + .tab::before,
+  .tab.dragging::before, .tab.dragging + .tab::before { opacity: 0; }
+  .tab .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab .icon { width: 14px; height: 14px; flex-shrink: 0; background: currentColor;
+    -webkit-mask: url(/assets/icons/home.svg) center / contain no-repeat; mask: url(/assets/icons/home.svg) center / contain no-repeat; }
+  /* Renaming a project tab (double-click): its name becomes a text box. */
+  .tab .rename {
+    flex: 1; min-width: 0; height: 22px; box-sizing: border-box; padding: 0 5px; margin-left: -6px;
+    border: 1px solid var(--accent); border-radius: 5px; background: var(--bg); color: var(--text);
+    font: inherit; outline: none;
+  }
+  .tab .x {
+    width: 18px; height: 18px; flex-shrink: 0; border: none; border-radius: 5px; padding: 0; background: none;
+    color: var(--text3); font-size: 15px; line-height: 18px; cursor: pointer; opacity: 0;
+  }
+  .tab:hover .x, .tab.active .x { opacity: 1; }
+  .tab .x:hover { background: var(--surface2); color: var(--text); }
+  /* While dragged: lifted, following the pointer; off the strip it will pop out. */
+  .tab.dragging { z-index: 2; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); background: var(--surface); transition: none; }
+  .tab.leaving { opacity: 0; } /* off the strip: the ghost window draws it */
+</style>
+</head>
+<body>
+<div id="bar">
+  <!-- The app's logo, where Windows' title bar had it; part of the drag area. -->
+  <div class="logo" data-tauri-drag-region><img src="/assets/icons/logo.svg" alt="Scaffold" data-tauri-drag-region draggable="false"></div>
+  <div id="strip" role="tablist" aria-label="Open projects"></div>
+  <div class="drag" data-tauri-drag-region></div>
+  <button type="button" id="me" hidden title="Account" aria-label="Account"><img id="me-avatar" src="/assets/icons/avatar.svg" alt=""></button>
+  <button type="button" id="settings" hidden title="Settings" aria-label="Settings"><span aria-hidden="true"></span></button>
+  <div class="controls">
+    <button type="button" id="win-min" title="Minimize" aria-label="Minimize">
+      <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
+    </button>
+    <button type="button" id="win-max" title="Maximize" aria-label="Maximize">
+      <svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+    </button>
+    <button type="button" id="win-close" class="close" title="Close" aria-label="Close">
+      <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1"/></svg>
+    </button>
+  </div>
+</div>
+<script>
+  // The strip: draws this window's tabs (the `tabs` event), switches and closes
+  // them, and drags them — along the strip to reorder; onto another window's
+  // strip to move there; anywhere else to pop out into a new window (tabs.rs
+  // decides which from where it's let go).
+  const { invoke } = window.__TAURI__.core;
+  const strip = document.getElementById('strip');
+  let tabs = [], active = '';
+
+  function draw() {
+    if (renaming) return; // redrawn once the rename ends
+    strip.innerHTML = '';
+    for (const t of tabs) {
+      const el = document.createElement('div');
+      el.className = 'tab' + (t.label === active ? ' active' : '') + (t.label === 'home' ? ' home' : '');
+      el.dataset.label = t.label;
+      el.setAttribute('role', 'tab');
+      el.setAttribute('aria-selected', String(t.label === active));
+      el.title = t.label === 'home' ? t.title : `${t.title}\nDouble-click to rename`;
+      if (t.label === 'home') {
+        el.innerHTML = '<span class="icon" aria-hidden="true"></span><span class="name">Home</span>';
+      } else {
+        el.innerHTML = '<span class="name"></span><button class="x" title="Close tab (Ctrl+W)" aria-label="Close tab">×</button>';
+        el.querySelector('.name').textContent = t.title;
+        el.querySelector('.x').addEventListener('pointerdown', (e) => e.stopPropagation());
+        el.querySelector('.x').addEventListener('click', () => invoke('tab_close', { label: t.label }));
+      }
+      el.addEventListener('pointerdown', (e) => press(e, el));
+      // Middle-click closes, as in a browser.
+      el.addEventListener('auxclick', (e) => { if (e.button === 1 && t.label !== 'home') invoke('tab_close', { label: t.label }); });
+      strip.appendChild(el);
+    }
+  }
+
+  // ── renaming ───────────────────────────────────────────────────────────────
+  // Double-click a project tab: its name turns into a text box. Enter or
+  // clicking away renames the project (on the server, as the editor's name
+  // field did); Esc leaves it. The open editor is told the new name.
+  let renaming = null, lastClick = {};
+  function startRename(el, t) {
+    if (renaming) return;
+    const name = el.querySelector('.name');
+    const input = document.createElement('input');
+    input.className = 'rename';
+    input.value = t.title;
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'Project name');
+    name.replaceWith(input);
+    renaming = input;
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      renaming = null;
+      const title = input.value.trim();
+      input.replaceWith(name);
+      draw(); // catch up on changes skipped while renaming
+      if (save && title && title !== t.title) window.renameProjectTab(t.label, t.title, title);
+    };
+    input.addEventListener('pointerdown', (e) => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  // ── dragging ───────────────────────────────────────────────────────────────
+  function press(e, el) {
+    if (e.button !== 0) return;
+    const label = el.dataset.label;
+    const start = { x: e.clientX, y: e.clientY };
+    let dragging = false;
+    el.setPointerCapture(e.pointerId);
+    const offStrip = (ev) => ev.clientY < -8 || ev.clientY > 36 + 24 || ev.clientX < -24 || ev.clientX > innerWidth + 24;
+    // Off the strip the tab is drawn by a small window following the pointer
+    // (tabs.rs: tab_ghost) — this page can't draw outside its 36px.
+    const title = (tabs.find(t => t.label === label) || {}).title || 'Tab';
+    const screen = (ev) => ({ x: ev.screenX * devicePixelRatio, y: ev.screenY * devicePixelRatio });
+    let ghost = false, frame = 0, last = null;
+    const move = (ev) => {
+      const dx = ev.clientX - start.x;
+      if (!dragging && Math.hypot(dx, ev.clientY - start.y) < 6) return;
+      if (!dragging) { dragging = true; el.classList.add('dragging'); }
+      el.style.transform = `translateX(${dx}px)`;
+      const off = offStrip(ev);
+      el.classList.toggle('leaving', off);
+      if (off && !ghost) { ghost = true; invoke('tab_ghost', { title, ...screen(ev) }); }
+      else if (!off && ghost) { ghost = false; invoke('tab_ghost_hide'); }
+      else if (ghost) {
+        // At most once a frame.
+        last = screen(ev);
+        if (!frame) frame = requestAnimationFrame(() => { frame = 0; invoke('tab_ghost_move', last); });
+      }
+    };
+    const up = (ev) => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      if (frame) cancelAnimationFrame(frame);
+      if (ghost) invoke('tab_ghost_hide');
+      if (!dragging) {
+        // A second click soon after on the same project tab: rename it. (Not
+        // dblclick — each click redraws the strip, so it never fires.)
+        const now = Date.now(), tab = tabs.find(t => t.label === label);
+        if (label !== 'home' && tab && lastClick.label === label && now - lastClick.at < 450) {
+          lastClick = {};
+          startRename(el, tab);
+          return;
+        }
+        lastClick = { label, at: now };
+        invoke('tab_activate', { label });
+        return;
+      }
+      el.classList.remove('dragging', 'leaving');
+      el.style.transform = '';
+      if (offStrip(ev)) {
+        // Let go off this strip: tabs.rs moves it to the window under the
+        // pointer, or a new one there. Screen point in physical pixels.
+        invoke('tab_drop', { label, x: ev.screenX * devicePixelRatio, y: ev.screenY * devicePixelRatio });
+        return;
+      }
+      // Along the strip: its new place among the others.
+      const others = [...strip.children].filter(c => c !== el);
+      let at = others.findIndex(c => { const r = c.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; });
+      if (at < 0) at = others.length;
+      const order = others.map(c => c.dataset.label);
+      order.splice(at, 0, label);
+      invoke('tab_reorder', { order });
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  // This strip's own list: an app-wide listen would hear every window's.
+  // The window buttons (the window has no title bar of its own).
+  const win = window.__TAURI__.window.getCurrentWindow();
+  const maxBtn = document.getElementById('win-max');
+  document.getElementById('win-min').addEventListener('click', () => win.minimize());
+  maxBtn.addEventListener('click', () => win.toggleMaximize());
+  document.getElementById('win-close').addEventListener('click', () => win.close());
+  // Maximized, the middle button restores — with Windows' restore icon.
+  const ICON_MAX = '<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
+  const ICON_RESTORE = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5V.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1"/><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/></svg>';
+  async function syncMaximized() {
+    const max = await win.isMaximized().catch(() => false);
+    maxBtn.innerHTML = max ? ICON_RESTORE : ICON_MAX;
+    maxBtn.title = maxBtn.ariaLabel = max ? 'Restore' : 'Maximize';
+  }
+  win.onResized(syncMaximized);
+  syncMaximized();
+
+  // Listening first, then asking: whichever comes first, the strip ends up
+  // with the latest list (a window's tabs can change while this page loads).
+  window.__TAURI__.webview.getCurrentWebview()
+    .listen('tabs', ({ payload }) => { tabs = payload.tabs; active = payload.active; draw(); })
+    .then(() => invoke('tabs_list'))
+    .then(s => { tabs = s.tabs; active = s.active; draw(); });
+</script>
+<script type="module">
+  // The signed-in person's picture (the editor's profile card in the browser)
+  // and Settings beside it: each brings Home forward on that page. Kept current on sign-in /
+  // sign-out (the stored session changes) and when Home saves the profile.
+  // tabs.js (through session.js) also gives this page the tab shortcuts.
+  import { getAuth, avatarSrc } from '/assets/js/session.js';
+  import { getMe, updateProject } from '/assets/js/projects.js';
+  const { emit, listen } = window.__TAURI__.event;
+  const me = document.getElementById('me');
+  const avatar = document.getElementById('me-avatar');
+  const settings = document.getElementById('settings');
+  let asked = 0;
+  async function showMe() {
+    const n = ++asked;
+    if (!getAuth()) { me.hidden = settings.hidden = true; return; }
+    const res = await getMe();
+    if (n !== asked) return;
+    if (!res.ok || !res.data) { me.hidden = settings.hidden = true; return; }
+    me.title = [res.data.full_name, res.data.email_address].filter(Boolean).join(' · ') || 'Account';
+    const src = await avatarSrc(res.data);
+    if (n !== asked) return;
+    avatar.src = src;
+    me.hidden = settings.hidden = false;
+  }
+  const showHome = (page) => { invoke('tab_activate', { label: 'home' }); emit('show-page', page); };
+  me.addEventListener('click', () => showHome('account'));
+  settings.addEventListener('click', () => showHome('settings'));
+  // A tab renamed on the strip (above): the project on the server, this tab,
+  // and its editor if open. Put back if the server says no (e.g. a viewer).
+  window.renameProjectTab = async (label, before, title) => {
+    invoke('tab_title', { label, title });
+    const res = await updateProject(label.slice(2), { name: title });
+    if (!res.ok) { invoke('tab_title', { label, title: before }); return; }
+    window.__TAURI__.event.emitTo({ kind: 'Webview', label }, 'tab-renamed', title);
+  };
+  window.addEventListener('storage', (e) => { if (e.key === null || e.key === 'ff_auth') showMe(); });
+  listen('profile', showMe);
+  showMe();
+</script>
+</body>
+</html>

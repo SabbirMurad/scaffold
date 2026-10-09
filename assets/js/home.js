@@ -11,6 +11,7 @@ import { initUpdates } from './updates.js';
 import { watchServer } from './server-status.js';
 import { exportDesign, importDesign } from './design-file.js';
 import { answerProjectTools } from './project-tools.js';
+import { openProject, signedOut, pruneTabs } from './tabs.js';
 
 const navItems = document.querySelectorAll('.home-nav-item');
 const pages = document.querySelectorAll('.home-page');
@@ -39,6 +40,10 @@ navItems.forEach(btn => btn.addEventListener('click', () => {
 // end of this module, after all tab state is initialized) on initial load.
 function routeFromHash() { showPage(decodeURIComponent(location.hash.slice(1)) || 'projects'); }
 window.addEventListener('hashchange', routeFromHash);
+// The app's top bar (its picture, Settings) opens a page here.
+window.__TAURI__?.event?.listen('show-page', ({ payload }) => {
+  if (document.querySelector(`.home-page[data-page="${CSS.escape(String(payload))}"]`)) location.hash = payload;
+});
 
 // ───────── Projects ─────────
 // Loaded from the project API. Each card opens the editor bound to that project.
@@ -118,7 +123,7 @@ function makeCard(p) {
 
   showPreview(card, p);
 
-  const open = () => { window.location.href = `/editor.html?id=${encodeURIComponent(p.uuid)}`; };
+  const open = () => openProject(p.uuid, p.name || 'Untitled'); // its tab in the app
   card.addEventListener('click', e => { if (!e.target.closest('.project-pin, .project-del, .project-export')) open(); });
   card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
 
@@ -179,14 +184,18 @@ function renderProjects() {
 }
 
 async function loadProjects() {
-  if (!getAuth()) { window.location.href = '/auth.html'; return; }
+  if (!getAuth()) { signedOut(); return; }
   const grid = document.getElementById('projects-grid');
   if (grid) grid.innerHTML = `<div class="home-placeholder">Loading projects…</div>`;
   const res = await listProjects();
-  if (res.status === 401) { window.location.href = '/auth.html'; return; }
+  if (res.status === 401) { signedOut(); return; }
   if (res.ok) {
     projects = Array.isArray(res.data) ? res.data : [];
     renderProjects();
+    // Only on a good list: offline or an error must not close anyone's tabs.
+    pruneTabs(projects.map(p => p.uuid)).then(n => {
+      if (n) toast(`${n} tab${n > 1 ? 's' : ''} closed — ${n > 1 ? 'those projects no longer exist' : 'that project no longer exists'} or you lost access`);
+    });
   } else if (grid) {
     grid.innerHTML = `<div class="home-placeholder">Couldn’t load projects. ${escHtml(res.error || '')}</div>`;
   }
@@ -251,6 +260,8 @@ function showProfile() {
     document.querySelectorAll('.home-avatar, #acct-avatar').forEach(img => { img.src = src; });
   });
 }
+  // The app's top bar shows the picture too: tell it.
+  window.__TAURI__?.event?.emit('profile');
 
 function fillProfileForm() {
   const nameInput = document.getElementById('acct-fullname');
@@ -379,7 +390,7 @@ async function renderRequests() {
 
   const res = await myInvites();
   if (!res.ok) {
-    if (res.status === 401) { window.location.href = '/auth.html'; return; }
+    if (res.status === 401) { signedOut(); return; }
     list.innerHTML = `<div class="home-placeholder">Couldn’t load invitations. ${escHtml(res.error || '')}</div>`;
     return;
   }
@@ -631,9 +642,9 @@ document.getElementById('new-project-btn')?.addEventListener('click', async (e) 
   const res = await createProject({ name: 'Untitled Project' });
   btn.disabled = false;
   if (res.ok && res.data && res.data.uuid) {
-    window.location.href = `/editor.html?id=${encodeURIComponent(res.data.uuid)}`;
+    openProject(res.data.uuid, res.data.name || 'Untitled Project');
   } else if (res.status === 401) {
-    window.location.href = '/auth.html';
+    signedOut();
   } else {
     toast(res.error || 'Couldn’t create project');
   }

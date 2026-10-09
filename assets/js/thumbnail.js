@@ -170,7 +170,9 @@ async function draw(shown) {
   return new Promise(r => cv.toBlob(r, 'image/webp', 0.85));
 }
 
-async function snapshot(screen) {
+// A frame drawn as an image, `scale` times its size (Export uses this too —
+// frame-export.js).
+export async function snapshot(screen, scale = 1) {
   const el = document.getElementById('node-' + screen.id);
   if (!el) return null;
   const clone = copyStyled(el, null);
@@ -180,7 +182,7 @@ async function snapshot(screen) {
   const fonts = await fontCss(clone);
   const w = Math.ceil(screen.w), h = Math.ceil(screen.h);
   const xml = new XMLSerializer().serializeToString(clone);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(w * scale)}" height="${Math.round(h * scale)}" viewBox="0 0 ${w} ${h}">`
     + `<foreignObject x="0" y="0" width="100%" height="100%">`
     + `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;overflow:hidden">`
     + (fonts ? `<style>${fonts.replace(/</g, '\\3c ')}</style>` : '')

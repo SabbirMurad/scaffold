@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// How long a tool call may take in the page before the model is told it failed.
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -79,11 +79,24 @@ fn forward(app: &AppHandle, pending: &Pending, next: &AtomicU64, mut req: Value)
     let (tx, rx) = mpsc::channel();
     pending.lock().unwrap().insert(id, tx);
 
+    // Which tab carries it out: the one the Claude turn belongs to (the MCP
+    // server names it), else — a session started outside the app — the tab in
+    // front. Never every tab: each would make the edit in its own project.
+    let mut target = None;
     if let Some(obj) = req.as_object_mut() {
         obj.remove("token");
+        target = obj.remove("target").and_then(|t| t.as_str().map(String::from));
         obj.insert("id".into(), json!(id));
     }
-    if app.emit("scaffold-tool", &req).is_err() {
+    let Some(target) = target.or_else(|| crate::tabs::active(app)) else {
+        pending.lock().unwrap().remove(&id);
+        return failure("the Scaffold window is not available");
+    };
+    if app.get_webview(&target).is_none() {
+        pending.lock().unwrap().remove(&id);
+        return failure("That project's tab was closed");
+    }
+    if app.emit_to(target.as_str(), "scaffold-tool", &req).is_err() {
         pending.lock().unwrap().remove(&id);
         return failure("the Scaffold window is not available");
     }

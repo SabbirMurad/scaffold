@@ -3,6 +3,7 @@
 // here and clear it on logout.
 
 import { Fetcher } from './fetcher.js';
+import { signedOut } from './tabs.js';
 
 const AUTH_KEY = 'ff_auth';
 
@@ -77,5 +78,5 @@ export async function logout() {
   // Best-effort server purge; clear tokens locally regardless of the outcome.
   await Fetcher.post({ endpoint: '/v1/auth/sign-out', showError: false });
   try { localStorage.removeItem(AUTH_KEY); } catch { /* storage unavailable */ }
-  window.location.href = '/auth.html';
+  signedOut(); // in the app: every project tab closes, the home tab shows sign-in
 }

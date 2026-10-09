@@ -11,7 +11,7 @@ description = "Scaffold desktop app"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["unstable"] } # unstable: several webviews in one window (tabs.rs)
 tauri-plugin-opener = "2"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }

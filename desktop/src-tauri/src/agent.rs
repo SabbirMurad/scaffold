@@ -10,11 +10,12 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Webview};
 
 use crate::bridge::Bridge;
 
@@ -49,9 +50,10 @@ pub enum Event {
     SessionMissing,
 }
 
-/// The turn in progress, if any. One turn at a time.
+/// The turns in progress, one per tab (keyed by the tab's webview label): each
+/// open project's Claude panel runs on its own.
 #[derive(Default)]
-pub struct Running(Mutex<Option<Turn>>);
+pub struct Running(Mutex<HashMap<String, Turn>>);
 
 /// A turn: its number (so a stopped turn's setup can tell it was replaced), and
 /// Claude Code's process id once it has started.
@@ -74,6 +76,7 @@ pub fn claude_status() -> Value {
 #[tauri::command]
 pub fn claude_ask(
     app: AppHandle,
+    webview: Webview,
     bridge: State<'_, Bridge>,
     running: State<'_, Running>,
     project: String,
@@ -83,16 +86,19 @@ pub fn claude_ask(
     let claude = find_claude().ok_or(
         "Claude Code is not on this computer. Scaffold uses your own Claude Code — install it and sign in, then try again.",
     )?;
+    // The turn belongs to the tab that asked: its events go there, and its tool
+    // calls are carried out there (the MCP server is told which tab).
+    let tab = webview.label().to_string();
     let workspace = workspace(&app, &project)?;
-    let config = mcp_config(&workspace, bridge.port, &bridge.token).map_err(|e| e.to_string())?;
+    let config = mcp_config(&workspace, bridge.port, &bridge.token, Some(&tab)).map_err(|e| e.to_string())?;
 
     let id = {
-        let mut slot = running.0.lock().unwrap();
-        if slot.is_some() {
+        let mut turns = running.0.lock().unwrap();
+        if turns.contains_key(&tab) {
             return Err("Claude is still working on the last message.".into());
         }
         let id = TURNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        *slot = Some(Turn { id, pid: None });
+        turns.insert(tab.clone(), Turn { id, pid: None });
         id
     };
 
@@ -101,17 +107,17 @@ pub fn claude_ask(
     std::thread::spawn(move || {
         let fail = |detail: String| {
             let running = app.state::<Running>();
-            let mut slot = running.0.lock().unwrap();
+            let mut turns = running.0.lock().unwrap();
             // Stopped (and possibly replaced by a newer turn): the stop said so.
-            if slot.map(|t| t.id) != Some(id) {
+            if turns.get(&tab).map(|t| t.id) != Some(id) {
                 return;
             }
-            *slot = None;
-            drop(slot);
-            let _ = app.emit("claude", Event::Failed { detail });
+            turns.remove(&tab);
+            drop(turns);
+            let _ = app.emit_to(tab.as_str(), "claude", Event::Failed { detail });
         };
         let say = |text: &str| {
-            let _ = app.emit("claude", Event::Preparing { text: text.to_string() });
+            let _ = app.emit_to(tab.as_str(), "claude", Event::Preparing { text: text.to_string() });
         };
         // The skill's scripts are Python; it's no use without it.
         let python = match crate::python::ensure(say) {
@@ -125,7 +131,7 @@ pub fn claude_ask(
             Ok(path) => path,
             Err(e) => return fail(e.to_string()),
         };
-        start(app.clone(), id, &claude, &workspace, &config, &prompt, python.as_deref(), resume.as_deref(), &text)
+        start(app.clone(), &tab, id, &claude, &workspace, &config, &prompt, python.as_deref(), resume.as_deref(), &text)
             .unwrap_or_else(fail);
     });
     Ok(())
@@ -135,6 +141,7 @@ pub fn claude_ask(
 #[allow(clippy::too_many_arguments)]
 fn start(
     app: AppHandle,
+    tab: &str,
     id: u64,
     claude: &Path,
     workspace: &Path,
@@ -158,13 +165,13 @@ fn start(
 
     let mut child = {
         let running = app.state::<Running>();
-        let mut slot = running.0.lock().unwrap();
+        let mut turns = running.0.lock().unwrap();
         // Stopped while the skill was being checked: don't start at all.
-        if slot.map(|t| t.id) != Some(id) {
+        if turns.get(tab).map(|t| t.id) != Some(id) {
             return Ok(());
         }
         let child = cmd.spawn().map_err(|e| format!("Claude Code could not be started: {e}"))?;
-        *slot = Some(Turn { id, pid: Some(child.id()) });
+        turns.insert(tab.to_string(), Turn { id, pid: Some(child.id()) });
         child
     };
 
@@ -201,7 +208,7 @@ fn start(
                     if matches!(event, Event::Done { .. } | Event::SessionMissing) {
                         last = Some(event);
                     } else {
-                        let _ = app.emit("claude", event);
+                        let _ = app.emit_to(tab, "claude", event);
                     }
                 }
             }
@@ -209,7 +216,7 @@ fn start(
     }
     let status = child.wait();
     let tail = tail.join().unwrap_or_default();
-    *app.state::<Running>().0.lock().unwrap() = None;
+    app.state::<Running>().0.lock().unwrap().remove(tab);
 
     let last = last.unwrap_or_else(|| Event::Failed {
         detail: match status {
@@ -219,7 +226,7 @@ fn start(
             Err(e) => e.to_string(),
         },
     });
-    let _ = app.emit("claude", last);
+    let _ = app.emit_to(tab, "claude", last);
     Ok(())
 }
 
@@ -319,20 +326,25 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Stop the turn in progress. Edits already made stay on the canvas.
+/// Stop the asking tab's turn. Edits already made stay on the canvas.
 #[tauri::command]
-pub fn claude_stop(app: AppHandle, running: State<'_, Running>) {
-    let mut slot = running.0.lock().unwrap();
-    let Some(turn) = *slot else { return };
+pub fn claude_stop(app: AppHandle, webview: Webview, running: State<'_, Running>) {
+    stop_turn(&app, &running, webview.label());
+}
+
+/// Stop a tab's turn (also when the tab closes).
+pub fn stop_turn(app: &AppHandle, running: &Running, tab: &str) {
+    let mut turns = running.0.lock().unwrap();
+    let Some(turn) = turns.get(tab).copied() else { return };
     let Some(pid) = turn.pid else {
         // Still checking for the skill: nothing to kill. Freeing the slot tells
         // the setup not to start Claude Code once it's done.
-        *slot = None;
-        drop(slot);
-        let _ = app.emit("claude", Event::Failed { detail: "Stopped.".into() });
+        turns.remove(tab);
+        drop(turns);
+        let _ = app.emit_to(tab, "claude", Event::Failed { detail: "Stopped.".into() });
         return;
     };
-    drop(slot);
+    drop(turns);
     // The whole tree: on Windows the child is cmd.exe with node under it.
     #[cfg(windows)]
     {
@@ -387,14 +399,19 @@ fn folder_name(project: &str) -> String {
 /// The MCP config naming Scaffold's server — this binary, pointed at this
 /// launch's bridge. Rewritten every turn because the port and token change with
 /// each launch.
-pub(crate) fn mcp_config(dir: &Path, port: u16, token: &str) -> std::io::Result<PathBuf> {
+pub(crate) fn mcp_config(dir: &Path, port: u16, token: &str, tab: Option<&str>) -> std::io::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let path = dir.join("mcp.json");
+    let mut args = vec!["mcp".to_string(), "--port".into(), port.to_string(), "--token".into(), token.to_string()];
+    // The tab the turn belongs to, so its tool calls reach that project only.
+    if let Some(tab) = tab {
+        args.extend(["--target".into(), tab.to_string()]);
+    }
     let config = json!({
         "mcpServers": {
             SERVER: {
                 "command": exe.to_string_lossy(),
-                "args": ["mcp", "--port", port.to_string(), "--token", token],
+                "args": args,
             }
         }
     });

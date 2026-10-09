@@ -584,7 +584,9 @@ export function initAi() {
     // Opening/leaving a project mid-turn would cut Claude off: wait for the turn.
     onTurnEnd: (fn) => { if (busy) turnEnd.push(fn); else setTimeout(fn, 300); },
   });
-  tauri.event.listen('claude', onEvent);
+  // This tab's own: a turn's events are sent to the tab that asked (agent.rs),
+  // and an app-wide listen would hear every tab's.
+  tauri.webview.getCurrentWebview().listen('claude', onEvent);
   // Leaving the editor mid-turn: stop Claude rather than let it edit a page
   // that's gone.
   window.addEventListener('beforeunload', () => { if (busy) tauri.core.invoke('claude_stop'); });

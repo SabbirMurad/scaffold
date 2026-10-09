@@ -39,6 +39,7 @@ import { setWidgetKind } from './widgets.js';
 import { isOverlayFrame } from './nodes.js';
 import { safeSvg } from './svg-safe.js';
 import { preparePlayerSource, readLottie, addLottie } from './lottie.js';
+import { setTabTitle } from './tabs.js';
 
 const ICON_API = 'https://api.iconify.design';
 const IMAGE_API = 'https://api.openverse.org/v1/images/';
@@ -1998,6 +1999,7 @@ async function renameProject({ name }) {
   const v = String(name || '').trim();
   if (!v) fail('The name can\'t be empty');
   state.projectName = v;
+  setTabTitle(v);
   const input = document.getElementById('project-name');
   if (input) input.value = v;
   if (state.projectId) {
@@ -2237,7 +2239,9 @@ export function initClaudeTools({ onPermission, onTurnEnd } = {}) {
   const tauri = window.__TAURI__;
   if (!tauri) return;
   if (onTurnEnd) afterTurn = onTurnEnd;
-  tauri.event.listen('scaffold-tool', async ({ payload }) => {
+  // This tab's own: tool calls are sent to one tab (bridge.rs) — an app-wide
+  // listen would make every open project carry them out.
+  tauri.webview.getCurrentWebview().listen('scaffold-tool', async ({ payload }) => {
     const { id, method, name, arguments: args } = payload || {};
     const result = method === 'list' ? { ok: true, tools: TOOLS }
       : method === 'call' ? await run(name, args)

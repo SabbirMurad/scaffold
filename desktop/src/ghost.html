@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tab</title>
+<link rel="stylesheet" href="/assets/css/base.css">
+<style>
+  /* The tab following the pointer while it's dragged off its strip (tabs.rs):
+     a see-through window over everything, showing the tab. */
+  html, body { margin: 0; background: transparent !important; overflow: hidden; user-select: none; }
+  .chip {
+    display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: 232px; height: 34px; margin: 3px;
+    padding: 0 12px; border-radius: 9px; background: #23252b; color: #edeef2; font: 12.5px var(--sans, system-ui);
+    border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); opacity: 0.94;
+  }
+  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hint { flex-shrink: 0; width: 14px; height: 14px; color: #9a9da6; }
+</style>
+</head>
+<body>
+<div class="chip"><span class="name" id="name">Tab</span>
+  <!-- A window with an arrow: it will open in a window of its own. -->
+  <svg class="hint" viewBox="0 0 14 14" aria-hidden="true"><rect x="0.5" y="2.5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor"/><path d="M7 1h6v6M13 1L7.5 6.5" fill="none" stroke="currentColor"/></svg>
+</div>
+<script>
+  // tabs.rs sets the title: window.__setTab('FoodHub')
+  window.__setTab = (title) => { document.getElementById('name').textContent = title; };
+  // …and on first load, from the URL.
+  window.__setTab(new URLSearchParams(location.search).get('title') || 'Tab');
+</script>
+</body>
+</html>

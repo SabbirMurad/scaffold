@@ -6,6 +6,7 @@
 
 import { Fetcher } from './fetcher.js';
 import { watchServer } from './server-status.js';
+import { inTabs } from './tabs.js';
 
 // Auth endpoints live under /api/v1/auth; Fetcher prefixes /api, so paths here
 // start at /v1/auth.
@@ -75,7 +76,8 @@ function completeAuth(payload) {
     }));
   } catch { /* storage unavailable — session cookie still applies */ }
   const next = new URLSearchParams(window.location.search).get('next');
-  window.location.href = (next && /^\/(?!\/)/.test(next)) ? next : '/dashboard.html';
+  // In the app this page is the home tab: it goes back to the dashboard (projects open in tabs of their own).
+  window.location.href = (!inTabs && next && /^\/(?!\/)/.test(next)) ? next : '/dashboard.html';
 }
 
 // ───────── Sign in / Sign up mode toggle ─────────

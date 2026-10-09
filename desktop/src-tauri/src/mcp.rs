@@ -83,7 +83,10 @@ pub fn main(args: &[String]) -> i32 {
         eprintln!("usage: scaffold mcp --port <port> --token <token>");
         return 2;
     };
-    let bridge = Bridge { port, token, conn: None };
+    // The tab a Claude panel turn belongs to (agent.rs); none for a session
+    // started outside the app, whose calls go to the tab in front.
+    let target = flag("--target");
+    let bridge = Bridge { port, token, target, conn: None };
     let mut server = Server { bridge, legacy: false };
 
     let stdin = std::io::stdin();
@@ -106,12 +109,16 @@ pub fn main(args: &[String]) -> i32 {
 struct Bridge {
     port: u16,
     token: String,
+    target: Option<String>,
     conn: Option<(TcpStream, BufReader<TcpStream>)>,
 }
 
 impl Bridge {
     fn ask(&mut self, mut req: Value) -> Value {
         req["token"] = json!(self.token);
+        if let Some(target) = &self.target {
+            req["target"] = json!(target);
+        }
         // One retry: the connection may have gone stale between turns.
         for _ in 0..2 {
             match self.send(&req) {
@@ -339,7 +346,7 @@ mod tests {
     }
 
     fn server(port: u16) -> Server {
-        Server { bridge: Bridge { port, token: "t".into(), conn: None }, legacy: false }
+        Server { bridge: Bridge { port, token: "t".into(), target: None, conn: None }, legacy: false }
     }
 
     #[test]

@@ -9,6 +9,7 @@
 
 import { listProjects, createProject, deleteProject, pinProject } from './projects.js';
 import { confirmModal } from './confirm.js';
+import { inTabs, openProject, closeThisTab } from './tabs.js';
 
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
@@ -89,13 +90,17 @@ export async function runProjectTool(name, args = {}, ctx) {
         const res = await createProject({ name });
         if (!res.ok || !res.data || !res.data.uuid) fail(`Couldn't create the project: ${res.error || 'request failed'}`);
         ctx.changed();
-        if (args.open) ctx.later(() => { window.location.href = openUrl(res.data.uuid); });
-        return { ok: true, summary: `Created project "${name}"${args.open ? ' — it opens when this turn ends' : ''}`, id: res.data.uuid };
+        if (args.open) {
+          if (inTabs) openProject(res.data.uuid, name);
+          else ctx.later(() => { window.location.href = openUrl(res.data.uuid); });
+        }
+        return { ok: true, summary: `Created project "${name}"${args.open ? (inTabs ? ' — opened in a new tab' : ' — it opens when this turn ends') : ''}`, id: res.data.uuid };
       }
 
       case 'open_project': {
         const p = await find(args.id);
         if (p.uuid === ctx.openId) return { ok: true, summary: `"${p.name}" is already open` };
+        if (inTabs) { openProject(p.uuid, p.name); return { ok: true, summary: `Opened "${p.name}" in a tab` }; }
         ctx.later(() => { window.location.href = openUrl(p.uuid); });
         return { ok: true, summary: `Opening "${p.name}" when this turn ends` };
       }
@@ -123,7 +128,7 @@ export async function runProjectTool(name, args = {}, ctx) {
         const res = await deleteProject(p.uuid);
         if (!res.ok) fail(`Couldn't delete it: ${res.error || 'request failed'}`);
         ctx.changed();
-        if (p.uuid === ctx.openId) ctx.later(() => { window.location.href = '/dashboard.html'; });
+        if (p.uuid === ctx.openId) ctx.later(() => { if (inTabs) closeThisTab(); else window.location.href = '/dashboard.html'; });
         return { ok: true, summary: `Deleted "${p.name}"${p.uuid === ctx.openId ? ' — back to the dashboard when this turn ends' : ''}` };
       }
     }
@@ -141,7 +146,8 @@ export function answerProjectTools({ changed }) {
   const tauri = window.__TAURI__;
   if (!tauri) return;
   const ctx = { openId: null, later: (fn) => setTimeout(fn, 300), changed };
-  tauri.event.listen('scaffold-tool', async ({ payload }) => {
+  // This tab's own (see claude-tools.js): only calls sent to the dashboard tab.
+  tauri.webview.getCurrentWebview().listen('scaffold-tool', async ({ payload }) => {
     const { id, method, name, arguments: args } = payload || {};
     const result = method === 'list' ? { ok: true, tools: PROJECT_TOOLS }
       : method === 'call' ? await runProjectTool(name, args, ctx)
