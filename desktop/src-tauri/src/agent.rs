@@ -248,6 +248,41 @@ pub fn claude_attach(app: AppHandle, project: String, name: String, data: String
 
 const MAX_ATTACHMENT: usize = 10 * 1024 * 1024;
 
+/// An attached image, read back for the editor (Claude's study_reference tool
+/// measures its colors): a data: URL. Only files in this project's
+/// attachments folder — the real path is checked, so `..` or a link can't
+/// reach anything else.
+#[tauri::command]
+pub fn claude_read_attachment(app: AppHandle, project: String, path: String) -> Result<String, String> {
+    let dir = workspace(&app, &project)?.join("attachments");
+    let dir = dir.canonicalize().map_err(|_| "No images have been attached in this project".to_string())?;
+    let file = Path::new(&path).canonicalize().map_err(|_| format!("No attached image at {path}"))?;
+    if !file.starts_with(&dir) || !file.is_file() {
+        return Err("Only images attached in the Claude panel can be studied by path".into());
+    }
+    let bytes = std::fs::read(&file).map_err(|e| e.to_string())?;
+    let mime = match image_kind(&bytes) {
+        Some("png") => "image/png",
+        Some("jpg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        _ => return Err("That file isn't an image".into()),
+    };
+    Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
+            out.push(if i <= chunk.len() { ABC[(n >> shift & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
 /// The image format, by its first bytes (not its name): what Claude can read.
 fn image_kind(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
@@ -620,6 +655,14 @@ fn design_prompt(dir: &Path) -> std::io::Result<PathBuf> {
              board on the canvas.\n\
              - Once they pick one, put it in the design: replace the placeholder logo in the screens with the chosen \
              mark or lockup, and keep the board until they say to remove it. Give files only when they ask for files.\n\n\
+             ## Reference images\n\n\
+             When the person gives an image to design from (attached in the panel, a link, or an image on the canvas) — \
+             \"like this\", \"in this style\", \"match this\" — measure it before deciding anything: open it with the Read \
+             tool to see it, and run study_reference on it for its real colors, background, text and accent colors, \
+             contrast, saturation and density. Base the palette on those measurements, not on an impression: the \
+             measured colors become the color variables (with dark-mode values to match), and check the roles you give \
+             them with study_reference's \"check\" pairs before using them. Read layout, spacing, type, corners and \
+             shadows from the image yourself. Make the design your own in the reference's spirit; don't copy it.\n\n\
              ## Animations\n\n\
              When a design needs an animation (a loader, a success or error tick, an empty state, an animated logo or \
              icon, a small illustration in motion), make a Lottie animation with the {lottie} skill: load it with the \
@@ -885,6 +928,7 @@ mod tests {
         assert!(text.contains("logo-design:logo-design"));
         // Logos are shown on the canvas, not as files in the hidden working folder.
         assert!(text.contains("Logo concepts") && text.contains("never in a folder"));
+        assert!(text.contains("study_reference")); // references are measured, not eyeballed
     }
 
     #[test]
@@ -906,8 +950,13 @@ mod tests {
         assert_eq!(base64_decode("TWFu").unwrap(), b"Man");
         assert_eq!(base64_decode("TWE=").unwrap(), b"Ma");
         assert!(base64_decode("not*base64").is_none());
+        // Encoding round-trips (study_reference reads attachments back).
+        for sample in [&b""[..], b"M", b"Ma", b"Man", &png] {
+            assert_eq!(base64_decode(&base64_encode(sample)).unwrap(), sample);
+        }
+        assert_eq!(base64_encode(b"Ma"), "TWE=");
         assert_eq!(image_kind(b"%PDF-1.7"), None); // only images Claude can read
-        assert_eq!(image_kind(b"RIFF    WEBPVP8 "), Some("webp"));
+        assert_eq!(image_kind(b"RIFF\x00\x00\x00\x00WEBPVP8 "), Some("webp"));
     }
 
     #[test]

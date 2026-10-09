@@ -119,9 +119,23 @@ pub struct ProjectUserState {
     pub project_id: String,
     pub pinned: bool,
     pub last_opened_at: Option<i64>,     // future: "recently opened" sorting (None = never here)
+    // Where this person last looked at each page of the project (page id → view),
+    // so the canvas reopens there on any computer. Theirs alone — never shared.
+    #[serde(default)]
+    pub views: std::collections::HashMap<String, CanvasView>,
 
     pub created_at: i64,                 // epoch millis
     pub modified_at: i64,                // bumped whenever this personal state changes
+}
+
+// A page's view on the canvas: its pan (canvas pixels) and zoom.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub struct CanvasView {
+    #[serde(rename = "panX")]
+    pub pan_x: f64,
+    #[serde(rename = "panY")]
+    pub pan_y: f64,
+    pub zoom: f64,
 }
 
 // One message within a comment thread. `author_name` is denormalised (copied from

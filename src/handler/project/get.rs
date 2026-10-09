@@ -2,7 +2,7 @@ use serde_json::json;
 use mongodb::bson::doc;
 use crate::BuiltIns::mongo::MongoDB;
 use crate::utils::response::Response;
-use crate::Model::Project::{ ProjectDocument, ProjectRole };
+use crate::Model::Project::{ ProjectDocument, ProjectRole, ProjectUserState };
 use actix_web::{ web, Error, HttpResponse, HttpRequest };
 use crate::Middleware::Auth::{ require_access, AccessRequirement };
 
@@ -35,9 +35,20 @@ pub async fn task(req: HttpRequest, path: web::Path<String>) -> Result<HttpRespo
         }
     };
 
+    // Where this person last looked at each page (theirs alone; empty if never saved).
+    let views = db
+        .collection::<ProjectUserState>("project_user_state")
+        .find_one(doc! { "user_id": &user.user_id, "project_id": &project_id })
+        .await
+        .ok()
+        .flatten()
+        .map(|state| state.views)
+        .unwrap_or_default();
+
     Ok(HttpResponse::Ok().content_type("application/json").json(json!({
         "project": core,
         "role": role.to_string(),
         "document": document,
+        "views": views,
     })))
 }

@@ -36,7 +36,7 @@ import { fitView } from './render.js';
 // read-only in the browser: the Design tab only, no account. Set by the page.
 const PUBLIC_TOKEN = window.SCAFFOLD_PUBLIC || null;
 import { confirmModal } from './confirm.js';
-import { restoreViewport, saveViewport } from './viewport.js';
+import { restoreViewport, saveViewport, setServerViews } from './viewport.js';
 import { initPages, seedPages, pageKind } from './pages.js';
 import { deleteSelected } from './operations.js';
 
@@ -735,6 +735,7 @@ async function boot() {
         serverContent = res.data.document.content;
         loadDocument(serverContent);
       }
+      setServerViews(res.data.views); // where this person last looked at each page
     } else {
       showToast(res.error || 'Couldn\u2019t load this project');
     }
@@ -746,7 +747,7 @@ async function boot() {
   if (currentProjectId && !('models' in serverContent)) seedBuiltinModels();
   seedPages();    // the Phone + Web pages for a project from before pages, and which is open
   saveHistory();
-  restoreViewport(); // reopen at this project's last pan/zoom (localStorage, per project)
+  restoreViewport(); // reopen at this person's last pan/zoom of the open page (server, else this computer)
   applyTransform();
   render();
   renderThemeSwitch();

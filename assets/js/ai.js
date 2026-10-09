@@ -350,7 +350,7 @@ async function attachPending() {
     paths.push(await tauri.core.invoke('claude_attach', { project: project() || '', name: p.name, data: p.data }));
   }
   return paths.length
-    ? `\n\n[${paths.length === 1 ? 'An image is' : `${paths.length} images are`} attached — open ${paths.length === 1 ? 'it' : 'each'} with the Read tool:]\n${paths.map(x => `- ${x}`).join('\n')}`
+    ? `\n\n[${paths.length === 1 ? 'An image is' : `${paths.length} images are`} attached — open ${paths.length === 1 ? 'it' : 'each'} with the Read tool, and measure a design reference with study_reference:]\n${paths.map(x => `- ${x}`).join('\n')}`
     : '';
 }
 

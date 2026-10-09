@@ -37,6 +37,10 @@ pub fn router(cfg: &mut web::ServiceConfig) {
             "/{id}/pin",
             web::post().to(Handler::Project::Pin::task)        // per-user pin / unpin
         )
+        .route(
+            "/{id}/view",
+            web::put().to(Handler::Project::View::task)        // per-user canvas view (pan / zoom) of a page
+        )
         // Design image upload — raw image bytes as the body. A higher payload limit
         // than the default is allowed here since images are larger than JSON bodies.
         .service(

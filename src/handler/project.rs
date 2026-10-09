@@ -21,6 +21,9 @@ pub use update as Update;
 pub mod pin;
 pub use pin as Pin;
 
+pub mod view;
+pub use view as View;
+
 pub mod image_upload;
 pub use image_upload as ImageUpload;
 

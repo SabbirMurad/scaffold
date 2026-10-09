@@ -30,6 +30,8 @@ export const saveProjectDoc = (id, content, version) => authed('put', { endpoint
 export const updateProject  = (id, body)        => authed('patch',  { endpoint: `/v1/project/${id}`, body });
 // Pin/unpin is per-user state, not shared metadata, so it has its own endpoint.
 export const pinProject     = (id, pinned)      => authed('post',   { endpoint: `/v1/project/${id}/pin`, body: { pinned } });
+// Where this person is looking at a page (pan / zoom) — theirs alone, like pinning.
+export const saveProjectView = (id, page, v)   => authed('put',    { endpoint: `/v1/project/${id}/view`, body: { page, panX: v.panX, panY: v.panY, zoom: v.zoom } });
 export const deleteProject  = (id)              => authed('delete', { endpoint: `/v1/project/${id}` });
 // Owner: turn the public view link on / off → { public_token } (null when off).
 export const setPublicLink  = (id, enabled)     => authed('post',   { endpoint: `/v1/project/${id}/public-link`, body: { enabled } });

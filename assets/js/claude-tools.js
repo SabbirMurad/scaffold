@@ -26,7 +26,8 @@ import { modelError, enumError, propError, enumValError, typeToString, anyModelE
 import { generate as generateMock, defaultName as mockName } from './mock.js';
 import { provNameError, apiNameError, anyProviderError } from './api.js';
 import { frameNameError, routeError, anyFrameError } from './props.js';
-import { finalizeImages, resolveRefsForExport } from './images.js';
+import { finalizeImages, resolveRefsForExport, isImageRef, refId, imageDataUri } from './images.js';
+import { studyImage } from './reference.js';
 import { exportModelsCode } from './codegen.js';
 import { scopeFor, pathError, condError, canRepeat, OP_VALUES, providerPreview, previewCandidates } from './data.js';
 import { loadComments } from './comments.js';
@@ -203,6 +204,18 @@ const TOOLS = [
     name: 'search_icons', title: 'Search icons', annotations: { readOnlyHint: true, openWorldHint: true },
     description: 'Search the free Iconify catalogue; returns icon ids like "mdi:home" for icon elements.',
     inputSchema: obj({ query: str(), limit: { type: 'integer', minimum: 1, maximum: 60 } }, ['query']),
+  },
+  {
+    name: 'study_reference', title: 'Study a reference image', annotations: READ,
+    description: 'Measure a reference image the person gave — the real colors from its pixels, not a guess: its background (and whether it reads light or dark), '
+      + 'the likely text color, the accent colors, the palette with each color\'s share of the image and its contrast on the background (WCAG grade), '
+      + 'how saturated it is, and how airy or busy it is. Use it on every reference before choosing colors for a design "like this", '
+      + 'then check the roles you give the colors with "check" (pairs of hex colors, e.g. text on background, label on button). '
+      + 'It measures color and density; read layout, type, corners and shadows from the image yourself.',
+    inputSchema: obj({
+      image: str('An image attached in the panel (its file path, as the message gives it), an https:// URL, or the id of an image element on the canvas.'),
+      check: { type: 'array', items: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 2 }, description: 'Hex color pairs to grade for contrast, e.g. [["#111318","#ffffff"],["#ffffff","#c2410c"]].' },
+    }, ['image']),
   },
   {
     name: 'check_design', title: 'Check design', annotations: READ,
@@ -1444,6 +1457,33 @@ function setInteraction(args) {
   return { ok: true, summary: `Tapping "${node.name}" ${what}` };
 }
 
+// study_reference: open the image (an attachment by path, a URL, or an image on
+// the canvas) and measure it (reference.js).
+async function studyReference({ image, check }) {
+  const ref = String(image || '').trim();
+  if (!ref) fail('Give "image": an attached image\'s path, an https:// URL, or an image element id');
+  let src = null;
+  const node = getNode(ref);
+  if (node) {
+    if (node.type !== 'image') fail(`"${node.name}" is a ${node.type}, not an image`);
+    if (isImageRef(node.src)) { await resolveRefsForExport([node]); src = imageDataUri(refId(node.src)); }
+    else if (node.src && node.src.startsWith('data:')) src = node.src;
+    else if (node.src) src = await fetchImageDataUri(node.src).catch(() => null);
+    if (!src) fail(`"${node.name}" has no picture to measure`);
+  } else if (/^https?:\/\//i.test(ref)) {
+    src = await fetchImageDataUri(ref).catch(() => null);
+    if (!src) fail(`Couldn't download an image from ${ref} — attach it in the panel instead`);
+  } else {
+    const tauri = window.__TAURI__;
+    if (!tauri) fail('Attached images can only be studied in the Scaffold app');
+    try { src = await tauri.core.invoke('claude_read_attachment', { project: state.projectId || '', path: ref }); }
+    catch (e) { fail(String(e)); }
+  }
+  if (check !== undefined && !Array.isArray(check)) fail('check is a list of [hex, hex] pairs');
+  try { return await studyImage(src, { pairs: check || [] }); }
+  catch (e) { fail(e.message || 'That image couldn\'t be measured'); }
+}
+
 async function searchIcons({ query, limit }) {
   let data;
   try {
@@ -2147,7 +2187,7 @@ const HANDLERS = {
   create_screen: createScreen, create_section: createSection, add_elements: addElements,
   update_element: updateElement, move_element: moveElement, duplicate_elements: duplicateElements,
   delete_elements: deleteElements, make_component: makeComponent, edit_component: editComponent, set_interaction: setInteraction,
-  search_icons: searchIcons, focus, check_design: checkDesign,
+  search_icons: searchIcons, focus, check_design: checkDesign, study_reference: studyReference,
   edit_color: editColor, edit_theme: editTheme, set_color_role: setColorRole, edit_text_style: editTextStyle,
   edit_model: editModel, edit_enum: editEnum, edit_mock_data: editMockData, edit_provider: editProvider,
   comments, rename_project: renameProject, undo: undoRedo, export_code: exportCode, page: pageTool,

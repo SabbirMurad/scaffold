@@ -79,6 +79,7 @@ fn main() {
             agent::claude_ask,
             agent::claude_stop,
             agent::claude_attach,
+            agent::claude_read_attachment,
             bridge::tool_reply,
             updater::app_version,
             updater::update_check,
