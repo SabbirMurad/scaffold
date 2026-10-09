@@ -556,7 +556,7 @@ function bindComponentButtons(node) {
 // A path picker for one slot, keeping a now-broken path visible (flagged).
 function pathPicker(scope, slot, value, data) {
   const opts = [{ value: '', label: '—' }, ...pathOptions(scope, slot).map(o => ({
-    value: o.path, label: o.source === 'provider' ? `${o.path} \u00b7 provider` : o.path,
+    value: o.path, label: o.source === 'provider' ? `${o.path} \u00b7 controller` : o.path,
   }))];
   if (value && !opts.some(o => o.value === value)) opts.push({ value, label: '\u26a0 ' + value });
   return ddTrigger({ value: value || '', options: opts, data, triggerClass: 'dd-block' });
@@ -623,7 +623,7 @@ function bindControl(node, slot) {
   if (!Object.keys(scope).length) return '';
   const path = node.bind && node.bind[slot];
   if (!path && !openBinds.has(node.id + ':' + slot)) {
-    return `<button type="button" class="bind-btn" data-bind-open="${slot}" title="Take this from mock data or a provider">${LINK_ICON}Bind to data</button>`;
+    return `<button type="button" class="bind-btn" data-bind-open="${slot}" title="Take this from mock data or a controller">${LINK_ICON}Bind to data</button>`;
   }
   return `<div class="prop-row bind-row${path ? ' bound' : ''}">
     <span class="bind-ic" title="${path ? 'From data' : 'Pick the data to show'}">${LINK_ICON}</span>

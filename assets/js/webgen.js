@@ -1015,7 +1015,7 @@ function contextNote(frame) {
   const lines = [...roots].map(([name, source]) => {
     const t = scope[name] && scope[name].type;
     const what = t ? (isList(t) ? `a list of ${t.args[0].base}` : `a ${t.base}`) : 'data';
-    return `     ${name}: ${what} (${source === 'provider' ? `the "${name}" provider's data` : `like the "${name}" mock data`})`;
+    return `     ${name}: ${what} (${source === 'provider' ? `the "${name}" controller's data` : `like the "${name}" mock data`})`;
   });
   return `{#\n  Context this page reads (passed by its handler, as JSON):\n${lines.join('\n')}\n#}`; // no newline after: nothing comes before <!DOCTYPE>
 }

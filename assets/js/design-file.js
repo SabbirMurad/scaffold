@@ -15,6 +15,7 @@
 // Images are referenced from the content as "img:<id>" (see images.js).
 
 import { getAuth, refreshToken } from './session.js';
+import { saveFile } from './save-file.js';
 import { getProject, createProject, saveProjectDoc, deleteProject } from './projects.js';
 
 const FORMAT = 'scaffold-design';
@@ -23,7 +24,8 @@ export const EXTENSION = '.scaffold';
 const IMAGE_REF = /^img:([A-Za-z0-9-]+)$/;
 
 // ── export ───────────────────────────────────────────────────────────────────
-// Build the file for a project and download it. Resolves to the file name.
+// Build the file for a project and save it (in the app, straight to Downloads).
+// Resolves to the file's name.
 export async function exportDesign(projectId) {
   const res = await getProject(projectId);
   if (!res.ok || !res.data) throw new Error(res.error || 'Couldn’t load the project');
@@ -38,8 +40,8 @@ export async function exportDesign(projectId) {
 
   const file = { format: FORMAT, version: VERSION, name, exported_at: new Date().toISOString(), content, images };
   const fileName = safeFileName(name) + EXTENSION;
-  download(new Blob([JSON.stringify(file)], { type: 'application/json' }), fileName);
-  return fileName;
+  const path = await saveFile(new Blob([JSON.stringify(file)], { type: 'application/json' }), fileName);
+  return path ? path.split(/[\\/]/).pop() : fileName;
 }
 
 // ── import ───────────────────────────────────────────────────────────────────
@@ -158,11 +160,3 @@ function safeFileName(name) {
   return String(name).replace(/[<>:"/\\|?*\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Design';
 }
 
-function download(blob, fileName) {
-  const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}

@@ -650,7 +650,7 @@ fn design_prompt(dir: &Path) -> std::io::Result<PathBuf> {
              2. Build what it recommends in Scaffold through the scaffold tools: color variables with light and dark values, \
              text styles, then the screens. Deliver design on the canvas, never HTML or code files.\n\
              3. Check the result against the skill's rules, then run check_design and fix every issue it reports.\n\n\
-             Only work with no visual effect skips the skill: renaming, data models, mock data, API providers, \
+             Only work with no visual effect skips the skill: renaming, data models, mock data, controllers, \
              comments, undo and export.\n\n\
              ## Logos\n\n\
              When a design needs a logo, logotype, wordmark, brand mark, app icon or favicon, design it with the \

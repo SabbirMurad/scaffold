@@ -5,7 +5,9 @@ import { providerPreview, previewCandidates } from './data.js';
 import { ddTrigger } from './dropdown.js';
 import { saveHistory } from './history.js';
 
-// Provider tab: a provider groups related REST endpoints that share one base URL.
+// Controller tab: a controller holds data a screen shows and loads it from related
+// REST endpoints that share one base URL. (Called a provider before: the design
+// still keeps them as state.providers, so older projects open unchanged.)
 // Each provider has a name (camelCase) and an output model. Each endpoint under it
 // has its own name, method, version + route, headers, params, optional body, and
 // an output that references a model or raw JSON. Providers and endpoints share the
@@ -41,8 +43,8 @@ function nameError(name) {
 export function provNameError(p) {
   const fmt = nameError(p.name);
   if (fmt) return fmt;
-  if (state.providers.some(o => o !== p && o.name.trim() === p.name.trim())) return 'Another provider has this name';
-  // Providers and mock data sets share one namespace in the design tab's data.
+  if (state.providers.some(o => o !== p && o.name.trim() === p.name.trim())) return 'Another controller has this name';
+  // Controllers and mock data sets share one namespace in the design tab's data.
   if ((state.mockSets || []).some(s => (s.name || '').trim() === p.name.trim())) return 'A mock data set has this name';
   return null;
 }
@@ -112,7 +114,7 @@ function provOutputStr(p) {
 // ───────── CRUD ─────────
 function addProvider() {
   const n = state.nextProviderId++;
-  state.providers.push({ id: 'pr' + n, name: 'provider' + n, output: { type: 'single', model: '' }, apis: [] });
+  state.providers.push({ id: 'pr' + n, name: 'controller' + n, output: { type: 'single', model: '' }, apis: [] });
   saveHistory();
   renderApi();
 }
@@ -285,9 +287,9 @@ function renderProviderCard(p) {
   return `
   <div class="provider-card">
     <div class="provider-head">
-      <input class="model-name-input${perr ? ' invalid' : ''}" data-provname="${p.id}" value="${esc(p.name)}" spellcheck="false" placeholder="providerName">
+      <input class="model-name-input${perr ? ' invalid' : ''}" data-provname="${p.id}" value="${esc(p.name)}" spellcheck="false" placeholder="controllerName">
       <span class="model-warn" data-provwarn="${p.id}" title="${perr ? esc(perr) : ''}"${perr ? '' : ' style="display:none"'}>&#9888;</span>
-      <button class="model-del" data-del-prov="${p.id}" title="Delete provider">&times;</button>
+      <button class="model-del" data-del-prov="${p.id}" title="Delete controller">&times;</button>
     </div>
     <div class="provider-config">
       <div class="provider-output">
@@ -330,7 +332,7 @@ function providerSourceRow(p) {
       <div class="provider-output"><span class="provider-output-label">Loads with</span>${loadDD}
         <span class="api-hint">${loads.length ? 'build() returns this endpoint\u2019s result' : `add an endpoint whose output is ${esc(provOutputStr(p))}`}</span></div>
       <div class="provider-output"><span class="provider-output-label">Preview data</span>${previewDD}
-        <span class="api-hint">${previewCandidates(p).length ? 'shown for this provider in the design tab' : `create ${p.output.type === 'list' ? 'a list' : 'a single'} ${esc(p.output.model)} in Mock Data to preview it`}</span></div>
+        <span class="api-hint">${previewCandidates(p).length ? 'shown for this controller in the design tab' : `create ${p.output.type === 'list' ? 'a list' : 'a single'} ${esc(p.output.model)} in Mock Data to preview it`}</span></div>
     </div>`;
 }
 
@@ -349,13 +351,13 @@ export function renderApi() {
       <input class="api-baseurl-input" id="api-baseurl" value="${esc(state.apiBaseUrl)}" spellcheck="false" placeholder="https://api.example.com">
     </div>
     <div class="model-board-head">
-      <span class="model-board-title">Providers</span>
-      <button class="model-add-btn" id="provider-new">+ New Provider</button>
+      <span class="model-board-title">Controllers</span>
+      <button class="model-add-btn" id="provider-new">+ New Controller</button>
     </div>
     ${noModels ? `<div class="api-hint" style="margin-bottom:12px">No error-free models yet — create a valid model to use as an output.</div>` : ''}
     <div class="provider-list">
       ${state.providers.map(renderProviderCard).join('')}
-      ${state.providers.length === 0 ? `<div class="model-empty">No providers yet — click “+ New Provider” to create one.</div>` : ''}
+      ${state.providers.length === 0 ? `<div class="model-empty">No controllers yet — click “+ New Controller” to create one.</div>` : ''}
     </div>`;
 }
 

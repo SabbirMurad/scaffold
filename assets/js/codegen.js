@@ -1,5 +1,6 @@
 import { state, getNode, getMasterNode } from './state.js';
 import { isScreenFrame, isRouteScreen, isOverlayFrame } from './nodes.js';
+import { saveFile } from './save-file.js';
 import { lottieFile, lottiesUsed, lottiePlayerSource } from './lottie.js';
 import { typeToString, modelError, enumError } from './models.js';
 import { generateScreenBody, generateComponentBody, generateOverlayBody, overlayClass, overlayFile, componentClass, imageFile, iconFile } from './widgetgen.js';
@@ -294,6 +295,8 @@ function generateEnumFile(en) {
 }
 
 // ───────── Provider (Riverpod notifier) generation ─────────
+// The editor calls these controllers; in the Flutter code each stays a Riverpod
+// provider, as Flutter developers expect: lib/provider/<name>.dart.
 
 // 'json' and 'none' both become a raw `dynamic` response; a model name becomes a
 // typed deserialization. `list` wraps in a List.
@@ -1514,14 +1517,6 @@ function generateTypographyFile(styles) {
   return L.join('\n');
 }
 
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 // Everything that can be exported right now: valid models, the enums those models
 // reference, and providers. Returned as arrays of the actual state objects.
@@ -1849,8 +1844,10 @@ export function exportAssets() {
   });
 }
 
-// Generate the export for `selection` and download it as a zip. `selection.assets`
-// (a Set of paths) narrows the image / icon files; without it, all of them go.
+// Generate the export for `selection` and save it as a zip (save-file.js: in the
+// app, straight to Downloads). `selection.assets` (a Set of paths) narrows the
+// image / icon files; without it, all of them go. `saved` resolves to the file's
+// name once it's written (it may be "name (2).zip").
 export function exportModelsCode(selection = null, pageId = null) {
   const r = buildExportFiles(selection, pageId);
   if (!r.ok) return r;
@@ -1859,7 +1856,8 @@ export function exportModelsCode(selection = null, pageId = null) {
     : r.files;
   // Named after the page, so two pages' exports never get mixed up.
   const page = r.page;
-  downloadBlob(makeZip(files), `${pkgName()}${page ? '_' + snake(page.name) : ''}_code.zip`);
+  const name = `${pkgName()}${page ? '_' + snake(page.name) : ''}_code.zip`;
+  const saved = saveFile(makeZip(files), name).then(path => (path ? path.split(/[\\/]/).pop() : name));
   const { files: _all, page: _page, ...counts } = r;
-  return { ...counts, page: page ? { id: page.id, name: page.name, kind: page.kind } : null, assets: files.filter(f => isAsset(f.name)).length };
+  return { ...counts, saved, page: page ? { id: page.id, name: page.name, kind: page.kind } : null, assets: files.filter(f => isAsset(f.name)).length };
 }

@@ -113,7 +113,7 @@ body.claude-open #right-rail { right: calc(18px + 380px + 12px); }
 
 /* Claude panel — docked at the far right, slid off-screen until opened. */
 #claude-panel {
-  position: fixed; top: 36px; right: 18px; bottom: 28px; width: 380px; z-index: 70;
+  position: fixed; top: 36px; right: 18px; bottom: 20px; width: 380px; z-index: 70;
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
@@ -1309,6 +1309,10 @@ body.sidebar-collapsed #api-board { padding-left: 20px; }
     linear-gradient(180deg, #1f2024 0%, #17181b 46%, #111215 100%);
   overflow: auto; padding: 36px 20px 20px calc(var(--panel-w) + 52px);
 }
+/* Model, Mock data and API have nothing in the left panel but its tab bar:
+   their boards use the full width, starting under the tab bar and in line
+   with it, instead of leaving an empty column beside it. */
+#model-board, #mock-board, #api-board { padding: 106px 36px 24px 36px; }
 .api-baseurl { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; max-width: 480px; }
 .api-baseurl-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); }
 .api-baseurl-input {
@@ -1414,6 +1418,10 @@ body.public-view #profile-share,
 body.public-view .cmt-composer,
 body.public-view #cmt-resolve,
 body.public-view #cmt-delete { display: none !important; }
+/* Rulers are for laying things out; someone viewing a shared link only looks. */
+body.public-view #ruler-corner,
+body.public-view #ruler-h-canvas,
+body.public-view #ruler-v-canvas { display: none !important; }
 body.public-view #project-name { pointer-events: none; }
 /* No left panel at all (no tabs, layers or name), and the viewing controls —
    theme switch and Play — sit at the right, over the Properties panel. */

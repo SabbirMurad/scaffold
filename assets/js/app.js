@@ -211,7 +211,7 @@ function buildExportList(groups) {
     </div>` : '';
   return group('models', 'Models', groups.models.map(m => m.name))
     + group('enums', 'Enums', groups.enums.map(e => e.name))
-    + group('providers', 'Providers', groups.providers.map(p => p.name))
+    + group('providers', 'Controllers', groups.providers.map(p => p.name))
     + group('screens', groups.web ? 'Pages' : 'Screens', groups.screens.map(s => s.name))
     + group('theme', 'Theme', groups.hasTheme ? [groups.hasTypography ? 'App colors, type & theme' : 'App colors & theme'] : [])
     // Images and icons the screens use — found after the popup opens (fillExportAssets).
@@ -254,7 +254,7 @@ function openExportModal() {
     return;
   }
   if (!groups.models.length && !groups.enums.length && !groups.providers.length && !groups.screens.length && !groups.hasTheme) {
-    showToast('Nothing to export — create a model, provider, screen or color first');
+    showToast('Nothing to export — create a model, controller, screen or color first');
     return;
   }
   document.getElementById('export-title').textContent = pageName ? `Export “${pageName}”` : 'Export code';
@@ -366,11 +366,16 @@ document.getElementById('export-confirm')?.addEventListener('click', async () =>
   const parts = [];
   if (r.models) parts.push(`${r.models} model${r.models === 1 ? '' : 's'}`);
   if (r.enums) parts.push(`${r.enums} enum${r.enums === 1 ? '' : 's'}`);
-  if (r.providers) parts.push(`${r.providers} provider${r.providers === 1 ? '' : 's'}`);
+  if (r.providers) parts.push(`${r.providers} controller${r.providers === 1 ? '' : 's'}`);
   if (r.screens) parts.push(`${r.screens} screen${r.screens === 1 ? '' : 's'}`);
   if (r.theme) parts.push('theme');
   if (r.assets) parts.push(`${r.assets} asset${r.assets === 1 ? '' : 's'}`);
-  showToast('Exported ' + (parts.join(' + ') || 'nothing'));
+  try {
+    const name = await r.saved;
+    showToast(`Saved ${name}: ${parts.join(' + ') || 'nothing'}`);
+  } catch (err) {
+    showToast(err.message || 'Couldn’t save the export');
+  }
 });
 
 document.getElementById('export-close')?.addEventListener('click', closeExport);

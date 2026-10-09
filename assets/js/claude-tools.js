@@ -5,7 +5,7 @@
 //
 // The aim is parity with the editor: anything a person can do by hand — screens,
 // sections, every element type, styling, components, navigation, colors and
-// themes, text styles, models, enums, mock data, API providers, comments, undo,
+// themes, text styles, models, enums, mock data, controllers, comments, undo,
 // export — Claude can do through these tools, under the same rules the UI
 // enforces (names, nesting, field ownership).
 //
@@ -73,7 +73,7 @@ const ELEMENT_HELP = [
   'Mock data (see get_data): "bind":{"text":"item.name","src":"user.avatar_url","alt":"user.name","fill":"item.color_hex","color":"…"} fills an element from a field; '
     + '"showIf":{"path":"user.role","op":"==","value":"admin"} shows it only while the condition holds (op: truthy, falsy, ==, !=, >, <, >=, <=, empty, notEmpty — compare enums by value name); '
     + 'on a row/column/wrap container, "repeat":{"source":"exercises","as":"item"} draws its children once per item of a list — design them once, bound to item.<field>. '
-    + 'Paths start at a mock set\'s name, an API provider\'s name (the design shows its preview mock data; exported screens read the provider), or an enclosing repeat\'s alias. Set any of these to null to remove it.',
+    + 'Paths start at a mock set\'s name, a controller\'s name (the design shows its preview mock data; exported screens read the controller), or an enclosing repeat\'s alias. Set any of these to null to remove it.',
   'Down a column, children fill its width by default. Along a row, children fit their content; give width "fill" to the ones that should share the row\'s free space (e.g. two buttons side by side). ' + COLOR_HELP,
 ].join('\n');
 
@@ -100,7 +100,7 @@ const TOOLS = [
   },
   {
     name: 'get_data', title: 'Get data', annotations: READ,
-    description: 'Everything off the canvas: themes, color variables (value per theme), Material color roles, text styles, data models, enums, mock data sets, API providers with their endpoints, and the API base URL.',
+    description: 'Everything off the canvas: themes, color variables (value per theme), Material color roles, text styles, data models, enums, mock data sets, controllers with their endpoints, and the API base URL.',
     inputSchema: obj({}),
   },
 
@@ -303,20 +303,20 @@ const TOOLS = [
     }, ['action']),
   },
   {
-    name: 'edit_provider', title: 'Edit API provider', annotations: EDIT,
-    description: 'Create, update or delete an API provider (a Riverpod provider grouping REST endpoints that share the base URL). Names are camelCase. '
+    name: 'edit_controller', title: 'Edit controller', annotations: EDIT,
+    description: 'Create, update or delete a controller (the data a screen shows, loaded from REST endpoints that share the base URL; in the Flutter export it stays a Riverpod provider, lib/provider/<name>.dart). Names are camelCase. '
       + 'endpoints replaces the whole list: [{"name":"getUser","method":"GET","version":"v1","route":"users/:id","params":{"page":"1"},"headers":{"Accept":"application/json"},"body":"","output":"User","output_type":"single"}]. '
       + 'output is a model name (or "json" for endpoints); output_type is single or list. base_url sets the shared API base URL. '
-      + 'load names the endpoint the provider\'s build() returns (its state; the endpoint\'s output must match the provider\'s). preview names the mock set shown for the provider in the design tab (same model and single/list; default: the only matching set). '
-      + 'A provider with a model output is a data source in the design like a mock set: bind, repeat and route on "<providerName>.<field>".',
+      + 'load names the endpoint the controller\'s build() returns (its state; the endpoint\'s output must match the controller\'s). preview names the mock set shown for the controller in the design tab (same model and single/list; default: the only matching set). '
+      + 'A controller with a model output is a data source in the design like a mock set: bind, repeat and route on "<controllerName>.<field>".',
     inputSchema: obj({
       action: { type: 'string', enum: ['create', 'update', 'delete'] },
       id: str(), name: str(), rename: str(),
-      output: str('Model name for the provider\'s state.'), output_type: { type: 'string', enum: ['single', 'list'] },
+      output: str('Model name for the controller\'s state.'), output_type: { type: 'string', enum: ['single', 'list'] },
       endpoints: { type: 'array', items: { type: 'object' } },
       base_url: str(),
       load: { type: ['string', 'null'], description: 'Endpoint name build() loads the state with.' },
-      preview: { type: ['string', 'null'], description: 'Mock set name shown for this provider in the design.' },
+      preview: { type: ['string', 'null'], description: 'Mock set name shown for this controller in the design.' },
     }, ['action']),
   },
 
@@ -341,7 +341,7 @@ const TOOLS = [
   },
   {
     name: 'export_code', title: 'Export code', annotations: { readOnlyHint: true, openWorldHint: false },
-    description: 'Export one page\'s code as a zip, as the Export button does — each page exports on its own. A phone page gives the Flutter/Dart code (its screens and routes, plus the models, enums, providers, theme and typography); a web page gives an HTML file per screen in pages/ (empty for now). Exports the page you\'re working on unless "page" names another. Refuses while anything has a validation error, and says what.',
+    description: 'Export one page\'s code as a zip, as the Export button does — each page exports on its own. A phone page gives the Flutter/Dart code (its screens and routes, plus the models, enums, controllers, theme and typography); a web page gives an HTML file per screen in pages/ (empty for now). Exports the page you\'re working on unless "page" names another. Refuses while anything has a validation error, and says what.',
     inputSchema: obj({ page: str('The page to export, by name or id (get_design lists them). Default: the page you\'re working on.') }),
   },
   {
@@ -1162,7 +1162,7 @@ function getData() {
   const colorName = (id) => (getColorById(id) || {}).name || null;
   return {
     ok: true,
-    summary: `${plural(state.colors.length, 'color')}, ${plural(state.typography.length, 'text style')}, ${plural(state.models.length, 'model')}, ${plural(state.providers.length, 'provider')}`,
+    summary: `${plural(state.colors.length, 'color')}, ${plural(state.typography.length, 'text style')}, ${plural(state.models.length, 'model')}, ${plural(state.providers.length, 'controller')}`,
     themes: state.themes.map(t => ({ name: t.name, brightness: t.brightness, previewing: t.id === state.activeThemeId })),
     colors: state.colors.map(c => ({
       id: c.id, name: c.name,
@@ -1183,7 +1183,7 @@ function getData() {
       id: s.id, name: s.name, model: (state.models.find(m => m.id === s.modelId) || {}).name, kind: s.kind, count: s.count,
     })),
     apiBaseUrl: state.apiBaseUrl,
-    providers: state.providers.map(p => ({
+    controllers: state.providers.map(p => ({
       id: p.id, name: p.name, output: p.output.model, output_type: p.output.type,
       load: (p.apis.find(a => a.id === p.load) || {}).name || null,
       preview: (providerPreview(p) || {}).name || null,
@@ -1898,15 +1898,15 @@ function editProvider(args) {
     if (args.output !== undefined) p.output.model = modelOk(args.output, false);
     if (args.output_type !== undefined) p.output.type = args.output_type;
   };
-  // What fills the provider: the endpoint build() returns, and its design preview.
+  // What fills the controller: the endpoint build() returns, and its design preview.
   const setSource = (p) => {
     if (args.load !== undefined) {
       if (!args.load) p.load = null;
       else {
         const a = p.apis.find(x => x.name === args.load);
-        if (!a) fail(`Provider "${p.name}" has no endpoint "${args.load}"`);
+        if (!a) fail(`Controller "${p.name}" has no endpoint "${args.load}"`);
         if (a.output.model !== p.output.model || a.output.type !== p.output.type) {
-          fail(`load: "${a.name}" returns ${a.output.type} ${a.output.model || 'nothing'}, but the provider holds ${p.output.type} ${p.output.model || 'nothing'}`);
+          fail(`load: "${a.name}" returns ${a.output.type} ${a.output.model || 'nothing'}, but the controller holds ${p.output.type} ${p.output.model || 'nothing'}`);
         }
         p.load = a.id;
       }
@@ -1922,33 +1922,33 @@ function editProvider(args) {
   };
 
   if (args.action === 'create') {
-    const p = { id: 'pr' + state.nextProviderId++, name: args.name || 'provider' + state.nextProviderId, output: { type: 'single', model: '' }, apis: [] };
+    const p = { id: 'pr' + state.nextProviderId++, name: args.name || 'controller' + state.nextProviderId, output: { type: 'single', model: '' }, apis: [] };
     state.providers.push(p);
-    try { validated(provNameError(p), `Provider "${p.name}"`); setOutput(p); setEndpoints(p); setSource(p); } catch (e) { state.providers.pop(); throw e; }
+    try { validated(provNameError(p), `Controller "${p.name}"`); setOutput(p); setEndpoints(p); setSource(p); } catch (e) { state.providers.pop(); throw e; }
     baseUrl();
     commit();
-    return { ok: true, summary: `Added provider "${p.name}" with ${plural(p.apis.length, 'endpoint')}`, id: p.id };
+    return { ok: true, summary: `Added controller "${p.name}" with ${plural(p.apis.length, 'endpoint')}`, id: p.id };
   }
   if (args.action === 'update' && !args.id && !args.name && args.base_url !== undefined) {
     baseUrl();
     commit();
     return { ok: true, summary: `API base URL set to ${state.apiBaseUrl}` };
   }
-  const p = findBy(state.providers, args, 'provider');
+  const p = findBy(state.providers, args, 'controller');
   if (args.action === 'delete') {
     state.providers = state.providers.filter(x => x !== p);
     baseUrl();
     commit();
-    return { ok: true, summary: `Deleted provider "${p.name}"` };
+    return { ok: true, summary: `Deleted controller "${p.name}"` };
   }
   const before = clone(p);
   try {
-    if (args.rename !== undefined) { p.name = args.rename; validated(provNameError(p), `Provider "${p.name}"`); }
+    if (args.rename !== undefined) { p.name = args.rename; validated(provNameError(p), `Controller "${p.name}"`); }
     setOutput(p); setEndpoints(p); setSource(p);
   } catch (e) { Object.assign(p, before); throw e; }
   baseUrl();
   commit();
-  return { ok: true, summary: `Updated provider "${p.name}"` };
+  return { ok: true, summary: `Updated controller "${p.name}"` };
 }
 
 // ═════════════════════════════ Project ══════════════════════════════════════
@@ -2049,20 +2049,21 @@ async function exportCode(args = {}) {
     anyTypoError() && 'text styles',
     anyModelError() && 'models',
     anyEnumError() && 'enums',
-    anyProviderError() && 'providers',
+    anyProviderError() && 'controllers',
   ].filter(Boolean);
   if (problems.length) fail(`Fix the errors first — in ${problems.join(', ')} (names must follow the naming rules and be unique)`);
   await resolveRefsForExport(state.nodes);
   await preparePlayerSource(); // the web export ships the animation player
   const r = exportModelsCode(null, page.id);
-  if (!r.ok) fail(page.kind === 'web' ? `Nothing to export on "${page.name}" yet — add a screen to it` : 'Nothing to export yet — add a screen, model, provider or color');
+  if (!r.ok) fail(page.kind === 'web' ? `Nothing to export on "${page.name}" yet — add a screen to it` : 'Nothing to export yet — add a screen, model, controller or color');
   const parts = [];
   if (r.screens) parts.push(plural(r.screens, 'screen'));
   if (r.models) parts.push(plural(r.models, 'model'));
   if (r.enums) parts.push(plural(r.enums, 'enum'));
-  if (r.providers) parts.push(plural(r.providers, 'provider'));
+  if (r.providers) parts.push(plural(r.providers, 'controller'));
   if (r.theme) parts.push('theme');
-  return { ok: true, summary: `Exported the ${page.kind} page "${page.name}": ${parts.join(' + ')} — the zip is in Downloads` };
+  const name = await r.saved;
+  return { ok: true, summary: `Exported the ${page.kind} page "${page.name}": ${parts.join(' + ')} — saved to Downloads as ${name}` };
 }
 
 // ═════════════════════════════ Checking ═════════════════════════════════════
@@ -2191,7 +2192,7 @@ const HANDLERS = {
   delete_elements: deleteElements, make_component: makeComponent, edit_component: editComponent, set_interaction: setInteraction,
   search_icons: searchIcons, focus, check_design: checkDesign, study_reference: studyReference,
   edit_color: editColor, edit_theme: editTheme, set_color_role: setColorRole, edit_text_style: editTextStyle,
-  edit_model: editModel, edit_enum: editEnum, edit_mock_data: editMockData, edit_provider: editProvider,
+  edit_model: editModel, edit_enum: editEnum, edit_mock_data: editMockData, edit_controller: editProvider,
   comments, rename_project: renameProject, undo: undoRedo, export_code: exportCode, page: pageTool,
 };
 const READ_ONLY = new Set(TOOLS.filter(t => t.annotations.readOnlyHint).map(t => t.name));
